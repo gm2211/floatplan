@@ -153,6 +153,10 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 }
 .chip.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .chip.hidden { display: none; }
+/* A chip for an option that exists but isn't usable yet (e.g. Willy Wall before a
+   WeatherFlow token is configured) — visible so it's discoverable, dashed+dim so it
+   doesn't read as selectable data. */
+.chip.chip-dim { opacity: 0.6; border-style: dashed; }
 
 .custom-duration-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .custom-duration-row input[type="number"] { width: 80px; }
@@ -249,6 +253,13 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .wind-now-dir { font-size: 15px; font-weight: 600; margin-top: 6px; }
 .wind-now-caption { font-size: 12px; color: var(--ink-dim); margin-top: 2px; }
 .wind-model-row { margin-bottom: 10px; }
+/* Observed-vs-forecast divergence callout (user report: headline said 18.7 kt observed
+   while the forecast curve read 14 — nothing bridged the two). Yellow because it's
+   cautionary: the live reading is running hotter than the model. */
+.wind-obs-delta {
+  font-size: 12px; background: var(--yellow-bg); color: var(--yellow);
+  border-radius: 8px; padding: 8px 10px; margin: -4px 0 12px; text-align: center;
+}
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
@@ -622,7 +633,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
           <option value="custom">Custom&hellip;</option>
         </select>
       </div>
-      <div><label for="fpCrewCount">Crew (skipper +)</label><input type="number" id="fpCrewCount" min="0" max="12" step="1" inputmode="numeric" placeholder="0"></div>
+      <div><label for="fpCrewCount">Crew (excl. skipper)</label><input type="number" id="fpCrewCount" min="0" max="12" step="1" inputmode="numeric" placeholder="0"></div>
       <div class="full hidden" id="fpVesselCustomRow"><label for="fpVesselName">Vessel name</label><input type="text" id="fpVesselName" placeholder="Custom vessel name"></div>
       <div class="full"><label for="fpPhones">Phone (optional)</label><input type="tel" id="fpPhones"></div>
     </div>
@@ -675,7 +686,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     <div class="chip-row obs-wind-station-row" id="obsWindStationRow">
       <button type="button" class="chip active" data-station="robbinsReef">Robbins Reef</button>
       <button type="button" class="chip" data-station="kjrb">Wall St Heliport</button>
-      <button type="button" class="chip hidden" data-station="weatherflow" id="obsStationWeatherflowChip">Willy Wall</button>
+      <button type="button" class="chip chip-dim" data-station="weatherflow" id="obsStationWeatherflowChip">Willy Wall</button>
     </div>
     <div class="observed-primary" id="observedPrimary">
       <div class="observed-row" id="obsWindRow"></div>
@@ -760,6 +771,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <div class="wind-now-dir" id="windNowDir"></div>
       <div class="wind-now-caption" id="windNowCaption"></div>
     </div>
+    <p class="wind-obs-delta hidden" id="windObsDeltaNote"></p>
     <div class="chip-row wind-model-row" id="windModelRow">
       <button type="button" class="chip active" data-model="nws">NWS</button>
       <button type="button" class="chip" data-model="gfs_seamless">GFS</button>
@@ -1901,14 +1913,38 @@ function computeDirectionRec(curvePoints, slackEvents, departureMs, returnMs, no
   var signRet = vRet != null ? Math.sign(vRet) : 0;
   var reverses = signDep !== 0 && signRet !== 0 && signDep !== signRet;
 
+  // Where inside the window does the current actually turn? Departing WITH the current is
+  // only sound when the flip lands early enough that most of the ride home is on the new
+  // (favorable) current — the guiding principle (user-stated): NEVER plan to fight the
+  // current home. A flip in the last part of the window used to still trigger the
+  // "ride it out, ride the new current home" advice, which would strand you far downstream
+  // with minutes of favorable current left — late back, or out after dark.
+  var flipEvent = reverses ? (slackEvents || []).find(function (e) {
+    return e.type === 'slack' && e.ms > departureMs && e.ms < returnMs;
+  }) : null;
+  var flipFrac = flipEvent ? (flipEvent.ms - departureMs) / Math.max(1, returnMs - departureMs) : null;
+  var LATE_FLIP_FRACTION = 0.55; // flip past ~half the window = treat as single-phase
+  var earlyFlip = reverses && (flipFrac == null || flipFrac <= LATE_FLIP_FRACTION);
+
   var headline, initialHeading;
-  if (reverses) {
+  if (reverses && earlyFlip) {
     if (signDep < 0) {
       headline = 'Ebbing at departure — head SOUTH on the ebb, ride the flood home.';
       initialHeading = 'S';
     } else {
       headline = 'Flooding at departure — head NORTH on the flood, ride the ebb home.';
       initialHeading = 'N';
+    }
+  } else if (reverses) {
+    // Late flip: the pre-flip phase owns the sail. Head against it so the ride home is
+    // favorable, and be back before (or as) it turns.
+    var flipTimeText = flipEvent ? fmtTime(flipEvent.ms) : 'late in your window';
+    if (signDep < 0) {
+      headline = 'Ebb holds until ' + flipTimeText + ' (late in your window) — head NORTH against it, come home with the ebb before it turns.';
+      initialHeading = 'N';
+    } else {
+      headline = 'Flood holds until ' + flipTimeText + ' (late in your window) — head SOUTH against it, come home with the flood before it turns.';
+      initialHeading = 'S';
     }
   } else {
     var dominantSign = signDep || signRet || (vMid != null ? Math.sign(vMid) : 0);
@@ -3401,6 +3437,33 @@ function renderObsKvkRow() {
 
 /* ============================== Wind card: observed-now ============================== */
 
+// Observation is "fresh" enough to compare against / pin on the forecast chart when it's
+// under an hour old — beyond that the comparison is noise, not signal.
+var OBS_WIND_FRESH_MS = 60 * 60000;
+function observedWindIsFresh(w, nowMs) {
+  return !!(w && w.sustainedKt != null && w.ms != null && (nowMs - w.ms) < OBS_WIND_FRESH_MS);
+}
+
+// The headline number is a live anemometer; the chart is the NWS model. When the two
+// disagree they look like a bug (user report: "seeing 18 kt but chart says 14") — so say
+// it out loud whenever the observation runs ≥3 kt above the forecast for this hour.
+function renderWindObsDeltaNote(w) {
+  var el = $('windObsDeltaNote');
+  if (!el) return;
+  var nowMs = Date.now();
+  var forecastNowKt = (state.gridSeries && state.gridSeries.windSpeedKt && state.gridSeries.windSpeedKt.length)
+    ? nearestSeriesValue(state.gridSeries.windSpeedKt, nowMs) : null;
+  if (!observedWindIsFresh(w, nowMs) || forecastNowKt == null || (w.sustainedKt - forecastNowKt) < 3) {
+    el.textContent = '';
+    hideEl(el);
+    return;
+  }
+  el.textContent = 'Observed is running ' + round1(w.sustainedKt - forecastNowKt) +
+    ' kt above the NWS forecast for this hour (' + round1(forecastNowKt) +
+    ' kt in the chart) — trust the higher reading.';
+  showEl(el);
+}
+
 function renderWindNow(observedData, limits) {
   var valueEl = $('windNowValue');
   if (!valueEl) return;
@@ -3410,6 +3473,7 @@ function renderWindNow(observedData, limits) {
     valueEl.textContent = '—';
     setText('windNowDir', '');
     setText('windNowCaption', 'Observed · Robbins Reef · unavailable');
+    renderWindObsDeltaNote(null);
     return;
   }
   var cls = windCellClass(w.sustainedKt, w.gustKt, limits);
@@ -3419,6 +3483,7 @@ function renderWindNow(observedData, limits) {
   var dirLabel = w.dirCardinal || degToCompass(w.dirDeg);
   setText('windNowDir', dirLabel + (w.dirDeg != null ? ' ' + Math.round(w.dirDeg) + '°' : ''));
   setText('windNowCaption', 'Observed · Robbins Reef · as of ' + (w.ms != null ? fmtTime(w.ms) : '--:--'));
+  renderWindObsDeltaNote(w);
 }
 
 /* ============================== Wind card: model switcher + chart data model ========== */
@@ -3638,7 +3703,7 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
 
   var rows = windRowsForModel(model, domStart, domEnd);
   if (legendEl) {
-    legendEl.innerHTML = '<span><span class="swatch swatch-sustained"></span>sustained</span><span><span class="swatch swatch-gust"></span>gust</span>';
+    legendEl.innerHTML = '<span><span class="swatch swatch-sustained"></span>forecast sustained</span><span><span class="swatch swatch-gust"></span>forecast gust</span>';
   }
   if (!rows.length) {
     wrap.innerHTML = '<p class="sub">No wind data in window' + (model !== 'nws' ? ' — loading model, try again shortly.' : '.') + '</p>';
@@ -3672,6 +3737,25 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
     gustPath = '<path d="' + smoothPathD(gustPts, x, y) + '" fill="none" stroke="' + inkDim + '" stroke-width="1.5" stroke-dasharray="3,2" stroke-opacity="0.8"/>';
   }
 
+  // Observed-now marker: the live anemometer reading pinned to the now-line, so an
+  // observation running hotter/colder than the model shows up IN the chart instead of
+  // contradicting it from the headline (user report: "seeing 18 kt but chart says 14").
+  // Violet = the established "observed" color (matches the timeline's observed level).
+  // Filled dot = sustained, hollow ring = gust; skipped when stale or off-scale.
+  var obsMarker = '';
+  var obsW = observedWindDataForStation(state.obsWindStation || 'robbinsReef');
+  if (nowX != null && observedWindIsFresh(obsW, nowMs)) {
+    if (obsW.sustainedKt <= yMax) {
+      obsMarker += '<circle cx="' + nowX.toFixed(1) + '" cy="' + y(obsW.sustainedKt).toFixed(1) + '" r="4" fill="var(--violet)" stroke="var(--bg-card)" stroke-width="1.2"/>';
+    }
+    if (obsW.gustKt != null && obsW.gustKt <= yMax) {
+      obsMarker += '<circle cx="' + nowX.toFixed(1) + '" cy="' + y(obsW.gustKt).toFixed(1) + '" r="3" fill="none" stroke="var(--violet)" stroke-width="1.5"/>';
+    }
+    if (obsMarker && legendEl) {
+      legendEl.innerHTML += '<span><span class="swatch swatch-obs"></span>observed now</span>';
+    }
+  }
+
   // Direction arrow row: thin to one per 2h once hourly spacing would crowd the glyphs.
   // Each arrow carries its cardinal (16-point compass) letters underneath so direction is
   // readable without scrubbing; the stride keeps the letters from colliding too.
@@ -3689,7 +3773,7 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
   var svg = '<svg viewBox="0 0 ' + W.toFixed(1) + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">' +
     sailShade + windYAxisHtml(yMax, y, W, padL, padR, padT, inkDim) +
     bands.shapes + windowTickGuides + areaPath + sustainedPath + gustPath + arrows +
-    windowTickLabels + nowLine + bands.labels + windAxisTicksHtml(domStart, domEnd, x, windowTickItems, nowX, padT, inkDim) +
+    windowTickLabels + nowLine + obsMarker + bands.labels + windAxisTicksHtml(domStart, domEnd, x, windowTickItems, nowX, padT, inkDim) +
     '</svg>';
   wrap.innerHTML = svg;
 
@@ -5127,23 +5211,34 @@ function loadKvkCurrent() {
 // Optional "Willy Wall" WeatherFlow station: only attempted when both a token and station id
 // are configured in Settings. Any failure (missing config, network, unexpected payload) hides
 // the chip and, if it was the active selection, silently falls back to Robbins Reef.
+function weatherFlowConfigured() {
+  var s = state.settings;
+  return !!(s && s.weatherFlowToken && s.weatherFlowStationId);
+}
+
+// The Willy Wall chip used to be hidden entirely until a WeatherFlow token + station ID
+// were configured — and since settings live in per-device localStorage, the option simply
+// didn't exist on a phone that hadn't been set up (user report: "we're missing the willy
+// wall"). Now the chip is always visible: dimmed when unconfigured/unavailable (tapping it
+// routes to Settings — see the obsWindStationRow click handler), solid when live.
 function maybeLoadWeatherFlow() {
   var s = state.settings;
-  var token = s && s.weatherFlowToken, stationId = s && s.weatherFlowStationId;
   var chip = $('obsStationWeatherflowChip');
-  if (!token || !stationId) {
-    if (chip) hideEl(chip);
+  if (!weatherFlowConfigured()) {
+    if (chip) { showEl(chip); chip.classList.add('chip-dim'); }
     if (state.obsWindStation === 'weatherflow') selectObsWindStation('robbinsReef');
     return Promise.resolve(false);
   }
-  return fetchObservedWindWeatherFlow(token, stationId).then(function (data) {
+  return fetchObservedWindWeatherFlow(s.weatherFlowToken, s.weatherFlowStationId).then(function (data) {
     if (!data) {
-      if (chip) hideEl(chip);
+      // Configured but no data (bad credentials or a transient failure): stay visible but
+      // dimmed rather than vanishing, and fall back to Robbins Reef for the wind row.
+      if (chip) { showEl(chip); chip.classList.add('chip-dim'); }
       if (state.obsWindStation === 'weatherflow') selectObsWindStation('robbinsReef');
       return false;
     }
     state.obsWindWeatherflowRaw = data;
-    if (chip) showEl(chip);
+    if (chip) { showEl(chip); chip.classList.remove('chip-dim'); }
     if (state.obsWindStation === 'weatherflow') {
       renderObsWindRow(state.lastMaxSustainedKt, state.lastMaxGustKt, (state.settings && state.settings.limits) || DEFAULT_LIMITS);
     }
@@ -6749,6 +6844,13 @@ function init() {
   document.querySelectorAll('#obsWindStationRow .chip').forEach(function (chip) {
     chip.addEventListener('click', function () {
       if (chip.classList.contains('hidden')) return;
+      // Unconfigured Willy Wall: route to Settings instead of selecting a station that has
+      // no data source yet.
+      if (chip.dataset.station === 'weatherflow' && !weatherFlowConfigured()) {
+        showToast('Add your WeatherFlow token + station ID in Settings to enable Willy Wall');
+        openSettingsModal();
+        return;
+      }
       selectObsWindStation(chip.dataset.station);
     });
   });
