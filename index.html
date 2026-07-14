@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Pier 25 Float Plan</title>
+<meta name="theme-color" id="themeColorMeta" content="#f3f0e8">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" integrity="sha512-Zcn6bjR/8RZbLEpLIeOwNtzREBAJnUKESxces60Mpoj+2okopSAcSUIUOseddDm0cxnGQzxIR7vJgsLZbdLE3w==" crossorigin="anonymous">
 <script>
 // Resolve theme synchronously before first paint to avoid a flash of the wrong theme.
@@ -15,6 +16,10 @@
       ? (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
       : t;
     document.documentElement.setAttribute('data-theme', resolved);
+    // Keep Safari's toolbar tint in step with the app background (must mirror --bg in the
+    // theme CSS vars). syncThemeColorMeta() in the app script repeats this on manual toggles.
+    var meta = document.getElementById('themeColorMeta');
+    if (meta) meta.content = resolved === 'dark' ? '#0a1520' : '#f3f0e8';
   } catch (e) {
     document.documentElement.setAttribute('data-theme', 'light');
   }
@@ -135,6 +140,11 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
 .form-grid .full { grid-column: 1 / -1; }
 .form-grid label { display: block; font-size: 12px; color: var(--ink-dim); margin-bottom: 3px; }
+/* min-width:0 + width:100% keep default-sized inputs from overflowing their 1fr column (and
+   dragging the whole page into horizontal scroll on phones — the intrinsic width of a bare
+   <input> is ~180px, wider than a mobile grid column). */
+.form-grid > div { min-width: 0; }
+.form-grid input, .form-grid textarea, .form-grid select { width: 100%; }
 
 .chip-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .chip {
@@ -403,8 +413,6 @@ pre#marineTextContent { white-space: pre-wrap; font-family: inherit; font-size: 
 .limits-grid input { width: 100%; }
 
 @media (max-width: 420px) {
-  .overlay { padding: 8px; }
-  .settings-modal { padding: 16px; max-height: 92vh; }
   .limits-grid { grid-template-columns: 1fr; gap: 10px; }
 }
 
@@ -471,6 +479,75 @@ pre#marineTextContent { white-space: pre-wrap; font-family: inherit; font-size: 
   #app, .topbar { max-width: 1760px; }
 }
 
+/* ============================== iOS-style mobile shell (<700px) ============================== */
+/* JS sets body.mobile-tabs at the `narrow` breakpoint (applyMobileTabVisibility) and assigns
+   every card to one of five tabs (MOBILE_TABS); cards outside the active tab get .mtab-hidden.
+   The shell itself: a fixed, blurred bottom tab bar (safe-area aware), a sticky blurred
+   topbar with a compact always-visible verdict pill, and the settings modal re-presented as
+   a slide-up sheet. Everything is keyed off body.mobile-tabs / max-width:699px so the >=700px
+   column layouts are untouched. */
+.mtab-hidden { display: none !important; }
+
+.verdict-pill {
+  display: none; border: none; border-radius: 999px; font-weight: 700; font-size: 12px;
+  letter-spacing: 0.02em; padding: 7px 12px; cursor: pointer; margin-right: 10px;
+  white-space: nowrap; -webkit-tap-highlight-color: transparent;
+}
+body.mobile-tabs .verdict-pill:not(.hidden) { display: inline-block; }
+body.mobile-tabs .topbar-title { flex: 1; min-width: 0; }
+
+body.mobile-tabs { padding-bottom: calc(60px + env(safe-area-inset-bottom)); }
+body.mobile-tabs .topbar {
+  position: sticky; top: 0; z-index: 800;
+  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(16px); backdrop-filter: saturate(180%) blur(16px);
+  padding-top: calc(10px + env(safe-area-inset-top)); padding-bottom: 8px;
+  border-bottom: 0.5px solid var(--border);
+}
+body.mobile-tabs footer.app-footer { padding-bottom: 12px; }
+
+.tabbar {
+  display: none; position: fixed; bottom: 0; left: 0; right: 0; z-index: 900;
+  background: color-mix(in srgb, var(--bg-card) 86%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(16px); backdrop-filter: saturate(180%) blur(16px);
+  border-top: 0.5px solid var(--border);
+  padding: 3px 4px calc(3px + env(safe-area-inset-bottom));
+}
+body.mobile-tabs .tabbar { display: flex; }
+.tabbar-item {
+  flex: 1 1 0; min-width: 0; position: relative;
+  background: none; border: none; color: var(--ink-dim); cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  font-family: inherit; font-size: 10px; font-weight: 600; padding: 5px 0 3px;
+  -webkit-tap-highlight-color: transparent;
+}
+.tabbar-item.active { color: var(--accent); }
+.tabbar-item svg { display: block; }
+.tabbar-badge {
+  position: absolute; top: 3px; left: calc(50% + 7px); width: 8px; height: 8px;
+  border-radius: 50%; background: var(--red);
+}
+
+@media (max-width: 699px) {
+  /* Settings as an iOS sheet: pinned to the bottom edge, full width, rounded top, grabber
+     handle, springy slide-up. Desktop keeps the centered modal (base .overlay rules). */
+  .overlay { align-items: flex-end; padding: 0; }
+  .settings-modal {
+    max-width: none; border-radius: 18px 18px 0 0;
+    padding: 12px 18px calc(20px + env(safe-area-inset-bottom));
+    max-height: 92dvh;
+    animation: fp-sheet-up 0.32s cubic-bezier(0.32, 0.72, 0.28, 1);
+  }
+  .settings-modal::before {
+    content: ""; display: block; width: 36px; height: 5px; border-radius: 3px;
+    background: var(--border); margin: 0 auto 14px;
+  }
+}
+@keyframes fp-sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
 .print-only { display: none; }
 .pf-pre { white-space: pre-wrap; }
 @media print {
@@ -490,6 +567,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     <h1>Pier 25 Float Plan</h1>
     <div class="topbar-date" id="headerDate"></div>
   </div>
+  <button class="verdict-pill hidden" id="verdictPill" title="Go to plan"></button>
   <button class="icon-btn" id="settingsBtn" aria-label="Settings" title="Settings">
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <circle cx="12" cy="12" r="3.2"></circle>
@@ -535,25 +613,26 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <span class="sub">hours</span>
     </div>
 
-    <button class="collapsible-header" id="vesselCrewToggle">Vessel &amp; crew <span class="chev">&#9662;</span></button>
-    <div class="collapsible-body hidden" id="vesselCrewBody">
-      <div class="form-grid">
-        <div><label for="fpVesselName">Vessel name</label><input type="text" id="fpVesselName"></div>
-        <div><label for="fpVesselType">Type / color</label><input type="text" id="fpVesselType" placeholder="Sloop, white hull"></div>
-        <div><label for="fpSailNumber">Sail #</label><input type="text" id="fpSailNumber"></div>
-        <div><label for="fpVhf">VHF channel</label><input type="text" id="fpVhf" placeholder="16"></div>
-        <div><label for="fpCrewCount">Crew count</label><input type="text" id="fpCrewCount"></div>
-        <div><label for="fpPhones">Phone(s)</label><input type="tel" id="fpPhones"></div>
-        <div class="full"><label for="fpCrewNames">Crew names</label><textarea id="fpCrewNames"></textarea></div>
-        <div class="full"><label for="fpEmergencyContact">Emergency contact ashore</label><input type="text" id="fpEmergencyContact"></div>
-        <div class="full"><label for="fpFileWith">Filed with</label><input type="text" id="fpFileWith" placeholder="Spouse, marina office, etc."></div>
+    <div class="form-grid">
+      <div>
+        <label for="fpVesselSelect">Vessel</label>
+        <select id="fpVesselSelect">
+          <option value="AY10">AY10</option>
+          <option value="AY11">AY11</option>
+          <option value="custom">Custom&hellip;</option>
+        </select>
       </div>
+      <div><label for="fpCrewCount">Crew (skipper +)</label><input type="number" id="fpCrewCount" min="0" max="12" step="1" inputmode="numeric" placeholder="0"></div>
+      <div class="full hidden" id="fpVesselCustomRow"><label for="fpVesselName">Vessel name</label><input type="text" id="fpVesselName" placeholder="Custom vessel name"></div>
+      <div class="full"><label for="fpPhones">Phone (optional)</label><input type="tel" id="fpPhones"></div>
     </div>
 
     <div class="form-grid">
-      <div class="full"><label for="fpPlannedRoute">Planned route</label><input type="text" id="fpPlannedRoute" readonly></div>
+      <div class="full"><label for="fpPlannedRoute">Planned course (computed)</label><input type="text" id="fpPlannedRoute" readonly></div>
       <div><label for="fpEtd">ETD</label><input type="text" id="fpEtd" readonly></div>
       <div><label for="fpEta">ETA</label><input type="text" id="fpEta" readonly></div>
+      <div><label for="fpTurnaround">Turn-around (computed)</label><input type="text" id="fpTurnaround" readonly></div>
+      <div><label for="fpSunset">Sunset</label><input type="text" id="fpSunset" readonly></div>
     </div>
 
     <div class="plan-actions">
@@ -836,6 +915,53 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
 </div>
 
 <div class="toast-container" id="toastContainer"></div>
+
+<nav class="tabbar" id="mobileTabbar" aria-label="Sections">
+  <button type="button" class="tabbar-item" data-mtab="plan" aria-label="Plan">
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 3v12"></path>
+      <path d="M12 3.5c3.3 2.4 5.1 5.9 5.4 9.5H12z"></path>
+      <path d="M10.5 6 6 13h4.5z"></path>
+      <path d="M4 16h16l-2 3.5H6z"></path>
+    </svg>
+    <span>Plan</span>
+  </button>
+  <button type="button" class="tabbar-item" data-mtab="wind" aria-label="Wind">
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M9.59 4.59A2 2 0 1 1 11 8H2"></path>
+      <path d="M12.59 19.41A2 2 0 1 0 14 16H2"></path>
+      <path d="M17.73 7.73A2.5 2.5 0 1 1 19.5 12H2"></path>
+    </svg>
+    <span>Wind</span>
+  </button>
+  <button type="button" class="tabbar-item" data-mtab="water" aria-label="Water">
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M2 8.5c2.5 0 2.5 2 5 2s2.5-2 5-2 2.5 2 5 2 2.5-2 5-2"></path>
+      <path d="M2 15.5c2.5 0 2.5 2 5 2s2.5-2 5-2 2.5 2 5 2 2.5-2 5-2"></path>
+    </svg>
+    <span>Water</span>
+  </button>
+  <button type="button" class="tabbar-item" data-mtab="sky" aria-label="Sky">
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 2v2"></path>
+      <path d="m4.93 4.93 1.41 1.41"></path>
+      <path d="M20 12h2"></path>
+      <path d="m19.07 4.93-1.41 1.41"></path>
+      <path d="M15.947 12.65a4 4 0 0 0-5.925-4.128"></path>
+      <path d="M13 22H7a5 5 0 1 1 4.9-6H13a3 3 0 0 1 0 6Z"></path>
+    </svg>
+    <span>Sky</span>
+  </button>
+  <button type="button" class="tabbar-item" data-mtab="alerts" aria-label="Alerts">
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+      <line x1="12" y1="9" x2="12" y2="13"></line>
+      <line x1="12" y1="17" x2="12.01" y2="17"></line>
+    </svg>
+    <span>Alerts</span>
+    <span class="tabbar-badge hidden" id="alertsTabBadge"></span>
+  </button>
+</nav>
 
 <footer class="app-footer">Pier 25 Float Plan &middot; data: NOAA CO-OPS &amp; NWS &middot; not a substitute for judgment</footer>
 
@@ -2189,12 +2315,22 @@ function clearStaleChip(containerEl) {
 
 var VERDICT_LABELS = { GO: 'GO', REEF: 'GO — REEF EXPECTED', CAUTION: 'CAUTION — ADVISORY', NOGO: 'NO-GO' };
 var VERDICT_CLASSES = { GO: 'verdict-go', REEF: 'verdict-reef', CAUTION: 'verdict-caution', NOGO: 'verdict-nogo' };
+// Short forms for the mobile topbar pill — the full verdict card lives on the Plan tab, so
+// the pill keeps the go/no-go answer visible (and one tap away) from every other tab.
+var VERDICT_PILL_LABELS = { GO: 'GO', REEF: 'REEF', CAUTION: 'CAUTION', NOGO: 'NO-GO' };
 
 function renderVerdict(verdict, windowStart, windowEnd) {
   var banner = $('verdictBanner');
   banner.className = 'verdict-banner ' + VERDICT_CLASSES[verdict.level];
   setText('verdictLabel', VERDICT_LABELS[verdict.level]);
   setText('verdictSub', 'Window: ' + fmtTime(windowStart) + '–' + fmtTime(windowEnd));
+  var pill = $('verdictPill');
+  if (pill) {
+    // Wholesale className write intentionally drops the initial 'hidden' — the pill only
+    // shows once there's a real verdict to display (CSS keeps it desktop-hidden regardless).
+    pill.className = 'verdict-pill ' + VERDICT_CLASSES[verdict.level];
+    pill.textContent = VERDICT_PILL_LABELS[verdict.level] || verdict.level;
+  }
   var ul = $('verdictReasons');
   ul.innerHTML = '';
   verdict.reasons.forEach(function (r) {
@@ -2644,6 +2780,19 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   var unitLabels =
     '<text x="' + padL + '" y="' + (padT - 4) + '" font-size="9" text-anchor="start" fill="' + inkDim + '" opacity="0.75">kt</text>' +
     '<text x="' + (W - padR).toFixed(1) + '" y="' + (padT - 4) + '" font-size="9" text-anchor="end" fill="' + inkDim + '" opacity="0.75">ft</text>';
+  // Numeric ticks for both y-scales (axes were otherwise unlabeled — values only surfaced
+  // via scrubbing): current kt in the left margin mirrored around the slack line, water
+  // level ft in the right margin.
+  var curTickStep = maxAbs > 3 ? 2 : 1;
+  for (var cv = curTickStep; cv <= maxAbs; cv += curTickStep) {
+    unitLabels +=
+      '<text x="' + (padL - 4) + '" y="' + (yCur(cv) + 3).toFixed(1) + '" font-size="8.5" text-anchor="end" fill="' + inkDim + '" opacity="0.8">' + cv + '</text>' +
+      '<text x="' + (padL - 4) + '" y="' + (yCur(-cv) + 3).toFixed(1) + '" font-size="8.5" text-anchor="end" fill="' + inkDim + '" opacity="0.8">-' + cv + '</text>';
+  }
+  var lvlTickStep = Math.max(1, Math.round((levelMax - levelMin) / 3));
+  for (var lv = Math.ceil(levelMin); lv <= Math.floor(levelMax); lv += lvlTickStep) {
+    unitLabels += '<text x="' + (W - padR + 4).toFixed(1) + '" y="' + (yLvl(lv) + 3).toFixed(1) + '" font-size="8.5" text-anchor="start" fill="' + inkDim + '" opacity="0.8">' + lv + '</text>';
+  }
 
   var svg =
     '<svg viewBox="0 0 ' + W.toFixed(1) + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">' +
@@ -3335,8 +3484,18 @@ function findWindRowForMs(rows, ms) {
 // too, leaving exactly one shaded region on the whole chart: the sail window).
 function windRefBandsHtml(limits, yMax, W, padL, padR, y) {
   var shapes = '', labels = '';
+  // The reef range is a BAND (reefLow–reefHigh), not a single threshold: shade the whole
+  // band and bound it with a yellow floor line and an orange ceiling line so "inside the
+  // band" is legible at a glance.
+  if (limits.reefLow != null && limits.reefHigh != null &&
+      limits.reefHigh > limits.reefLow && limits.reefLow < yMax) {
+    var bandLoY = y(limits.reefLow), bandHiY = y(Math.min(limits.reefHigh, yMax));
+    shapes += '<rect x="' + padL + '" y="' + bandHiY.toFixed(1) + '" width="' + (W - padL - padR) +
+      '" height="' + Math.max(0, bandLoY - bandHiY).toFixed(1) + '" fill="var(--yellow)" fill-opacity="0.10"/>';
+  }
   [
     { v: limits.reefLow, label: 'reef ' + limits.reefLow, color: 'var(--yellow)' },
+    { v: limits.reefHigh, label: 'reef ' + limits.reefHigh, color: 'var(--orange)' },
     { v: limits.noGoSustained, label: 'no-go ' + limits.noGoSustained, color: 'var(--red)' },
     { v: limits.noGoGust, label: 'gust ' + limits.noGoGust, color: 'var(--red)' }
   ]
@@ -3347,6 +3506,20 @@ function windRefBandsHtml(limits, yMax, W, padL, padR, y) {
       labels += '<text x="' + (W - padR + 3) + '" y="' + (ly + 3).toFixed(1) + '" font-size="8.5" fill="' + m.color + '">' + escapeHtml(m.label) + '</text>';
     });
   return { shapes: shapes, labels: labels };
+}
+// Numeric y-axis for the wind chart: a faint gridline + left-margin kt label every 5 kt
+// (10 kt if the scale is stretched by a big gust), with a "kt" unit hint tucked inside the
+// top-left plot corner — the top margin row belongs to the time ticks.
+function windYAxisHtml(yMax, y, W, padL, padR, padT, inkDim) {
+  var step = yMax > 42 ? 10 : 5;
+  var out = '';
+  for (var v = step; v <= yMax - step * 0.4; v += step) {
+    var ly = y(v);
+    out += '<line x1="' + padL + '" y1="' + ly.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + ly.toFixed(1) + '" stroke="' + inkDim + '" stroke-width="1" stroke-opacity="0.12"/>' +
+      '<text x="' + (padL - 5) + '" y="' + (ly + 3).toFixed(1) + '" font-size="9" text-anchor="end" fill="' + inkDim + '">' + v + '</text>';
+  }
+  out += '<text x="' + (padL + 4) + '" y="' + (padT + 10) + '" font-size="9" text-anchor="start" fill="' + inkDim + '" opacity="0.75">kt</text>';
+  return out;
 }
 // Small "wind is coming FROM this bearing" triangle, same rotate-an-upward-glyph convention
 // as windArrowSvg — inlined as a <g> (not a nested <svg>) so it shares the parent chart's
@@ -3431,7 +3604,8 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
     }).join('');
 
     wrap.innerHTML = '<svg viewBox="0 0 ' + W.toFixed(1) + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">' +
-      sailShadeAll + bandsAll.shapes + windowTickGuides + lines + windowTickLabels + nowLine + bandsAll.labels +
+      sailShadeAll + windYAxisHtml(yMaxAll, yAll, W, padL, padR, padT, inkDim) +
+      bandsAll.shapes + windowTickGuides + lines + windowTickLabels + nowLine + bandsAll.labels +
       windAxisTicksHtml(domStart, domEnd, x, windowTickItems, nowX, padT, inkDim) +
       '</svg>';
 
@@ -3499,14 +3673,22 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
   }
 
   // Direction arrow row: thin to one per 2h once hourly spacing would crowd the glyphs.
+  // Each arrow carries its cardinal (16-point compass) letters underneath so direction is
+  // readable without scrubbing; the stride keeps the letters from colliding too.
   var pxPerHour = (W - padL - padR) / Math.max(1, (domEnd - domStart) / 3600000);
   var stride = pxPerHour < 26 ? 2 : 1;
   var arrowY = baseline + 14;
   var arrows = rows.filter(function (r, idx) { return r.dir != null && idx % stride === 0; })
-    .map(function (r) { return windArrowGlyph(x(r.ms), arrowY, r.dir, inkDim); }).join('');
+    .map(function (r) {
+      var ax = x(r.ms);
+      return windArrowGlyph(ax, arrowY, r.dir, inkDim) +
+        '<text x="' + ax.toFixed(1) + '" y="' + (arrowY + 14) + '" font-size="8" text-anchor="middle" fill="' + inkDim + '">' +
+        escapeHtml(degToCompass(r.dir)) + '</text>';
+    }).join('');
 
   var svg = '<svg viewBox="0 0 ' + W.toFixed(1) + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">' +
-    sailShade + bands.shapes + windowTickGuides + areaPath + sustainedPath + gustPath + arrows +
+    sailShade + windYAxisHtml(yMax, y, W, padL, padR, padT, inkDim) +
+    bands.shapes + windowTickGuides + areaPath + sustainedPath + gustPath + arrows +
     windowTickLabels + nowLine + bands.labels + windAxisTicksHtml(domStart, domEnd, x, windowTickItems, nowX, padT, inkDim) +
     '</svg>';
   wrap.innerHTML = svg;
@@ -4301,6 +4483,10 @@ function severityBadgeClass(sev) {
 
 function renderAdvisories(alerts, departureMs, returnMs) {
   var list = $('advisoriesList');
+  // Red dot on the mobile Alerts tab whenever any advisory is active — the tab shell hides
+  // this card on other tabs, so the badge is what says "go look".
+  var tabBadge = $('alertsTabBadge');
+  if (tabBadge) tabBadge.classList.toggle('hidden', !alerts || !alerts.length);
   if (!alerts || !alerts.length) {
     list.innerHTML = '<div class="no-advisories">&#10003; No active advisories</div>';
     return;
@@ -5176,15 +5362,49 @@ function loadAll() {
 
 /* ============================== Float plan ============================== */
 
-var FLOATPLAN_FIELDS = ['fpVesselName', 'fpVesselType', 'fpSailNumber', 'fpVhf', 'fpCrewCount', 'fpPhones', 'fpCrewNames', 'fpEmergencyContact', 'fpFileWith'];
+// Simplified plan inputs (user feedback): vessel picker + crew count, phone optional.
+// Everything else on the float plan (course, turn-around, sunset, wind/current/precip
+// evolution) is computed from data already on screen.
+var FLOATPLAN_FIELDS = ['fpVesselSelect', 'fpVesselName', 'fpCrewCount', 'fpPhones'];
+var VESSEL_PRESETS = ['AY10', 'AY11'];
+
+function getVesselDisplayName() {
+  var sel = $('fpVesselSelect');
+  var mode = sel ? sel.value : VESSEL_PRESETS[0];
+  if (mode === 'custom') {
+    var el = $('fpVesselName');
+    var v = el ? String(el.value || '').trim() : '';
+    return v || 'custom (unnamed)';
+  }
+  return mode;
+}
+function updateVesselCustomVisibility() {
+  var sel = $('fpVesselSelect'), row = $('fpVesselCustomRow');
+  if (row) row.classList.toggle('hidden', !sel || sel.value !== 'custom');
+}
 
 function loadFloatPlanFields() {
   var saved = lsGetJSON('floatplan', {}, true);
+  // Migrate a pre-dropdown saved plan: a free-text vessel name becomes either the matching
+  // preset or the custom option carrying the old name — never silently dropped.
+  if (saved.fpVesselSelect == null && saved.fpVesselName) {
+    saved.fpVesselSelect = VESSEL_PRESETS.indexOf(saved.fpVesselName) !== -1 ? saved.fpVesselName : 'custom';
+  }
   FLOATPLAN_FIELDS.forEach(function (id) {
     var el = $(id);
     if (el && saved[id] != null) el.value = saved[id];
     if (el) el.addEventListener('input', saveFloatPlanFields);
   });
+  var sel = $('fpVesselSelect');
+  if (sel) {
+    // <select> needs 'change' (Safari doesn't fire 'input' on selects); also drives the
+    // custom-name row's visibility.
+    sel.addEventListener('change', function () {
+      updateVesselCustomVisibility();
+      saveFloatPlanFields();
+    });
+  }
+  updateVesselCustomVisibility();
 }
 function saveFloatPlanFields() {
   var out = {};
@@ -5195,19 +5415,16 @@ function saveFloatPlanFields() {
   lsSetJSON('floatplan', out);
 }
 
-// "Vessel & crew" collapsible (merged into the Sail Plan card): collapsed by default once
-// every field already has a persisted value (nothing left to fill in), expanded by default
-// the first time / whenever any field is still empty. Called once at init, after
-// loadFloatPlanFields() has populated the inputs from localStorage.
-function initVesselCrewCollapse() {
-  var allFilled = FLOATPLAN_FIELDS.every(function (id) {
-    var el = $(id);
-    return el && el.value && el.value.trim() !== '';
+// Turn-around instant for the computed plan: the sail simulator's turn if available, else
+// the first slack inside the window (the natural place to turn on the Hudson), else the
+// window midpoint.
+function computeTurnaroundMs(departureMs, returnMs) {
+  if (state.sailSim && state.sailSim.turnMs != null && isFinite(state.sailSim.turnMs)) return state.sailSim.turnMs;
+  var slack = (state.slackEvents || []).find(function (e) {
+    return e.type === 'slack' && e.ms > departureMs && e.ms < returnMs;
   });
-  if (allFilled) return; // stays collapsed (the markup's default state)
-  var toggle = $('vesselCrewToggle'), body = $('vesselCrewBody');
-  if (body) showEl(body);
-  if (toggle) toggle.classList.add('open');
+  if (slack) return slack.ms;
+  return (departureMs + returnMs) / 2;
 }
 
 function updateFloatPlanAutoFields(direction, departureMs, returnMs) {
@@ -5215,26 +5432,114 @@ function updateFloatPlanAutoFields(direction, departureMs, returnMs) {
   $('fpPlannedRoute').value = route;
   $('fpEtd').value = fmtDateTime(departureMs);
   $('fpEta').value = fmtDateTime(returnMs);
+  var taEl = $('fpTurnaround');
+  if (taEl) {
+    var turnMs = computeTurnaroundMs(departureMs, returnMs);
+    taEl.value = turnMs != null ? '~' + fmtTime(turnMs) : '—';
+  }
+  var ssEl = $('fpSunset');
+  if (ssEl) {
+    var day = getNYParts(departureMs);
+    var tw = twilightTimes(Date.UTC(day.y, day.m - 1, day.d), PIER25.lat, PIER25.lon);
+    ssEl.value = tw.sunsetMs != null ? fmtTime(tw.sunsetMs) : '—';
+  }
+}
+
+/* ============================== Computed window summaries ============================== */
+// One sentence each for wind / current / precipitation across the sail window — shared by
+// the copy-as-text plan and the print summary. Each returns null when its data source
+// hasn't loaded; callers render 'n/a'.
+
+function windWindowSummaryLine(departureMs, returnMs) {
+  var g = state.gridSeries;
+  if (!g || !g.windSpeedKt || !g.windSpeedKt.length) return null;
+  var s0 = nearestSeriesValue(g.windSpeedKt, departureMs);
+  var s1 = nearestSeriesValue(g.windSpeedKt, returnMs);
+  if (s0 == null && s1 == null) return null;
+  var d0 = g.windDirection ? nearestSeriesValue(g.windDirection, departureMs) : null;
+  var d1 = g.windDirection ? nearestSeriesValue(g.windDirection, returnMs) : null;
+  var gustMax = (g.windGustKt && g.windGustKt.length) ? maxInWindow(g.windGustKt, departureMs, returnMs) : null;
+  function leg(d, s) {
+    return (d != null ? degToCompass(d) + ' ' : '') + (s != null ? round1(s) + ' kt' : '? kt');
+  }
+  var changes = (s0 != null && s1 != null && Math.abs(s1 - s0) >= 2) ||
+    (d0 != null && d1 != null && degToCompass(d0) !== degToCompass(d1));
+  var line = leg(d0, s0) + ' at departure' +
+    (changes ? ', becoming ' + leg(d1, s1) + ' by return' : ', holding steady through the sail');
+  if (gustMax != null) line += '; gusts to ' + round1(gustMax) + ' kt';
+  return line + '.';
+}
+
+function currentWindowSummaryLine(departureMs, returnMs) {
+  var pts = state.curvePoints;
+  if (!pts || !pts.length) return null;
+  var vDep = currentVelocityAt(pts, departureMs), vRet = currentVelocityAt(pts, returnMs);
+  if (vDep == null || vRet == null) return null;
+  function phrase(v) {
+    var c = classifyCurrent(v);
+    if (c === 'slack' || c === 'unknown') return 'near slack';
+    return c + ' ' + round1(Math.abs(v)) + ' kt ' + (v > 0 ? 'northbound' : 'southbound');
+  }
+  var turns = (state.slackEvents || []).filter(function (e) {
+    return e.type === 'slack' && e.ms > departureMs && e.ms < returnMs;
+  });
+  return phrase(vDep) + ' at departure' +
+    (turns.length ? ', turning at ' + turns.map(function (e) { return fmtTime(e.ms); }).join(' and ') + ', then ' : ', ') +
+    phrase(vRet) + ' by return.';
+}
+
+function precipWindowSummaryLine(departureMs, returnMs) {
+  var rows = state.hourlyRaw;
+  if (!rows || !rows.length) return null;
+  var maxPop = null, thunderTimes = [], forecasts = [];
+  rows.forEach(function (p) {
+    var t = new Date(p.startTime).getTime();
+    var tEnd = p.endTime ? new Date(p.endTime).getTime() : t + 3600000;
+    if (tEnd <= departureMs || t >= returnMs) return;
+    var pop = p.probabilityOfPrecipitation ? p.probabilityOfPrecipitation.value : null;
+    if (pop != null && (maxPop == null || pop > maxPop)) maxPop = pop;
+    if (THUNDER_RE.test(p.shortForecast || '')) thunderTimes.push(fmtTime(t));
+    if (p.shortForecast && forecasts.indexOf(p.shortForecast) === -1) forecasts.push(p.shortForecast);
+  });
+  if (maxPop == null && !forecasts.length) return null;
+  var line = forecasts.slice(0, 3).join(', then ');
+  if (maxPop != null) line += (line ? ' — ' : '') + 'precip chance up to ' + maxPop + '%';
+  if (thunderTimes.length) line += '; THUNDER possible ' + thunderTimes.join(', ');
+  return line + '.';
+}
+
+// Crew line: the crew-count input counts crew EXCLUDING the skipper; the plan always
+// states both, e.g. "2 crew + 1 skipper (3 aboard)".
+function crewSummaryLine() {
+  var el = $('fpCrewCount');
+  var n = el ? parseInt(el.value, 10) : NaN;
+  if (!isFinite(n) || n < 0) return '1 skipper (crew count not set)';
+  return n + ' crew + 1 skipper (' + (n + 1) + ' aboard)';
 }
 
 function buildFloatPlanText() {
   function v(id) { var el = $(id); return el ? el.value : ''; }
+  var departureMs = state.departureMs, returnMs = getReturnMs();
   var lines = [
     'FLOAT PLAN — Pier 25',
-    'Vessel: ' + v('fpVesselName') + ' (' + v('fpVesselType') + ')  Sail #: ' + v('fpSailNumber'),
-    'Crew (' + v('fpCrewCount') + '): ' + v('fpCrewNames'),
-    'Phone(s): ' + v('fpPhones'),
-    'Emergency contact ashore: ' + v('fpEmergencyContact'),
-    'VHF: ' + v('fpVhf'),
-    'Route: ' + v('fpPlannedRoute'),
-    'ETD: ' + v('fpEtd') + '   ETA: ' + v('fpEta'),
-    'Filed with: ' + v('fpFileWith'),
+    'Vessel: ' + getVesselDisplayName(),
+    'Aboard: ' + crewSummaryLine()
+  ];
+  var phone = String(v('fpPhones') || '').trim();
+  if (phone) lines.push('Phone: ' + phone);
+  lines.push(
+    'Course: ' + v('fpPlannedRoute'),
+    'ETD: ' + v('fpEtd') + '   Turn-around: ' + v('fpTurnaround') + '   ETA: ' + v('fpEta'),
+    'Sunset: ' + v('fpSunset'),
     '',
     'CONDITIONS',
-    'Verdict: ' + (state.lastVerdict ? VERDICT_LABELS[state.lastVerdict.level] : 'n/a'),
-  ];
+    'Verdict: ' + (state.lastVerdict ? VERDICT_LABELS[state.lastVerdict.level] : 'n/a')
+  );
   if (state.lastVerdict) state.lastVerdict.reasons.forEach(function (r) { lines.push('- ' + r); });
-  lines.push('Direction: ' + (state.lastDirectionRec ? state.lastDirectionRec.headline : 'n/a'));
+  lines.push('Wind: ' + (windWindowSummaryLine(departureMs, returnMs) || 'n/a'));
+  lines.push('Current: ' + (currentWindowSummaryLine(departureMs, returnMs) || 'n/a'));
+  if (state.lastDirectionRec && state.lastDirectionRec.headline) lines.push('Plan: ' + state.lastDirectionRec.headline);
+  lines.push('Precip: ' + (precipWindowSummaryLine(departureMs, returnMs) || 'n/a'));
   var advisoryText = (state.alertsRaw && state.alertsRaw.length)
     ? state.alertsRaw.map(function (a) { return a.properties.event; }).join(', ')
     : 'None';
@@ -5284,20 +5589,26 @@ function buildPrintSummary(verdict, direction, departureMs, returnMs, maxSustain
   var advisoryText = (state.alertsRaw && state.alertsRaw.length)
     ? state.alertsRaw.map(function (a) { return a.properties.event; }).join(', ')
     : 'None';
+  var phone = String(v('fpPhones') || '').trim();
+  var windLine = windWindowSummaryLine(departureMs, returnMs) ||
+    ('sustained ' + (maxSustainedKt != null ? round1(maxSustainedKt) : 'n/a') + ' kt, gust ' + (maxGustKt != null ? round1(maxGustKt) : 'n/a') + ' kt');
+  var currentLine = currentWindowSummaryLine(departureMs, returnMs);
+  var precipLine = precipWindowSummaryLine(departureMs, returnMs);
   var html =
     '<h2>Float Plan</h2>' +
-    '<div class="pf-row"><strong>Vessel:</strong> ' + escapeHtml(v('fpVesselName')) + ' (' + escapeHtml(v('fpVesselType')) + ') &mdash; Sail #' + escapeHtml(v('fpSailNumber')) + '</div>' +
-    '<div class="pf-row"><strong>Crew (' + escapeHtml(v('fpCrewCount')) + '):</strong> ' + escapeHtml(v('fpCrewNames')) + '</div>' +
-    '<div class="pf-row"><strong>Phone(s):</strong> ' + escapeHtml(v('fpPhones')) + ' &middot; <strong>Emergency contact:</strong> ' + escapeHtml(v('fpEmergencyContact')) + '</div>' +
-    '<div class="pf-row"><strong>VHF:</strong> ' + escapeHtml(v('fpVhf')) + ' &middot; <strong>Filed with:</strong> ' + escapeHtml(v('fpFileWith')) + '</div>' +
-    '<div class="pf-row"><strong>Route:</strong> ' + escapeHtml(v('fpPlannedRoute')) + '</div>' +
-    '<div class="pf-row"><strong>ETD:</strong> ' + escapeHtml(v('fpEtd')) + ' &middot; <strong>ETA:</strong> ' + escapeHtml(v('fpEta')) + '</div>' +
+    '<div class="pf-row"><strong>Vessel:</strong> ' + escapeHtml(getVesselDisplayName()) + '</div>' +
+    '<div class="pf-row"><strong>Aboard:</strong> ' + escapeHtml(crewSummaryLine()) + '</div>' +
+    (phone ? '<div class="pf-row"><strong>Phone:</strong> ' + escapeHtml(phone) + '</div>' : '') +
+    '<div class="pf-row"><strong>Course:</strong> ' + escapeHtml(v('fpPlannedRoute')) + '</div>' +
+    '<div class="pf-row"><strong>ETD:</strong> ' + escapeHtml(v('fpEtd')) + ' &middot; <strong>Turn-around:</strong> ' + escapeHtml(v('fpTurnaround')) + ' &middot; <strong>ETA:</strong> ' + escapeHtml(v('fpEta')) + '</div>' +
+    '<div class="pf-row"><strong>Sunset:</strong> ' + escapeHtml(v('fpSunset')) + '</div>' +
     '<h2>Conditions Summary</h2>' +
     '<div class="pf-row"><strong>Verdict:</strong> ' + VERDICT_LABELS[verdict.level] + '</div>' +
     '<div class="pf-row">' + verdict.reasons.map(escapeHtml).join('<br>') + '</div>' +
-    '<div class="pf-row"><strong>Wind:</strong> sustained ' + (maxSustainedKt != null ? round1(maxSustainedKt) : 'n/a') +
-    ' kt, gust ' + (maxGustKt != null ? round1(maxGustKt) : 'n/a') + ' kt</div>' +
-    '<div class="pf-row"><strong>Current:</strong> ' + escapeHtml(direction.headline) + '</div>' +
+    '<div class="pf-row"><strong>Wind:</strong> ' + escapeHtml(windLine) + '</div>' +
+    '<div class="pf-row"><strong>Current:</strong> ' + escapeHtml(currentLine || direction.headline) + '</div>' +
+    '<div class="pf-row"><strong>Plan:</strong> ' + escapeHtml(direction.headline) + '</div>' +
+    '<div class="pf-row"><strong>Precip:</strong> ' + escapeHtml(precipLine || 'n/a') + '</div>' +
     '<div class="pf-row"><strong>Advisories:</strong> ' + escapeHtml(advisoryText) + '</div>';
   if (state.planNarrative) {
     html += '<h2>Proposed Plan</h2><div class="pf-row pf-pre">' + escapeHtml(state.planNarrative) + '</div>';
@@ -5407,6 +5718,9 @@ function buildPlanNarrativeContext() {
       return v || null;
     }
 
+    var depDay = getNYParts(departureMs);
+    var twilight = twilightTimes(Date.UTC(depDay.y, depDay.m - 1, depDay.d), PIER25.lat, PIER25.lon);
+
     return {
       departure: fmtDateTime(departureMs),
       returnTime: fmtDateTime(returnMs),
@@ -5424,11 +5738,14 @@ function buildPlanNarrativeContext() {
       directionHeadline: direction.headline || null,
       tideEvents: tideEvents,
       advisories: advisories,
+      sunset: twilight.sunsetMs != null ? fmtTime(twilight.sunsetMs) : null,
+      turnaroundTime: fmtTime(computeTurnaroundMs(departureMs, returnMs)),
+      precipSummary: precipWindowSummaryLine(departureMs, returnMs),
       vessel: {
-        name: vesselField('fpVesselName'), type: vesselField('fpVesselType'),
-        crewCount: vesselField('fpCrewCount'), vhf: vesselField('fpVhf')
+        name: getVesselDisplayName(),
+        crewCount: vesselField('fpCrewCount'),
+        phone: vesselField('fpPhones')
       },
-      fileWith: vesselField('fpFileWith'),
       observed_now: buildObservedNowContext(),
       pre_motor: buildPreMotorContext()
     };
@@ -5437,7 +5754,8 @@ function buildPlanNarrativeContext() {
       departure: null, returnTime: null, sailWindowHours: null, verdictLevel: null, verdictReasons: [],
       windDirection: null, windSustainedMinKt: null, windSustainedMaxKt: null, windGustMaxKt: null, windGustMaxTime: null,
       reefBandLow: DEFAULT_LIMITS.reefLow, reefBandHigh: DEFAULT_LIMITS.reefHigh,
-      currentEvents: [], currentPhase: null, directionHeadline: null, tideEvents: [], advisories: [], vessel: {}, fileWith: null,
+      currentEvents: [], currentPhase: null, directionHeadline: null, tideEvents: [], advisories: [],
+      sunset: null, turnaroundTime: null, precipSummary: null, vessel: {},
       observed_now: null, pre_motor: null
     };
   }
@@ -5453,7 +5771,9 @@ function composeTemplateNarrative(ctx) {
     var routeParts = [];
     routeParts.push('Depart Pier 25 ' + depStr + ', return by ' + retStr +
       (ctx.sailWindowHours ? ' (' + ctx.sailWindowHours + 'h sail window)' : '') + '.');
+    if (ctx.turnaroundTime) routeParts.push('Plan the turn-around near ' + ctx.turnaroundTime + '.');
     if (ctx.directionHeadline) routeParts.push(ctx.directionHeadline);
+    if (ctx.sunset) routeParts.push('Sunset ' + ctx.sunset + '.');
     if (ctx.currentEvents && ctx.currentEvents.length) {
       var turns = ctx.currentEvents.map(function (e) {
         var label = e.type === 'slack' ? 'slack' : e.type;
@@ -5507,6 +5827,7 @@ function composeTemplateNarrative(ctx) {
       ? ctx.advisories.map(function (a) { return a.event + ' (ends ' + a.endsTime + ')'; }).join(', ')
       : 'none';
     safetyParts.push('Advisories: ' + advisoryText + '.');
+    if (ctx.precipSummary) safetyParts.push('Precipitation: ' + ctx.precipSummary);
     if (ctx.windGustMaxKt != null) {
       safetyParts.push('Watch for gusts to ' + ctx.windGustMaxKt + ' kt' + (ctx.windGustMaxTime ? ' near ' + ctx.windGustMaxTime : '') + '.');
     }
@@ -5516,12 +5837,11 @@ function composeTemplateNarrative(ctx) {
 
     var checkinParts = [];
     checkinParts.push('Expected return ' + retStr + '.');
-    checkinParts.push(ctx.fileWith
-      ? 'Notify ' + ctx.fileWith + ' on return; call if delayed beyond the window.'
-      : 'Notify your emergency contact ashore on return; call if delayed beyond the window.');
-    if (ctx.vessel && (ctx.vessel.name || ctx.vessel.vhf)) {
-      checkinParts.push('Vessel' + (ctx.vessel.name ? ' ' + ctx.vessel.name : '') + (ctx.vessel.type ? ' (' + ctx.vessel.type + ')' : '') +
-        (ctx.vessel.crewCount ? ', crew ' + ctx.vessel.crewCount : '') + (ctx.vessel.vhf ? ', monitoring VHF ' + ctx.vessel.vhf : '') + '.');
+    checkinParts.push('Notify your contact ashore on return; call if delayed beyond the window.');
+    if (ctx.vessel && ctx.vessel.name) {
+      checkinParts.push('Vessel ' + ctx.vessel.name +
+        (ctx.vessel.crewCount ? ', ' + ctx.vessel.crewCount + ' crew + 1 skipper' : '') +
+        (ctx.vessel.phone ? ', phone ' + ctx.vessel.phone : '') + '.');
     }
 
     return 'ROUTE & TIMING\n' + routeParts.join(' ') +
@@ -5802,8 +6122,17 @@ function applyTheme() {
   var t = state.settings.theme;
   var resolved = t === 'auto' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : t;
   document.documentElement.setAttribute('data-theme', resolved);
+  syncThemeColorMeta(resolved);
   addBaseTileLayer();
   if (state.lastDirectionRec) drawCompassArrow(state.lastDirectionRec);
+}
+
+// Mirrors the resolved theme into <meta name="theme-color"> so iOS Safari tints its toolbar
+// area to match the app background. Values must stay in step with the --bg custom property
+// in each theme block (also duplicated in the pre-paint head script).
+function syncThemeColorMeta(resolvedTheme) {
+  var meta = $('themeColorMeta');
+  if (meta) meta.content = resolvedTheme === 'dark' ? '#0a1520' : '#f3f0e8';
 }
 
 function openSettingsModal() {
@@ -6238,6 +6567,9 @@ function applyLayout(breakpointName) {
 
   columnsRow.className = 'columns-row layout-' + breakpointName + (anyColumn ? '' : ' hidden');
   layoutUI.current = breakpointName;
+  // Narrow gets the iOS-style tab shell on top of the single-column order; medium/wide must
+  // clear any leftover per-tab hiding so every card is visible in the column dashboard.
+  applyMobileTabVisibility();
 }
 
 // Re-derives the breakpoint from the current viewport and re-applies the layout only if it
@@ -6289,6 +6621,75 @@ function setupResponsiveLayout() {
   });
 }
 
+/* ============================== Mobile tab shell (iOS-style, narrow only) ============================== */
+// At the `narrow` breakpoint the 13-card scroll column becomes five iOS-style tabs behind a
+// fixed bottom tab bar. Cards keep their DOM position/order from LAYOUT_ASSIGNMENTS.narrow —
+// tabs only toggle a .mtab-hidden class, so nothing reparents and no listener/state is lost.
+// monitorChangedBanner deliberately belongs to NO tab: it's an alert, pinned above the
+// content on every tab. At medium/wide all of this is inert (body.mobile-tabs removed,
+// every .mtab-hidden cleared) and the column dashboard renders exactly as before.
+var MOBILE_TABS = [
+  { id: 'plan', cards: ['verdictCard', 'planCard'] },
+  { id: 'wind', cards: ['windCard', 'observedCard'] },
+  { id: 'water', cards: ['directionCard', 'timelineCard', 'sailSimCard'] },
+  { id: 'sky', cards: ['weatherCard', 'radarCard', 'sunTwilightCard'] },
+  { id: 'alerts', cards: ['advisoriesCard', 'marineTextCard'] }
+];
+
+var mobileTabUI = { active: 'plan' };
+
+function isValidMobileTab(tabId) {
+  return MOBILE_TABS.some(function (t) { return t.id === tabId; });
+}
+
+// Reconciles card visibility + tab bar highlight + the body.mobile-tabs shell class with the
+// current breakpoint and active tab. Safe to call any time after applyLayout has run once.
+function applyMobileTabVisibility() {
+  var narrow = layoutUI.current === 'narrow';
+  document.body.classList.toggle('mobile-tabs', narrow);
+  MOBILE_TABS.forEach(function (tab) {
+    var isActive = tab.id === mobileTabUI.active;
+    tab.cards.forEach(function (id) {
+      var el = $(id);
+      if (el) el.classList.toggle('mtab-hidden', narrow && !isActive);
+    });
+  });
+  document.querySelectorAll('#mobileTabbar .tabbar-item').forEach(function (btn) {
+    var isActive = btn.dataset.mtab === mobileTabUI.active;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-current', isActive ? 'page' : 'false');
+  });
+}
+
+function setMobileTab(tabId) {
+  if (!isValidMobileTab(tabId)) tabId = 'plan';
+  var changed = tabId !== mobileTabUI.active;
+  mobileTabUI.active = tabId;
+  lsSetJSON('mobileTab', tabId);
+  applyMobileTabVisibility();
+  if (layoutUI.current === 'narrow' && changed) {
+    window.scrollTo(0, 0);
+    // Charts rendered while display:none measured a 0-width container (and fell back to
+    // 680px); re-render now that the tab's cards are visible, and give Leaflet its real size.
+    afterLayoutChange();
+  }
+}
+
+function initMobileTabs() {
+  var saved = lsGetJSON('mobileTab', 'plan');
+  mobileTabUI.active = isValidMobileTab(saved) ? saved : 'plan';
+  document.querySelectorAll('#mobileTabbar .tabbar-item').forEach(function (btn) {
+    btn.addEventListener('click', function () { setMobileTab(btn.dataset.mtab); });
+  });
+  var pill = $('verdictPill');
+  if (pill) {
+    pill.addEventListener('click', function () {
+      setMobileTab('plan');
+      window.scrollTo(0, 0);
+    });
+  }
+}
+
 /* ============================== Init ============================== */
 
 function init() {
@@ -6329,11 +6730,9 @@ function init() {
 
   loadFloatPlanFields();
   wireCollapsible('marineTextToggle', 'marineTextBody');
-  wireCollapsible('vesselCrewToggle', 'vesselCrewBody');
   wireCollapsible('observedMoreToggle', 'observedMoreBody');
   wireCollapsible('marineInfoToggle', 'marineInfoBlock');
   wireCollapsible('weatherDetailsToggle', 'weatherDetailsBody');
-  initVesselCrewCollapse();
   wireMarineTabs();
 
   $('departureInput').addEventListener('change', function () {
@@ -6362,6 +6761,11 @@ function init() {
   $('dismissChangedBtn').addEventListener('click', function () { hideEl($('monitorChangedBanner')); });
 
   $('settingsBtn').addEventListener('click', openSettingsModal);
+  // Tap/click on the dimmed backdrop dismisses — the expected gesture for the mobile sheet
+  // presentation, and harmless extra affordance for the desktop modal.
+  $('settingsOverlay').addEventListener('click', function (e) {
+    if (e.target === e.currentTarget) closeSettingsModal();
+  });
   $('settingsCloseBtn').addEventListener('click', closeSettingsModal);
   $('settingsSaveBtn').addEventListener('click', saveSettingsFromModal);
   $('settingsResetBtn').addEventListener('click', resetSettingsDefaults);
@@ -6442,6 +6846,7 @@ function init() {
   });
 
   initLeafletMap();
+  initMobileTabs();
   setupResponsiveLayout();
 
   // Render any cached data immediately, then kick off live fetches for everything
