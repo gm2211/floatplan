@@ -2558,7 +2558,7 @@ function attachChartScrub(svgEl, xToTimeFn, readoutFn) {
     return vbX + rel * vbW;
   }
 
-  function update(clientX, clientY) {
+  function update(clientX, clientY, isTouch) {
     ensureOverlay();
     var svgX = svgXFromClient(clientX);
     var ms = xToTimeFn(svgX);
@@ -2570,13 +2570,26 @@ function attachChartScrub(svgEl, xToTimeFn, readoutFn) {
     updateDots(info.dots);
     readoutEl.innerHTML = info.html;
     readoutEl.classList.remove('hidden');
-    positionReadout(clientX, clientY);
+    positionReadout(clientX, clientY, isTouch);
   }
 
-  function positionReadout(clientX, clientY) {
+  function positionReadout(clientX, clientY, isTouch) {
     if (!card) return;
     var cardRect = card.getBoundingClientRect();
     var rr = readoutEl.getBoundingClientRect();
+    // Touch: a readout that trails the pointer sits exactly under the finger doing the
+    // scrubbing (user report). Pin it to the top of the chart on the side OPPOSITE the
+    // finger instead — it hops sides when the finger crosses the middle, so it's never
+    // covered. Mouse keeps the follow-the-cursor behavior.
+    if (isTouch) {
+      var svgRect = svgEl.getBoundingClientRect();
+      var fingerOnLeftHalf = clientX < svgRect.left + svgRect.width / 2;
+      var pinLeft = fingerOnLeftHalf ? Math.max(4, cardRect.width - rr.width - 8) : 8;
+      var pinTop = clamp(svgRect.top - cardRect.top + 4, 4, Math.max(4, cardRect.height - rr.height - 4));
+      readoutEl.style.left = pinLeft + 'px';
+      readoutEl.style.top = pinTop + 'px';
+      return;
+    }
     var left = clientX - cardRect.left + 12;
     var top = clientY - cardRect.top - rr.height - 14;
     left = clamp(left, 4, Math.max(4, cardRect.width - rr.width - 4));
@@ -2597,7 +2610,7 @@ function attachChartScrub(svgEl, xToTimeFn, readoutFn) {
     dragging = true;
     horizLock = null;
     startX = e.clientX; startY = e.clientY;
-    update(e.clientX, e.clientY);
+    update(e.clientX, e.clientY, e.pointerType === 'touch');
     try { svgEl.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
   });
   svgEl.addEventListener('pointermove', function (e) {
@@ -2609,7 +2622,7 @@ function attachChartScrub(svgEl, xToTimeFn, readoutFn) {
     // default action, which would defeat the touchmove handler below's horizLock check and
     // block page scrolling on a swipe that starts on the chart but reads as vertical.
     if (e.pointerType !== 'touch') e.preventDefault();
-    update(e.clientX, e.clientY);
+    update(e.clientX, e.clientY, e.pointerType === 'touch');
   });
   ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (evName) {
     svgEl.addEventListener(evName, function () { dragging = false; hide(); });
@@ -2626,7 +2639,7 @@ function attachChartScrub(svgEl, xToTimeFn, readoutFn) {
     }
     if (horizLock) {
       e.preventDefault();
-      update(t.clientX, t.clientY);
+      update(t.clientX, t.clientY, true);
     }
   }, { passive: false });
 }
