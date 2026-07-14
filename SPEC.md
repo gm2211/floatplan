@@ -61,7 +61,7 @@ Window = departure → departure + duration. Compute max sustained & max gust ac
 
 Logic over current predictions within the window:
 - Compute signed current (positive = flood/north, negative = ebb/south) at departure, at midpoint, at return.
-- If current reverses (slack falls inside window): recommend departing WITH the current now, returning with the reversed current. E.g. ebbing now, turns to flood mid-sail → "Head SOUTH on the ebb, ride the flood home."
+- If current reverses (slack falls inside window) AND the flip lands in the first ~half of the window: recommend departing WITH the current now, returning with the reversed current. E.g. ebbing now, turns to flood mid-sail → "Head SOUTH on the ebb, ride the flood home." A LATE flip (past ~55% of the window) is treated like a single-phase window instead — head against the pre-flip current, come home with it before it turns. Guiding principle: never plan a return leg that fights the current.
 - If current is one direction for the whole window: recommend heading AGAINST it outbound so the ride home is favorable → "Flooding the whole window — head SOUTH first (against ~1.2 kt flood), come home with it."
 - Always show: current state now (ebb/flood/slack + speed), next slack time, next max (flood/ebb) time + speed.
 - Compass arrow graphic showing recommended initial heading (N or S along the Hudson).
