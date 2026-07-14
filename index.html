@@ -760,7 +760,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       </div>
       <div class="sailsim-warning hidden" id="sailSimWarning"></div>
     </div>
-    <div class="chart-footnote">Simulated boat track vs. Hudson River current &middot; planning approximation, not navigation.</div>
+    <div class="chart-footnote">Simulated boat track vs. Hudson River current &middot; boat speed scales with forecast wind, tacking penalty when beating &middot; turn-around solved to be moored 15 min before window end &middot; planning approximation, not navigation.</div>
     <div class="card-error hidden" id="sailSimError"></div>
   </section>
 
@@ -2007,6 +2007,19 @@ var SAIL_BEATING_VMG_FACTOR = 0.65;
 var SAIL_STEP_MS = 5 * 60000;
 var SAIL_TURN_TOL_MIN = 2;
 var NM_PER_DEG_LAT = 60;
+// Solve the turn-around so the boat is back on the mooring this long BEFORE the window
+// ends — the schedule buffer for slow tacks, dying wind, or a foul-current surprise.
+var SAIL_RETURN_MARGIN_MS = 15 * 60000;
+// Displacement-boat wind response: under ~11 kt of true wind the boat can't make hull
+// speed — through-water speed scales at ~0.45 kt per kt of wind, capped at the configured
+// boat speed (which acts as the hull-speed ceiling). The 1 kt floor keeps the turn-around
+// solver stable in drifter conditions instead of dividing the window by zero progress.
+var SAIL_WIND_SPEED_FACTOR = 0.45;
+var SAIL_MIN_BOAT_SPEED_KT = 1;
+function windLimitedBoatSpeed(boatSpeedKt, windKt) {
+  if (windKt == null || !isFinite(windKt)) return boatSpeedKt;
+  return Math.max(SAIL_MIN_BOAT_SPEED_KT, Math.min(boatSpeedKt, windKt * SAIL_WIND_SPEED_FACTOR));
+}
 // A landmark only gets named as the "furthest point" reached (item 1c) when the turn is
 // within this many nm of it — otherwise the readout falls back to a distance+area phrase.
 var SAIL_LANDMARK_PROXIMITY_NM = 0.8;
@@ -2064,20 +2077,26 @@ function nearestLandmark(lat) {
 }
 
 // Integrates latitude in fixed steps from startMs to endMs. Each step samples current +
-// wind direction at its midpoint, applies the beating penalty, and advances distance =
+// wind at its midpoint, scales through-water speed by predicted wind strength
+// (windLimitedBoatSpeed), applies the beating (tacking) VMG penalty — the model for the
+// extra distance sailed through the water when the leg is upwind — and advances distance =
 // SOG(kt) * step(h) converted to degrees latitude at 60 nm/degree. Pure: curvePoints and
-// windSeries are passed in, never read from `state`.
+// `wind` ({dirSeries, speedSeries}, both expandSeries-shaped) are passed in, never read
+// from `state`.
 // `motor` (optional): when true, this leg runs under power at `boatSpeedKt` (which the
-// caller passes as the motor speed in that case) with no beating penalty and a straight
-// track — used for the pre-motor "motor first leg" sail-sim toggle. Each path point carries
-// `mode` ('motor'/'sail') so the renderer can draw a visually distinct dashed wake.
-function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, windSeries, boatSpeedKt, stepMs, motor) {
+// caller passes as the motor speed in that case) with no beating penalty, no wind-speed
+// scaling, and a straight track — used for the pre-motor "motor first leg" sail-sim toggle.
+// Each path point carries `mode` ('motor'/'sail') so the renderer can draw a visually
+// distinct dashed wake.
+function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, wind, boatSpeedKt, stepMs, motor) {
   var courseBearing = courseBearingForHeading(headingSign);
   function sample(atMs) {
     if (motor) return { vmg: boatSpeedKt, beating: false, mode: 'motor' };
-    var windDir = nearestSeriesValue(windSeries, atMs);
+    var windDir = nearestSeriesValue(wind.dirSeries, atMs);
+    var windKt = nearestSeriesValue(wind.speedSeries, atMs);
+    var effBoatKt = windLimitedBoatSpeed(boatSpeedKt, windKt);
     var beating = isBeating(windDir, courseBearing, SAIL_BEATING_THRESHOLD_DEG);
-    return { vmg: vmgFor(boatSpeedKt, beating), beating: beating, mode: 'sail' };
+    return { vmg: vmgFor(effBoatKt, beating), beating: beating, mode: 'sail' };
   }
   // The leg's first point carries the *instantaneous* sog/c/beating at startMs (not null) —
   // otherwise the sail-sim card's very first frame (rendered at departureMs, before any
@@ -2106,11 +2125,11 @@ function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, windSer
 // motorFirstLeg/motorSpeedKt (optional): when motorFirstLeg is true, the outbound leg is
 // simulated under power at motorSpeedKt instead of sailing at boatSpeedKt; the inbound leg
 // always sails. Omitting these args reproduces the original all-sail round trip.
-function simulateRoundTrip(departureMs, returnMs, turnMs, startLat, headingSign, curvePoints, windSeries, boatSpeedKt, stepMs, motorFirstLeg, motorSpeedKt) {
+function simulateRoundTrip(departureMs, returnMs, turnMs, startLat, headingSign, curvePoints, wind, boatSpeedKt, stepMs, motorFirstLeg, motorSpeedKt) {
   var outSpeedKt = motorFirstLeg ? motorSpeedKt : boatSpeedKt;
-  var outPath = simulateLeg(departureMs, turnMs, startLat, headingSign, curvePoints, windSeries, outSpeedKt, stepMs, !!motorFirstLeg);
+  var outPath = simulateLeg(departureMs, turnMs, startLat, headingSign, curvePoints, wind, outSpeedKt, stepMs, !!motorFirstLeg);
   var midLat = outPath.length ? outPath[outPath.length - 1].lat : startLat;
-  var inPath = simulateLeg(turnMs, returnMs, midLat, -headingSign, curvePoints, windSeries, boatSpeedKt, stepMs, false);
+  var inPath = simulateLeg(turnMs, returnMs, midLat, -headingSign, curvePoints, wind, boatSpeedKt, stepMs, false);
   return { outPath: outPath, inPath: inPath, finalLat: inPath.length ? inPath[inPath.length - 1].lat : midLat };
 }
 
@@ -2121,9 +2140,9 @@ function simulateRoundTrip(departureMs, returnMs, turnMs, startLat, headingSign,
 // motor or sail) so a standard bracket-and-bisect applies. When the domain endpoints don't
 // bracket a root (current too strong to ever get home in time), clamps to whichever endpoint
 // is closer and reports converged:false so the caller can surface a warning.
-function findTurnAroundMs(departureMs, returnMs, startLat, headingSign, curvePoints, windSeries, boatSpeedKt, stepMs, motorFirstLeg, motorSpeedKt) {
+function findTurnAroundMs(departureMs, returnMs, startLat, headingSign, curvePoints, wind, boatSpeedKt, stepMs, motorFirstLeg, motorSpeedKt) {
   function errNm(turnMs) {
-    var rt = simulateRoundTrip(departureMs, returnMs, turnMs, startLat, headingSign, curvePoints, windSeries, boatSpeedKt, stepMs, motorFirstLeg, motorSpeedKt);
+    var rt = simulateRoundTrip(departureMs, returnMs, turnMs, startLat, headingSign, curvePoints, wind, boatSpeedKt, stepMs, motorFirstLeg, motorSpeedKt);
     return (rt.finalLat - startLat) * NM_PER_DEG_LAT;
   }
   function errTimeMin(errNmVal) { return boatSpeedKt > 0 ? Math.abs(errNmVal) / boatSpeedKt * 60 : Infinity; }
@@ -2174,7 +2193,7 @@ function furthestPointLabel(maxDistLat, maxDistNm) {
   return round1(maxDistNm) + ' nm ' + dir + ' · ' + sailAreaWordForLat(maxDistLat);
 }
 
-function computeSailSim(departureMs, returnMs, curvePoints, windSeries, boatSpeedKt, directionRec, motorFirstLeg, motorSpeedKt) {
+function computeSailSim(departureMs, returnMs, curvePoints, wind, boatSpeedKt, directionRec, motorFirstLeg, motorSpeedKt) {
   if (departureMs == null || returnMs == null || returnMs <= departureMs) return null;
   if (!curvePoints || !curvePoints.length) return null;
   if (!directionRec) return null;
@@ -2182,10 +2201,23 @@ function computeSailSim(departureMs, returnMs, curvePoints, windSeries, boatSpee
   var boatKt = (boatSpeedKt != null && boatSpeedKt > 0) ? boatSpeedKt : DEFAULT_BOAT_SPEED_KT;
   var motorKt = (motorSpeedKt != null && motorSpeedKt > 0) ? motorSpeedKt : DEFAULT_MOTOR_SPEED_KT;
   var useMotor = !!motorFirstLeg;
-  var series = windSeries || [];
-  var turn = findTurnAroundMs(departureMs, returnMs, PIER25.lat, headingSign, curvePoints, series, boatKt, SAIL_STEP_MS, useMotor, motorKt);
-  var rt = simulateRoundTrip(departureMs, returnMs, turn.turnMs, PIER25.lat, headingSign, curvePoints, series, boatKt, SAIL_STEP_MS, useMotor, motorKt);
+  var windObj = {
+    dirSeries: (wind && wind.dirSeries) || [],
+    speedSeries: (wind && wind.speedSeries) || []
+  };
+  // Solve the turn against an arrival target SAIL_RETURN_MARGIN_MS before the window ends
+  // (not the window end itself): given predicted wind (speed-scaled boat speed + tacking
+  // penalty) and current, the boat should be moored with the safety margin to spare.
+  var arriveByMs = Math.max(departureMs + 60000, returnMs - SAIL_RETURN_MARGIN_MS);
+  var turn = findTurnAroundMs(departureMs, arriveByMs, PIER25.lat, headingSign, curvePoints, windObj, boatKt, SAIL_STEP_MS, useMotor, motorKt);
+  var rt = simulateRoundTrip(departureMs, arriveByMs, turn.turnMs, PIER25.lat, headingSign, curvePoints, windObj, boatKt, SAIL_STEP_MS, useMotor, motorKt);
   var path = rt.outPath.concat(rt.inPath.slice(1));
+  // Moored tail: hold position from arrival to the window end so playback/scrubber still
+  // cover the whole window and the margin is visible as the boat sitting at the mooring.
+  if (returnMs > arriveByMs && path.length) {
+    var arrivedLat = path[path.length - 1].lat;
+    path.push({ ms: returnMs, lat: arrivedLat, sog: 0, c: currentVelocityAt(curvePoints, returnMs), beating: false, mode: 'sail' });
+  }
 
   var maxDistNm = 0, maxDistLat = PIER25.lat;
   path.forEach(function (p) {
@@ -2197,7 +2229,7 @@ function computeSailSim(departureMs, returnMs, curvePoints, windSeries, boatSpee
   return {
     headingSign: headingSign, boatSpeedKt: boatKt, motorSpeedKt: motorKt, motorFirstLeg: useMotor,
     turnMs: turn.turnMs, converged: turn.converged, turnErrNm: turn.errNm,
-    departureMs: departureMs, returnMs: returnMs, path: path,
+    departureMs: departureMs, returnMs: returnMs, arriveByMs: arriveByMs, path: path,
     furthestLandmark: furthest.name, furthestDistNm: maxDistNm,
     furthestLabel: furthestPointLabel(maxDistLat, maxDistNm), maxDistLat: maxDistLat
   };
@@ -2856,7 +2888,9 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
     attachChartScrub(svgEl, xToMs, function (ms) {
       var vCur = currentVelocityAt(curvePoints, ms);
       var vPred = levelValueAt(levelPredictedPoints, ms);
-      var vObs = levelValueAt(levelObservedPoints, ms);
+      // Observed only exists in the past — don't let levelValueAt clamp-extend it into the
+      // future, which would pin a stale dot ahead of the last real sample.
+      var vObs = ms <= nowMs ? levelValueAt(levelObservedPoints, ms) : null;
       if (vCur == null && vPred == null && vObs == null) return null;
       var curState = classifyCurrent(vCur);
       var phaseWord = curState === 'unknown' ? '' : (curState.charAt(0).toUpperCase() + curState.slice(1));
@@ -2865,7 +2899,15 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
       if (vCur != null) rows.push('<div>' + escapeHtml(phaseWord) + ' ' + round1(Math.abs(vCur)) + ' kt</div>');
       if (vPred != null) rows.push('<div>Predicted ' + vPred.toFixed(1) + ' ft</div>');
       if (vObs != null) rows.push('<div>Observed ' + vObs.toFixed(1) + ' ft</div>');
-      return { html: rows.join('') };
+      // Pin a dot on each curve where the scrub line crosses it, matching each series'
+      // color (user report: the vertical line gave numbers but nothing marked WHERE on the
+      // curves those numbers live).
+      var dots = [];
+      var sx = x(ms);
+      if (vCur != null) dots.push({ x: sx, y: yCur(vCur), color: vCur >= 0 ? flood : ebb });
+      if (vPred != null) dots.push({ x: sx, y: yLvl(vPred), color: levelPredColor });
+      if (vObs != null) dots.push({ x: sx, y: yLvl(vObs), color: levelObsColor });
+      return { html: rows.join(''), dots: dots };
     });
   }
 }
@@ -2970,8 +3012,9 @@ function setupSailSimControls(sim) {
   sailSimUI.rate = sailPlaybackRate(sim);
 
   if (sim.converged === false) {
-    $('sailSimWarning').textContent = 'Current too strong to make ETA at ' + round1(sim.boatSpeedKt) +
-      ' kt — shorten leg or adjust departure.';
+    $('sailSimWarning').textContent = 'Predicted wind + current leave no turn-around that gets you moored ' +
+      Math.round(SAIL_RETURN_MARGIN_MS / 60000) + ' min before the window ends (boat speed capped at ' +
+      round1(sim.boatSpeedKt) + ' kt) — shorten the sail or shift departure.';
     showEl($('sailSimWarning'));
   } else {
     hideEl($('sailSimWarning'));
@@ -3118,7 +3161,10 @@ function renderSailSimReadouts(sim, atMs) {
   var distNm = lat == null ? null : (lat - PIER25.lat) * NM_PER_DEG_LAT;
   var distLabel = distNm == null ? '--' : (round1(Math.abs(distNm)) + ' nm ' + (distNm >= 0 ? 'N' : 'S') + ' of Pier 25');
   // Item 1c: furthestLabel is already the landmark-or-area phrase computed in computeSailSim.
-  var furthestLabel = sim.furthestLabel + ' · turn ' + fmtTime(sim.turnMs);
+  // arriveByMs: the solver's arrival target (returnMs - SAIL_RETURN_MARGIN_MS) — show it so
+  // the "why is the boat parked for the last 15 min" question answers itself.
+  var furthestLabel = sim.furthestLabel + ' · turn ' + fmtTime(sim.turnMs) +
+    (sim.arriveByMs != null && sim.arriveByMs < sim.returnMs ? ' · moored ' + fmtTime(sim.arriveByMs) : '');
   var step = sailStepAt(sim.path, atMs);
   var modeLabel = (step && step.mode) ? step.mode.toUpperCase() : (sim.motorFirstLeg ? 'MOTOR' : 'SAIL');
 
@@ -3174,8 +3220,11 @@ function computeAndRenderSailSim() {
   }
   var boatSpeedKt = (state.settings && state.settings.boatSpeedKt) || DEFAULT_BOAT_SPEED_KT;
   var motorSpeedKt = (state.settings && state.settings.motorSpeedKt) || DEFAULT_MOTOR_SPEED_KT;
-  var windSeries = (state.gridSeries && state.gridSeries.windDirection) || [];
-  var sim = computeSailSim(state.departureMs, getReturnMs(), state.curvePoints, windSeries, boatSpeedKt, state.lastDirectionRec, sailSimUI.motorFirstLeg, motorSpeedKt);
+  var wind = {
+    dirSeries: (state.gridSeries && state.gridSeries.windDirection) || [],
+    speedSeries: (state.gridSeries && state.gridSeries.windSpeedKt) || []
+  };
+  var sim = computeSailSim(state.departureMs, getReturnMs(), state.curvePoints, wind, boatSpeedKt, state.lastDirectionRec, sailSimUI.motorFirstLeg, motorSpeedKt);
   if (!sim) {
     state.sailSim = null;
     clearSailSimBody();
@@ -4445,7 +4494,9 @@ function renderWeatherChart(rows, domStart, domEnd, departureMs, returnMs, nowMs
         out.push('<div>' + escapeHtml(dirLabel) + ' ' + round1(row.sustainedKt) + ' kt' +
           (row.gustKt != null ? ' · gust ' + round1(row.gustKt) : '') + '</div>');
       }
-      return { html: out.join('') };
+      var dots = [];
+      if (row.tempF != null) dots.push({ x: x(row.ms), y: y(row.tempF), color: accent });
+      return { html: out.join(''), dots: dots };
     });
   }
 }
