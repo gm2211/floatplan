@@ -769,7 +769,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       </div>
       <div class="sailsim-warning hidden" id="sailSimWarning"></div>
     </div>
-    <div class="chart-footnote">Simulated boat track vs. Hudson River current &middot; boat speed scales with forecast wind, tacking penalty when beating &middot; turn-around solved to be moored 15 min before window end &middot; planning approximation, not navigation.</div>
+    <div class="chart-footnote">Simulated boat track vs. Hudson River current &middot; boat speed scales with forecast wind, degraded by point of sail (tacks upwind, jibes downwind) &middot; never past Robbins Reef (club limit, red line) &middot; turn-around solved to be moored 15 min before window end &middot; planning approximation, not navigation.</div>
     <div class="card-error hidden" id="sailSimError"></div>
   </section>
 
@@ -1995,6 +1995,7 @@ function computeDirectionRec(curvePoints, slackEvents, departureMs, returnMs, no
 // `name` is used everywhere else (furthest-point text, etc). Ordered south to north.
 var SAIL_LANDMARKS = [
   { name: 'The Narrows / Verrazzano', short: 'The Narrows', lat: 40.606 },
+  { name: 'Robbins Reef (S limit)', short: 'Robbins Reef', lat: 40.6577 },
   { name: 'Red Hook', lat: 40.674 },
   { name: 'Governors Island', lat: 40.690 },
   { name: 'Statue of Liberty', lat: 40.689 },
@@ -2013,6 +2014,17 @@ var SAIL_LAT_MIN = 40.60, SAIL_LAT_MAX = 40.86;
 var SAIL_COURSE_BEARING_N = 11, SAIL_COURSE_BEARING_S = 183;
 var SAIL_BEATING_THRESHOLD_DEG = 50;
 var SAIL_BEATING_VMG_FACTOR = 0.65;
+// Point-of-sail efficiency beyond beating (user report: straight-line hull-speed reaching
+// put the boat past the Narrows in a 3h window — "dissociated from reality"): running
+// nearly dead-downwind needs jibing legs; even a reach never holds a perfect rhumb line
+// through harbor traffic.
+var SAIL_RUNNING_THRESHOLD_DEG = 150;
+var SAIL_RUNNING_VMG_FACTOR = 0.85;
+var SAIL_REACHING_VMG_FACTOR = 0.9;
+// Club boundary: sailing south of Robbins Reef Light is not allowed. The simulated boat
+// holds at this line (mills about) instead of continuing — and the turn-around solver
+// therefore never plans distance beyond it.
+var SAIL_SOUTH_LIMIT_LAT = 40.6577;
 var SAIL_STEP_MS = 5 * 60000;
 var SAIL_TURN_TOL_MIN = 2;
 var NM_PER_DEG_LAT = 60;
@@ -2073,6 +2085,17 @@ function isBeating(windFromDeg, courseBearingDeg, thresholdDeg) {
 
 function vmgFor(boatSpeedKt, beating) { return beating ? boatSpeedKt * SAIL_BEATING_VMG_FACTOR : boatSpeedKt; }
 
+// VMG factor by point of sail: beating = tacking legs (0.65 of through-water speed made
+// good along the course), running nearly dead-downwind = jibing legs (0.85), everything
+// else = a reach at 0.9. Unknown wind direction gets the reaching factor.
+function pointOfSailVmgFactor(windFromDeg, courseBearingDeg) {
+  if (windFromDeg == null || !isFinite(windFromDeg)) return SAIL_REACHING_VMG_FACTOR;
+  var a = angularDistance(windFromDeg, courseBearingDeg);
+  if (a < SAIL_BEATING_THRESHOLD_DEG) return SAIL_BEATING_VMG_FACTOR;
+  if (a > SAIL_RUNNING_THRESHOLD_DEG) return SAIL_RUNNING_VMG_FACTOR;
+  return SAIL_REACHING_VMG_FACTOR;
+}
+
 // SOG convention matches current: signed kt, north-positive.
 function sogAt(headingSign, vmgKt, currentKt) { return headingSign * vmgKt + (currentKt || 0); }
 
@@ -2105,7 +2128,7 @@ function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, wind, b
     var windKt = nearestSeriesValue(wind.speedSeries, atMs);
     var effBoatKt = windLimitedBoatSpeed(boatSpeedKt, windKt);
     var beating = isBeating(windDir, courseBearing, SAIL_BEATING_THRESHOLD_DEG);
-    return { vmg: vmgFor(effBoatKt, beating), beating: beating, mode: 'sail' };
+    return { vmg: effBoatKt * pointOfSailVmgFactor(windDir, courseBearing), beating: beating, mode: 'sail' };
   }
   // The leg's first point carries the *instantaneous* sog/c/beating at startMs (not null) —
   // otherwise the sail-sim card's very first frame (rendered at departureMs, before any
@@ -2125,6 +2148,8 @@ function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, wind, b
     var sog = sogAt(headingSign, s.vmg, c);
     var distNm = sog * (dt / 3600000);
     lat += distNm / NM_PER_DEG_LAT;
+    // Club boundary: never past Robbins Reef — hold at the line instead of continuing S.
+    if (lat < SAIL_SOUTH_LIMIT_LAT) lat = SAIL_SOUTH_LIMIT_LAT;
     t += dt;
     path.push({ ms: t, lat: lat, sog: sog, c: c, beating: s.beating, mode: s.mode });
   }
@@ -2312,7 +2337,10 @@ function computePreMotorAdvice(ctx) {
   var courseBearing = courseBearingForHeading(headingSign);
   var beating = isBeating(ctx.windFromDegAtDeparture, courseBearing, SAIL_BEATING_THRESHOLD_DEG);
   var boatSpeedKt = (ctx.boatSpeedKt != null && ctx.boatSpeedKt > 0) ? ctx.boatSpeedKt : DEFAULT_BOAT_SPEED_KT;
-  var vmg = vmgFor(boatSpeedKt, beating);
+  // Same wind-limited, point-of-sail-degraded speed model the sail sim integrates with —
+  // the advice and the simulated track must not disagree about first-leg VMG.
+  var vmg = windLimitedBoatSpeed(boatSpeedKt, ctx.windSustainedAtDepartureKt) *
+    pointOfSailVmgFactor(ctx.windFromDegAtDeparture, courseBearing);
   var curMid = ctx.currentAtMidWindowKt;
   var avgFirstHalfCurrent = (curMid != null && isFinite(curMid)) ? (curDep + curMid) / 2 : curDep;
   var opposingFirstHalf = Math.max(0, -(headingSign * avgFirstHalfCurrent));
@@ -3097,6 +3125,13 @@ function renderSailSimSvg(sim, atMs) {
   svg += '<text x="' + (chX0 - 3) + '" y="' + (padTop + 9) + '" font-size="' + SAIL_STRIP_LABEL_FONT + '" text-anchor="end" fill="var(--ink-dim)">NJ</text>';
   svg += '<text x="' + (chX1 + 3) + '" y="' + (padTop + 9) + '" font-size="' + SAIL_STRIP_LABEL_FONT + '" fill="var(--ink-dim)">MAN</text>';
 
+  // Club boundary: hard red line at Robbins Reef — the sim never takes the boat past it,
+  // and the strip should make the no-go water south of it unmistakable.
+  if (SAIL_SOUTH_LIMIT_LAT >= bounds.latMin - 1e-6 && SAIL_SOUTH_LIMIT_LAT <= bounds.latMax + 1e-6) {
+    var limitY = y(SAIL_SOUTH_LIMIT_LAT);
+    svg += '<line x1="' + (chX0 - 6) + '" y1="' + limitY.toFixed(1) + '" x2="' + (chX1 + 6) + '" y2="' + limitY.toFixed(1) + '" stroke="var(--red)" stroke-width="2" stroke-dasharray="5,3"/>';
+  }
+
   // Item 1b: only landmarks inside the current (possibly dynamically-extended) domain are
   // drawn — one outside it would clamp to the domain edge via latToY's clamp(t,0,1) and sit
   // right on top of whichever real edge landmark is there. Labels are vertically decluttered
@@ -3700,6 +3735,24 @@ function windArrowCellSvg(dirDeg, color) {
   return '<svg class="wind-dir-arrow" width="14" height="14" viewBox="-7 -7 14 14">' +
     windArrowGlyph(0, 0, dirDeg, color) + '</svg>';
 }
+// Linear interpolation of a numeric field between adjacent (ms-ascending) rows. Scrub dots
+// use this so they ride the curve continuously at the crosshair's exact instant — pinning
+// them to the nearest hourly row made them visibly lag the vertical line (user report).
+function interpRowsValue(rows, ms, field) {
+  if (!rows || !rows.length) return null;
+  var prev = null, next = null;
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (r[field] == null) continue;
+    if (r.ms <= ms) prev = r;
+    if (r.ms >= ms) { next = r; break; }
+  }
+  if (!prev) return next ? next[field] : null;
+  if (!next || next.ms === prev.ms) return prev[field];
+  var t = (ms - prev.ms) / (next.ms - prev.ms);
+  return prev[field] + t * (next[field] - prev[field]);
+}
+
 function windAxisTicksHtml(domStart, domEnd, xFn, windowTickItems, nowX, padT, inkDim) {
   var out = '';
   var suppressXs = windowTickItems.map(function (it) { return it.x; });
@@ -3791,8 +3844,10 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
           lines.push('<div>' + escapeHtml(line) + '</div>');
           // Only the sustained series is actually plotted as a line in "All" mode (see
           // `lines` above) — a dot per model pins to that same visible curve; gust is shown
-          // in the text only, since there's no gust line here to pin it to.
-          dots.push({ x: x(row.ms), y: yAll(row.sustained), color: accent });
+          // in the text only, since there's no gust line here to pin it to. Interpolated at
+          // the exact scrubbed instant so the dot tracks the crosshair without hourly snap.
+          var vInterp = interpRowsValue(seriesByModel[mk], ms, 'sustained');
+          if (vInterp != null) dots.push({ x: x(ms), y: yAll(vInterp), color: accent });
         });
         if (!lines.length) return null;
         return { html: '<div class="scrub-time">' + escapeHtml(fmtTime(ms)) + '</div>' + lines.join(''), dots: dots };
@@ -3837,23 +3892,21 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
     gustPath = '<path d="' + smoothPathD(gustPts, x, y) + '" fill="none" stroke="' + inkDim + '" stroke-width="1.5" stroke-dasharray="3,2" stroke-opacity="0.8"/>';
   }
 
-  // Observed-now marker: the live anemometer reading pinned to the now-line, so an
-  // observation running hotter/colder than the model shows up IN the chart instead of
+  // Observed-now marker: the live anemometer sustained reading pinned to the now-line, so
+  // an observation running hotter/colder than the model shows up IN the chart instead of
   // contradicting it from the headline (user report: "seeing 18 kt but chart says 14").
-  // Violet = the established "observed" color (matches the timeline's observed level).
-  // Filled dot = sustained, hollow ring = gust; skipped when stale or off-scale.
+  // ONE dot, labeled inline ("obs 18.7") — an earlier version added a second unlabeled
+  // gust ring and the floating pair read as noise ("those fixed dots make no sense").
+  // Violet = the established "observed" color; skipped when stale or off-scale.
   var obsMarker = '';
   var obsW = observedWindDataForStation(state.obsWindStation || 'robbinsReef');
-  if (nowX != null && observedWindIsFresh(obsW, nowMs)) {
-    if (obsW.sustainedKt <= yMax) {
-      obsMarker += '<circle cx="' + nowX.toFixed(1) + '" cy="' + y(obsW.sustainedKt).toFixed(1) + '" r="4" fill="var(--violet)" stroke="var(--bg-card)" stroke-width="1.2"/>';
-    }
-    if (obsW.gustKt != null && obsW.gustKt <= yMax) {
-      obsMarker += '<circle cx="' + nowX.toFixed(1) + '" cy="' + y(obsW.gustKt).toFixed(1) + '" r="3" fill="none" stroke="var(--violet)" stroke-width="1.5"/>';
-    }
-    if (obsMarker && legendEl) {
-      legendEl.innerHTML += '<span><span class="swatch swatch-obs"></span>observed now</span>';
-    }
+  if (nowX != null && observedWindIsFresh(obsW, nowMs) && obsW.sustainedKt <= yMax) {
+    var obsY = y(obsW.sustainedKt);
+    var labelRight = nowX <= W - padR - 55;
+    obsMarker = '<circle cx="' + nowX.toFixed(1) + '" cy="' + obsY.toFixed(1) + '" r="4" fill="var(--violet)" stroke="var(--bg-card)" stroke-width="1.2"/>' +
+      '<text x="' + (labelRight ? nowX + 7 : nowX - 7).toFixed(1) + '" y="' + (obsY + 3).toFixed(1) +
+      '" font-size="9" text-anchor="' + (labelRight ? 'start' : 'end') + '" fill="var(--violet)">obs ' + round1(obsW.sustainedKt) + '</text>';
+    if (legendEl) legendEl.innerHTML += '<span><span class="swatch swatch-obs"></span>observed now</span>';
   }
 
   // Direction arrow row: thin to one per 2h once hourly spacing would crowd the glyphs.
@@ -3889,8 +3942,11 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
         (row.gust != null ? ' · gust ' + round1(row.gust) : '') + '</div>');
       out.push('<div class="sub">' + escapeHtml(WIND_MODEL_LABELS[model] || model) + '</div>');
       var dots = [];
-      if (row.sustained != null) dots.push({ x: x(row.ms), y: y(row.sustained), color: accent });
-      if (row.gust != null) dots.push({ x: x(row.ms), y: y(row.gust), color: inkDim });
+      var sx = x(ms);
+      var sInterp = interpRowsValue(rows, ms, 'sustained');
+      var gInterp = interpRowsValue(rows, ms, 'gust');
+      if (sInterp != null) dots.push({ x: sx, y: y(sInterp), color: accent });
+      if (gInterp != null) dots.push({ x: sx, y: y(gInterp), color: inkDim });
       return { html: out.join(''), dots: dots };
     });
   }
@@ -4546,7 +4602,8 @@ function renderWeatherChart(rows, domStart, domEnd, departureMs, returnMs, nowMs
           (row.gustKt != null ? ' · gust ' + round1(row.gustKt) : '') + '</div>');
       }
       var dots = [];
-      if (row.tempF != null) dots.push({ x: x(row.ms), y: y(row.tempF), color: accent });
+      var tInterp = interpRowsValue(rows, ms, 'tempF');
+      if (tInterp != null) dots.push({ x: x(ms), y: y(tInterp), color: accent });
       return { html: out.join(''), dots: dots };
     });
   }
