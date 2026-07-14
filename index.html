@@ -84,7 +84,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 #app, .topbar { max-width: 720px; margin: 0 auto; padding: 0 14px; }
-h1, h2, h3 { font-weight: 650; margin: 0 0 8px; color: var(--ink); }
+h1, h2, h3 { font-weight: 650; margin: 0 0 12px; color: var(--ink); }
 h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-dim); }
 p { margin: 4px 0; }
 a { color: var(--accent); }
@@ -200,6 +200,10 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
   user-select: none; -webkit-user-select: none;
 }
 .svg-wrap svg { width: 100%; height: auto; display: block; }
+/* Halo behind every chart label so text stays readable where a curve passes under it —
+   paint-order draws the stroke (card-background colored) BENEATH the glyph fill, so the
+   letterforms stay crisp while the curve is knocked back around them. */
+.svg-wrap svg text { paint-order: stroke; stroke: var(--bg-card); stroke-width: 2.5px; stroke-linejoin: round; }
 
 .chart-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--ink-dim); margin-top: 8px; }
 .chart-legend .swatch { display: inline-block; width: 16px; height: 3px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
@@ -253,6 +257,7 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .wind-now-dir { font-size: 15px; font-weight: 600; margin-top: 6px; }
 .wind-now-caption { font-size: 12px; color: var(--ink-dim); margin-top: 2px; }
 .wind-model-row { margin-bottom: 10px; }
+.timeline-mode-row { margin-bottom: 8px; }
 /* Observed-vs-forecast divergence callout (user report: headline said 18.7 kt observed
    while the forecast curve read 14 — nothing bridged the two). Yellow because it's
    cautionary: the live reading is running hotter than the model. */
@@ -367,7 +372,7 @@ th { color: var(--ink-dim); font-weight: 600; }
 .collapsible-body { margin-top: 10px; }
 pre#marineTextContent { white-space: pre-wrap; font-family: inherit; font-size: 13px; margin: 0; }
 
-.marine-subtitle { margin: -4px 0 10px; max-width: 60ch; }
+.marine-subtitle { margin: 4px 0 12px; max-width: 60ch; }
 .info-toggle {
   background: none; border: 1px solid var(--border); border-radius: 999px; color: var(--ink-dim);
   font-size: 11px; padding: 3px 10px; cursor: pointer; margin-bottom: 10px;
@@ -728,10 +733,14 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
 
   <section class="card" id="timelineCard">
     <h2>Current &amp; Water Level</h2>
+    <div class="chip-row timeline-mode-row" id="timelineModeRow">
+      <button type="button" class="chip" data-mode="current">Current only</button>
+      <button type="button" class="chip" data-mode="both">Current + level</button>
+    </div>
     <div class="svg-wrap" id="timelineSvgWrap"></div>
     <div class="chart-legend" id="timelineLegend">
       <span><span class="swatch swatch-current"></span>current</span>
-      <span><span class="swatch swatch-pred"></span>predicted level</span>
+      <span class="hidden" id="timelineLegendPred"><span class="swatch swatch-pred"></span>predicted level</span>
       <span class="hidden" id="timelineLegendObs"><span class="swatch swatch-obs"></span>observed level</span>
     </div>
     <div class="chart-footnote hidden" id="timelineObsFootnote">Observed level appears once the window includes elapsed time.</div>
@@ -839,9 +848,9 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
   </section>
 
   <section class="card" id="marineTextCard">
-    <button class="collapsible-header" id="marineTextToggle">Marine Forecast <span class="chev">&#9662;</span></button>
+    <button class="collapsible-header open" id="marineTextToggle">Marine Forecast <span class="chev">&#9662;</span></button>
     <p class="sub marine-subtitle">NWS forecaster-written outlook for the whole NY Harbor zone (ANZ338) &mdash; the product behind VHF broadcasts and Small Craft Advisories. Coarser than the hourly widgets but adds wave heights; use it to pick a sail day, the hourly cards to tune the window.</p>
-    <div class="collapsible-body hidden" id="marineTextBody">
+    <div class="collapsible-body" id="marineTextBody">
       <button type="button" class="info-toggle" id="marineInfoToggle">&#9432; What do the row colors mean?</button>
       <div class="marine-info-block hidden" id="marineInfoBlock">
         <p>Wind cells are colored against your Settings wind limits, by SUSTAINED wind only: green is under the reef band, yellow is inside/above the reef band, red is past your no-go sustained OR gust threshold. A dotted "gusty" flag on a value means the gust is running 8+ kt above sustained &mdash; informational only, it never changes the cell color.</p>
@@ -2716,6 +2725,11 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   function x(ms) { return padL + (ms - domStart) / (domEnd - domStart) * (W - padL - padR); }
   function xToMs(px) { return domStart + (px - padL) / (W - padL - padR) * (domEnd - domStart); }
 
+  // 'current' (default) hides the water-level series entirely — for a mooring sail the
+  // level curves/H-L markers are anchoring info that crowded the tooltip and chart (user
+  // feedback); 'both' restores the dual-axis view. Toggled by the card's chip row.
+  var showLevel = (state.timelineMode || 'current') === 'both';
+
   var ptsInDomain = curvePoints.filter(function (p) { return p.ms >= domStart && p.ms <= domEnd; });
   var maxAbs = 1;
   ptsInDomain.forEach(function (p) { maxAbs = Math.max(maxAbs, Math.abs(p.v)); });
@@ -2775,8 +2789,8 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   // Item 2a: both level lines are solid now (the dash on predicted read as "uncertain" to
   // users and was confusable with the window-tick guide dashes) — thin muted blue for
   // predicted, a touch thicker purple for observed, current stays the thick/dominant curve.
-  var predPath = predInDomain.length ? '<path d="' + levelPathD(predInDomain) + '" fill="none" stroke="' + levelPredColor + '" stroke-width="1.5"/>' : '';
-  var obsPath = obsInDomain.length ? '<path d="' + levelPathD(obsInDomain) + '" fill="none" stroke="' + levelObsColor + '" stroke-width="2"/>' : '';
+  var predPath = (showLevel && predInDomain.length) ? '<path d="' + levelPathD(predInDomain) + '" fill="none" stroke="' + levelPredColor + '" stroke-width="1.5"/>' : '';
+  var obsPath = (showLevel && obsInDomain.length) ? '<path d="' + levelPathD(obsInDomain) + '" fill="none" stroke="' + levelObsColor + '" stroke-width="2"/>' : '';
 
   var winX1 = x(clamp(departureMs, domStart, domEnd));
   var winX2 = x(clamp(returnMs, domStart, domEnd));
@@ -2826,7 +2840,7 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   // they never sit on the level curve or collide with each other when highs/lows are close.
   var botBandBaseY = H - padB - 6;
   var botBandRowDy = 10;
-  var hiloLabelItems = (hiloEvents || []).filter(function (e) { return e.ms >= domStart && e.ms <= domEnd; }).map(function (e) {
+  var hiloLabelItems = (showLevel ? (hiloEvents || []) : []).filter(function (e) { return e.ms >= domStart && e.ms <= domEnd; }).map(function (e) {
     return { x: x(e.ms), markerY: yLvl(e.v), text: (e.type === 'H' ? 'H ' : 'L ') + fmtTime(e.ms) + ' · ' + e.v.toFixed(1) + ' ft' };
   });
   layoutBandLabels(hiloLabelItems, botBandRowDy);
@@ -2857,10 +2871,10 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   }
 
   // Item 2c: small unit hints in the top corners — "kt" over the current curve's side, "ft"
-  // over the level curves' side — so the two overlaid y-scales aren't left unlabeled.
+  // over the level curves' side (level side only when the level series are shown at all).
   var unitLabels =
     '<text x="' + padL + '" y="' + (padT - 4) + '" font-size="9" text-anchor="start" fill="' + inkDim + '" opacity="0.75">kt</text>' +
-    '<text x="' + (W - padR).toFixed(1) + '" y="' + (padT - 4) + '" font-size="9" text-anchor="end" fill="' + inkDim + '" opacity="0.75">ft</text>';
+    (showLevel ? '<text x="' + (W - padR).toFixed(1) + '" y="' + (padT - 4) + '" font-size="9" text-anchor="end" fill="' + inkDim + '" opacity="0.75">ft</text>' : '');
   // Numeric ticks for both y-scales (axes were otherwise unlabeled — values only surfaced
   // via scrubbing): current kt in the left margin mirrored around the slack line, water
   // level ft in the right margin.
@@ -2870,9 +2884,11 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
       '<text x="' + (padL - 4) + '" y="' + (yCur(cv) + 3).toFixed(1) + '" font-size="8.5" text-anchor="end" fill="' + inkDim + '" opacity="0.8">' + cv + '</text>' +
       '<text x="' + (padL - 4) + '" y="' + (yCur(-cv) + 3).toFixed(1) + '" font-size="8.5" text-anchor="end" fill="' + inkDim + '" opacity="0.8">-' + cv + '</text>';
   }
-  var lvlTickStep = Math.max(1, Math.round((levelMax - levelMin) / 3));
-  for (var lv = Math.ceil(levelMin); lv <= Math.floor(levelMax); lv += lvlTickStep) {
-    unitLabels += '<text x="' + (W - padR + 4).toFixed(1) + '" y="' + (yLvl(lv) + 3).toFixed(1) + '" font-size="8.5" text-anchor="start" fill="' + inkDim + '" opacity="0.8">' + lv + '</text>';
+  if (showLevel) {
+    var lvlTickStep = Math.max(1, Math.round((levelMax - levelMin) / 3));
+    for (var lv = Math.ceil(levelMin); lv <= Math.floor(levelMax); lv += lvlTickStep) {
+      unitLabels += '<text x="' + (W - padR + 4).toFixed(1) + '" y="' + (yLvl(lv) + 3).toFixed(1) + '" font-size="8.5" text-anchor="start" fill="' + inkDim + '" opacity="0.8">' + lv + '</text>';
+    }
   }
 
   var svg =
@@ -2891,27 +2907,32 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   // Item 2b: the "observed level" legend entry (and its purple swatch) only make sense once
   // there's actually an observed sample to show — obsInDomain is already filtered to
   // p.ms <= nowMs, so an empty array here means the whole window is still in the future.
+  // Both level legend entries (and the obs footnote) disappear entirely in current-only mode.
   var hasObs = obsInDomain.length > 0;
-  var legendObsEl = $('timelineLegendObs'), obsFootnoteEl = $('timelineObsFootnote');
-  if (legendObsEl) legendObsEl.classList.toggle('hidden', !hasObs);
-  if (obsFootnoteEl) obsFootnoteEl.classList.toggle('hidden', hasObs);
+  var legendPredEl = $('timelineLegendPred'), legendObsEl = $('timelineLegendObs'), obsFootnoteEl = $('timelineObsFootnote');
+  if (legendPredEl) legendPredEl.classList.toggle('hidden', !showLevel);
+  if (legendObsEl) legendObsEl.classList.toggle('hidden', !hasObs || !showLevel);
+  if (obsFootnoteEl) obsFootnoteEl.classList.toggle('hidden', hasObs || !showLevel);
 
   var svgEl = wrapEl.querySelector('svg');
   if (svgEl) {
     attachChartScrub(svgEl, xToMs, function (ms) {
       var vCur = currentVelocityAt(curvePoints, ms);
-      var vPred = levelValueAt(levelPredictedPoints, ms);
+      // Level lines only join the tooltip in current+level mode, labeled as "Level" so
+      // they can't be misread as current values (user feedback: the ft lines read like the
+      // main content when it's the kt line that drives the float plan).
+      var vPred = showLevel ? levelValueAt(levelPredictedPoints, ms) : null;
       // Observed only exists in the past — don't let levelValueAt clamp-extend it into the
       // future, which would pin a stale dot ahead of the last real sample.
-      var vObs = ms <= nowMs ? levelValueAt(levelObservedPoints, ms) : null;
+      var vObs = (showLevel && ms <= nowMs) ? levelValueAt(levelObservedPoints, ms) : null;
       if (vCur == null && vPred == null && vObs == null) return null;
       var curState = classifyCurrent(vCur);
       var phaseWord = curState === 'unknown' ? '' : (curState.charAt(0).toUpperCase() + curState.slice(1));
       var rows = [];
       rows.push('<div class="scrub-time">' + escapeHtml(fmtTime(ms)) + '</div>');
-      if (vCur != null) rows.push('<div>' + escapeHtml(phaseWord) + ' ' + round1(Math.abs(vCur)) + ' kt</div>');
-      if (vPred != null) rows.push('<div>Predicted ' + vPred.toFixed(1) + ' ft</div>');
-      if (vObs != null) rows.push('<div>Observed ' + vObs.toFixed(1) + ' ft</div>');
+      if (vCur != null) rows.push('<div>' + escapeHtml(phaseWord) + ' ' + round1(Math.abs(vCur)) + ' kt' + (vCur !== 0 ? (vCur > 0 ? ' (N)' : ' (S)') : '') + '</div>');
+      if (vPred != null) rows.push('<div>Level ' + vPred.toFixed(1) + ' ft (pred)</div>');
+      if (vObs != null) rows.push('<div>Level ' + vObs.toFixed(1) + ' ft (obs)</div>');
       // Pin a dot on each curve where the scrub line crosses it, matching each series'
       // color (user report: the vertical line gave numbers but nothing marked WHERE on the
       // curves those numbers live).
@@ -2923,6 +2944,23 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
       return { html: rows.join(''), dots: dots };
     });
   }
+}
+
+/* ============================== Timeline card mode (current vs current+level) ========= */
+
+function updateTimelineModeChipActive() {
+  var row = $('timelineModeRow');
+  if (!row) return;
+  row.querySelectorAll('.chip').forEach(function (chip) {
+    chip.classList.toggle('active', chip.dataset.mode === (state.timelineMode || 'current'));
+  });
+}
+// Re-renders just the timeline chart from state — the mode chips shouldn't pay for a full
+// recomputeWindowDependentUI pass (mirrors rerenderWindCard for the wind model chips).
+function rerenderTimelineCard() {
+  if (!state.departureMs || !state.settings) return;
+  renderTimelineSvg(state.curvePoints || [], state.slackEvents || [], state.levelPredictedPoints,
+    state.levelObservedPoints, state.hiloEvents, state.departureMs, getReturnMs(), Date.now());
 }
 
 /* ============================== Sail simulator rendering ============================== */
@@ -7004,6 +7042,21 @@ function init() {
   // model chips above. Switching modes swaps the frame list and forces a fresh health-check
   // (setRadarMode -> loadRadarData(true)); it does not touch the base map layer, marker,
   // recenter control, or warning-polygon overlay, which stay mode-agnostic.
+  // Timeline card mode: 'current' (default — speed is what drives the float plan from a
+  // mooring; level is anchoring info) or 'both' for the dual-axis view.
+  state.timelineMode = lsGetJSON('timelineMode', 'current');
+  if (state.timelineMode !== 'current' && state.timelineMode !== 'both') state.timelineMode = 'current';
+  updateTimelineModeChipActive();
+  document.querySelectorAll('#timelineModeRow .chip').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      if (chip.dataset.mode === state.timelineMode) return;
+      state.timelineMode = chip.dataset.mode;
+      lsSetJSON('timelineMode', state.timelineMode);
+      updateTimelineModeChipActive();
+      rerenderTimelineCard();
+    });
+  });
+
   radarState.mode = lsGetJSON('radarMode', 'live');
   updateRadarModeChipActive();
   if (radarState.mode === 'forecast') showEl($('radarForecastCaption')); else hideEl($('radarForecastCaption'));
