@@ -356,8 +356,9 @@ th { color: var(--ink-dim); font-weight: 600; }
 .weather-headline { font-size: 17px; line-height: 1.35; font-weight: 680; color: var(--ink); margin: 0 0 5px; }
 .weather-headline .wx-alert { color: var(--red); font-weight: 700; }
 .weather-summary { font-size: 13px; line-height: 1.45; color: var(--ink-dim); margin: 0 0 16px; }
+.weather-summary:empty { display: none; }
 .weather-strip {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
   gap: 0; overflow-x: auto; padding: 0 0 4px; margin: 0 -4px;
 }
 .weather-item {
@@ -389,6 +390,30 @@ th { color: var(--ink-dim); font-weight: 600; }
   content: 'SAIL'; position: absolute; top: -16px; left: 4px;
   color: var(--accent); font-size: 8px; font-weight: 750; letter-spacing: 0.08em;
 }
+.weather-strip.weather-strip-focused {
+  display: flex; flex-direction: column; gap: 6px; overflow: visible;
+  margin: 2px 0 0; padding: 0;
+}
+.weather-strip-focused .weather-item {
+  display: grid; grid-template-columns: 68px 28px minmax(120px, 1fr) auto;
+  align-items: center; gap: 10px; min-width: 0; padding: 10px 12px;
+  text-align: left; border: 1px solid var(--border); border-radius: 10px;
+}
+.weather-strip-focused .weather-item + .weather-item { border-left: 1px solid var(--border); }
+.weather-strip-focused .weather-item.in-window {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.weather-strip-focused .weather-item.sail-start::before { content: none; }
+.weather-strip-focused .wi-time { margin: 0; font-variant-numeric: tabular-nums; }
+.weather-strip-focused .weather-icon { margin: 0; }
+.wi-focus-condition { min-width: 0; }
+.wi-focus-condition strong { display: block; color: var(--ink); font-size: 12.5px; line-height: 1.3; }
+.wi-focus-condition span { display: block; margin-top: 1px; color: var(--ink-dim); font-size: 10px; }
+.wi-focus-stats { display: flex; justify-content: flex-end; gap: 14px; min-width: 0; }
+.wi-focus-stat { min-width: 46px; font-variant-numeric: tabular-nums; }
+.wi-focus-stat span { display: block; color: var(--ink-dim); font-size: 9px; line-height: 1.2; text-transform: uppercase; letter-spacing: 0.04em; }
+.wi-focus-stat strong { display: block; margin-top: 2px; color: var(--ink); font-size: 12px; line-height: 1.25; white-space: nowrap; }
 .weather-details-toggle {
   display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; padding: 4px 0;
   border: 0; background: transparent; color: var(--ink-dim); cursor: pointer;
@@ -399,6 +424,14 @@ th { color: var(--ink-dim); font-weight: 600; }
 @media (max-width: 520px) {
   .weather-strip { display: flex; }
   .weather-item { flex: 0 0 72px; }
+  .weather-strip.weather-strip-focused { display: flex; }
+  .weather-strip-focused .weather-item {
+    flex: 1 1 auto; width: 100%; grid-template-columns: 58px 26px minmax(0, 1fr);
+  }
+  .weather-strip-focused .wi-focus-stats {
+    grid-column: 1 / -1; justify-content: flex-start; gap: 12px;
+    padding-top: 7px; border-top: 1px solid var(--border);
+  }
 }
 
 .weather-chip-row { margin-top: 10px; }
@@ -5061,7 +5094,13 @@ function renderWeatherChart(rows, domStart, domEnd, departureMs, returnMs, nowMs
 
 function renderWeatherScroller(rows, departureMs, returnMs) {
   var el = $('weatherScroller');
-  if (!rows.length) { el.innerHTML = '<p class="sub">No hourly forecast periods in window.</p>'; return; }
+  if (!rows.length) {
+    el.classList.remove('weather-strip-focused');
+    el.innerHTML = '<p class="sub">No hourly forecast periods in window.</p>';
+    return;
+  }
+  var focused = rows.length <= 2;
+  el.classList.toggle('weather-strip-focused', focused);
   var sawWindow = false;
   el.innerHTML = rows.map(function (r) {
     var inWindow = rowOverlapsWindow(r, departureMs, returnMs);
@@ -5070,6 +5109,30 @@ function renderWeatherScroller(rows, departureMs, returnMs) {
     var popHtml = r.pop != null ? '<div class="wi-pop' + (r.pop > 0 ? ' wi-pop-active' : '') + '">' + r.pop + '%</div>' : '';
     var cls = 'weather-item' + (r.isThunder ? ' weather-item-thunder' : '') +
       (inWindow ? ' in-window' : '') + (isSailStart ? ' sail-start' : '');
+    if (focused) {
+      var focusStats = [];
+      focusStats.push('<div class="wi-focus-stat"><span>Temp</span><strong>' +
+        (r.tempF != null ? Math.round(r.tempF) + '°' : '--') + '</strong></div>');
+      if (r.apparentTempF != null && (r.tempF == null || Math.abs(r.apparentTempF - r.tempF) >= 1)) {
+        focusStats.push('<div class="wi-focus-stat"><span>Feels</span><strong>' + Math.round(r.apparentTempF) + '°</strong></div>');
+      }
+      focusStats.push('<div class="wi-focus-stat"><span>Precip</span><strong>' +
+        (r.pop != null ? r.pop + '%' : '--') + '</strong></div>');
+      if (r.humidity != null) {
+        focusStats.push('<div class="wi-focus-stat"><span>Humidity</span><strong>' + Math.round(r.humidity) + '%</strong></div>');
+      }
+      if (r.sustainedKt != null) {
+        var windDir = r.dirText || (r.dirDeg != null ? degToCompass(r.dirDeg) : '');
+        focusStats.push('<div class="wi-focus-stat"><span>Wind</span><strong>' +
+          escapeHtml((windDir ? windDir + ' ' : '') + Math.round(r.sustainedKt) + ' kt') + '</strong></div>');
+      }
+      return '<div class="' + cls + '">' +
+        '<div class="wi-time">' + escapeHtml(fmtTime(r.ms)) + '</div>' +
+        weatherIconSvg(r.tag, 24) +
+        '<div class="wi-focus-condition"><strong>' + escapeHtml(r.shortForecast || 'Forecast') + '</strong>' +
+          '<span>' + (inWindow ? 'During sail window' : 'Near sail window') + '</span></div>' +
+        '<div class="wi-focus-stats">' + focusStats.join('') + '</div></div>';
+    }
     return '<div class="' + cls + '">' +
       '<div class="wi-time">' + escapeHtml(fmtTime(r.ms)) + '</div>' +
       weatherIconSvg(r.tag, 24) +
@@ -5158,7 +5221,10 @@ function renderWeatherCard(hourlyPeriods, gridSeries, departureMs, returnMs, lim
 
   var sunEvents = sunEventsInRange(domStart, domEnd);
   $('weatherHeadline').innerHTML = composeWeatherHeadline(rows, departureMs, returnMs, sunEvents);
-  setText('weatherSummary', composeWeatherSummary(rows, sunEvents));
+  // One or two hours are rendered as complete condition rows below. Repeating the same
+  // condition and wind sentence above them wastes space and makes the compact state feel
+  // unfinished, so reserve the prose summary for the normal multi-hour strip.
+  setText('weatherSummary', rows.length <= 2 ? '' : composeWeatherSummary(rows, sunEvents));
   renderWeatherScroller(rows, departureMs, returnMs);
   renderWeatherMetricStrip(rows, limits || DEFAULT_LIMITS, departureMs, returnMs);
 }
