@@ -525,9 +525,13 @@ pre#marineTextContent { white-space: pre-wrap; font-family: inherit; font-size: 
 .marine-table th:nth-child(3) { width: 29%; }
 .marine-table th:nth-child(4) { width: 20%; }
 .marine-table .marine-wind-cell { padding: 0; }
+.marine-wind-sequence { display: grid; }
 .marine-wind-status {
   min-height: 0; display: flex; align-items: flex-start; gap: 8px; line-height: 1.4;
   padding: 9px 10px; border: 0; border-radius: 0;
+}
+.marine-wind-status + .marine-wind-status {
+  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
 }
 .marine-wind-status .metric-arrow {
   display: block; flex: 0 0 14px; margin: 2px 0 0; vertical-align: baseline;
@@ -5522,17 +5526,14 @@ function renderMarineSummaryTable(parsed, limits) {
   }
   var rowsHtml = parsed.periods.map(function (p) {
     var windRows = p.windRows.length ? p.windRows : [{ direction: null }];
-    var span = windRows.length;
-    return windRows.map(function (w, i) {
-      var cells = (i === 0) ? '<td rowspan="' + span + '">' + escapeHtml(p.name) + '</td>' : '';
+    var windPhasesHtml = windRows.map(function (w) {
       var cls = (w && w.direction != null) ? windCellClass(w.max, w.gustKt, limits) : '';
-      cells += '<td class="marine-wind-cell"><div class="marine-wind-status ' + cls + '">' + windRowLabelHtml(w) + '</div></td>';
-      if (i === 0) {
-        cells += '<td rowspan="' + span + '">' + (p.wavesText ? escapeHtml(p.wavesText) : '--') + '</td>';
-        cells += '<td rowspan="' + span + '">' + hazardChipsHtml(p.hazards) + '</td>';
-      }
-      return '<tr>' + cells + '</tr>';
+      return '<div class="marine-wind-status ' + cls + '">' + windRowLabelHtml(w) + '</div>';
     }).join('');
+    return '<tr><td>' + escapeHtml(p.name) + '</td>' +
+      '<td class="marine-wind-cell"><div class="marine-wind-sequence">' + windPhasesHtml + '</div></td>' +
+      '<td>' + (p.wavesText ? escapeHtml(p.wavesText) : '--') + '</td>' +
+      '<td>' + hazardChipsHtml(p.hazards) + '</td></tr>';
   }).join('');
 
   wrap.innerHTML = '<table class="marine-table"><thead><tr><th>Period</th><th>Wind</th><th>Waves</th><th>Hazards</th></tr></thead>' +
