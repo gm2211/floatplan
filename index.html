@@ -497,7 +497,6 @@ th { color: var(--ink-dim); font-weight: 600; }
   font-size: 11px;
   line-height: 1.45;
 }
-.radar-layer-status[data-tone="ok"] { color: var(--green); }
 .radar-layer-status[data-tone="warn"] { color: var(--orange); }
 .radar-forecast-caption { font-size: 11px; color: var(--ink-dim); margin-top: 6px; }
 .radar-fallback img { display: block; margin-top: 8px; border-radius: 8px; }
@@ -5948,6 +5947,7 @@ function setRadarLayerStatus(message, tone) {
   var el = $('radarLayerStatus');
   if (!el) return;
   el.textContent = message || '';
+  el.classList.toggle('hidden', !message);
   if (tone) el.setAttribute('data-tone', tone); else el.removeAttribute('data-tone');
 }
 
@@ -6128,10 +6128,8 @@ function showRadarFrame(idx) {
     hideEl($('radarError'));
     if (failedTiles) {
       setRadarLayerStatus('Radar loaded with ' + failedTiles + ' missing tile' + (failedTiles === 1 ? '' : 's') + '.', 'warn');
-    } else if (isForecast) {
-      setRadarLayerStatus(radarState.frames.length + ' radar frames loaded · clear areas are transparent.', 'ok');
     } else {
-      setRadarLayerStatus('Live NEXRAD scan loaded · clear areas are transparent.', 'ok');
+      setRadarLayerStatus('');
     }
   });
   radarState.currentLayer = layer.addTo(radarState.map);
