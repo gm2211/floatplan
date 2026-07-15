@@ -474,11 +474,15 @@ th { color: var(--ink-dim); font-weight: 600; }
   width: 100%; height: 300px; max-height: 420px; border-radius: 10px; overflow: hidden;
   border: 1px solid var(--border); isolation: isolate;
 }
-/* Fixes thin light seam lines at tile-column boundaries: Leaflet's default container
-   background is light and bleeds through sub-pixel gaps between adjacent base tiles.
-   A dark, theme-aware inset background makes any such gap invisible instead of a stray
-   light line across the map. */
-.radar-map .leaflet-container { background: var(--bg-inset, #0b1622); }
+/* Leaflet adds .leaflet-container to #radarMap itself, not to a child. Match the same
+   element so its default #ddd background cannot bleed through sub-pixel tile gaps.
+   Overlap only the opaque CARTO base tiles: radar tiles are transparent and may be
+   overzoomed from maxNativeZoom, which would magnify a fixed overlap. */
+.radar-map.leaflet-container { background: var(--bg-inset, #0b1622); }
+.radar-map .radar-base-tiles .leaflet-tile {
+  width: 257px !important;
+  height: 257px !important;
+}
 .radar-map .leaflet-control-recenter button {
   width: 30px; height: 30px; padding: 0; border: 0; border-radius: 2px;
   background: var(--card); color: var(--ink); font: 18px/30px system-ui, sans-serif;
@@ -6014,6 +6018,7 @@ function addBaseTileLayer() {
   if (radarState.baseLayer) radarState.map.removeLayer(radarState.baseLayer);
   radarState.baseLayer = L.tileLayer(url, {
     attribution: '&copy; OpenStreetMap contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    className: 'radar-base-tiles',
     maxZoom: 18
   }).addTo(radarState.map);
 }
