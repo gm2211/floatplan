@@ -294,19 +294,17 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
    row underneath (item 1d) so the scrubber gets the whole card's width instead of being
    squeezed into the narrow readouts column. */
 .sailsim-body { display: flex; flex-direction: column; gap: 12px; }
-.sailsim-top { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
-/* Strip's CSS width now matches its SVG viewBox width 1:1 (see SAIL_STRIP_VIEW_W) so a
-   viewBox font-size renders at that many real physical px — no more scale-factor fudging. */
-.sailsim-strip-wrap { flex: 0 0 200px; width: 200px; min-width: 200px; }
+.sailsim-top { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+.sailsim-strip-wrap { flex: 1 1 360px; min-width: 300px; max-width: 480px; }
 .sailsim-strip-wrap svg { width: 100%; height: auto; display: block; }
 .sailsim-readouts {
-  flex: 1 1 200px; min-width: 180px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px;
+  flex: 1 1 320px; min-width: 260px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px 22px;
   align-content: start;
 }
-.sailsim-readout-row { border-bottom: 1px dashed var(--border); padding-bottom: 4px; }
+.sailsim-readout-row { border-bottom: 1px dashed var(--border); padding-bottom: 8px; }
 .sailsim-readout-row--full { grid-column: 1 / -1; }
-.sailsim-readout-label { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-dim); }
-.sailsim-readout-value { display: block; font-size: 13px; font-weight: 600; }
+.sailsim-readout-label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-dim); }
+.sailsim-readout-value { display: block; margin-top: 2px; font-size: 14px; line-height: 1.35; font-weight: 650; }
 .sailsim-controls { display: flex; align-items: center; gap: 8px; width: 100%; flex-wrap: wrap; }
 .sailsim-controls input[type="range"] { flex: 1 1 140px; min-width: 100px; }
 .sailsim-controls input[type="range"]:disabled { opacity: 0.5; }
@@ -1033,9 +1031,9 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       </div>
       <div class="sailsim-warning hidden" id="sailSimWarning"></div>
     </div>
-    <div class="chart-footnote">Conservative harbor estimate: forecast wind is reduced for Manhattan wind shadow, then adjusted for point of sail and current. T/J markers show ideal tacks and jibes; the boat returns 15 minutes before the window ends and never sails past Robbins Reef. Planning approximation, not navigation.</div>
+    <div class="chart-footnote">Conservative harbor estimate: each leg uses forecast wind direction and speed, a harbor-adjusted polar, sailed heading, current, cross-track limits, and time lost in tacks or jibes. T/J marks each computed maneuver; a feasible direct reach stays straight. The boat returns 15 minutes before the window ends and never sails past Robbins Reef. Planning approximation, not navigation.</div>
     <div class="card-error hidden" id="sailSimError"></div>
-    <div class="source-links"><span class="computed-source">Simulation inputs</span><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS wind</a><a id="srcSailSimCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA currents</a></div>
+    <div class="source-links"><span class="computed-source">Simulation inputs</span><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS wind</a><a id="srcSailSimCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA currents</a><a href="https://www.ussailing.org/wp-content/uploads/2018/01/Speed-Guide-Explanation.pdf" target="_blank" rel="noopener noreferrer">US Sailing speed guide</a></div>
   </section>
 
   <section class="card" id="windCard">
@@ -2269,7 +2267,7 @@ var SAIL_LAT_MIN = 40.60, SAIL_LAT_MAX = 40.86;
 var SAIL_COURSE_BEARING_N = 11, SAIL_COURSE_BEARING_S = 183;
 var SAIL_BEATING_THRESHOLD_DEG = 50;
 var SAIL_RUNNING_THRESHOLD_DEG = 150;
-var SAIL_STEP_MS = 5 * 60000;
+var SAIL_STEP_MS = 60000;
 var SAIL_TURN_TOL_MIN = 2;
 var NM_PER_DEG_LAT = 60;
 // Solve the turn-around so the boat is back on the mooring this long BEFORE the window
@@ -2294,8 +2292,16 @@ var SAIL_LANDMARK_PROXIMITY_NM = 0.8;
 // multi-hour sail window it made playback take many real MINUTES to finish, which read as
 // "the boat isn't moving" even though atMs was, in fact, still advancing every frame.
 var SAIL_PLAYBACK_TARGET_S = 14;
-var SAIL_TACK_INTERVAL_MS = 20 * 60000;
-var SAIL_JIBE_INTERVAL_MS = 30 * 60000;
+var SAIL_TACK_MIN_LEG_MS = 7 * 60000;
+var SAIL_TACK_MAX_LEG_MS = 18 * 60000;
+var SAIL_JIBE_MIN_LEG_MS = 10 * 60000;
+var SAIL_JIBE_MAX_LEG_MS = 26 * 60000;
+var SAIL_TACK_CORRIDOR_NM = 0.20;
+var SAIL_JIBE_CORRIDOR_NM = 0.28;
+var SAIL_CLOSE_HAULED_DEG = 47;
+var SAIL_BROAD_REACH_DEG = 28;
+var SAIL_TACK_LOSS_FACTOR = 0.28;
+var SAIL_JIBE_LOSS_FACTOR = 0.42;
 var SAIL_SOUTH_LIMIT_LAT = 40.657;
 
 // Nearest-value fallback over an expandSeries()-shaped array: tries the exact valueAtMs()
@@ -2356,17 +2362,45 @@ function pointOfSail(windFromDeg, courseBearingDeg) {
     : 0.88 - (angle - 95) / (SAIL_RUNNING_THRESHOLD_DEG - 95) * 0.16;
   return { type: 'reach', factor: clamp(reachFactor, 0.70, 0.88), angle: angle };
 }
-function maneuverSide(type, atMs, legStartMs) {
-  if (type !== 'tack' && type !== 'jibe') return 0;
-  var interval = type === 'tack' ? SAIL_TACK_INTERVAL_MS : SAIL_JIBE_INTERVAL_MS;
-  return Math.floor((atMs - legStartMs) / interval) % 2 === 0 ? -1 : 1;
+function normalizeBearing(deg) { return ((deg % 360) + 360) % 360; }
+function signedBearingDelta(fromDeg, toDeg) {
+  return ((normalizeBearing(toDeg) - normalizeBearing(fromDeg) + 540) % 360) - 180;
 }
-function sailingSample(atMs, legStartMs, lat, headingSign, windDirSeries, windSpeedSeries, maxBoatKt) {
+
+// Returns an actual sailed heading, not just a discounted speed on the river axis. When the
+// desired river course lies in the no-go zone, the two candidates are close-hauled headings;
+// when it is nearly dead downwind, they are broad reaches. `side` selects the candidate to
+// port/starboard of the desired course, so integrating its lateral component produces the
+// visible tack/jibe track.
+function sailedHeading(windFromDeg, desiredBearingDeg, courseType, side) {
+  if (windFromDeg == null || !isFinite(windFromDeg) || courseType === 'reach') return desiredBearingDeg;
+  var base = courseType === 'tack' ? windFromDeg : windFromDeg + 180;
+  var offset = courseType === 'tack' ? SAIL_CLOSE_HAULED_DEG : SAIL_BROAD_REACH_DEG;
+  var candidates = [normalizeBearing(base - offset), normalizeBearing(base + offset)];
+  candidates.sort(function (a, b) {
+    return signedBearingDelta(desiredBearingDeg, a) - signedBearingDelta(desiredBearingDeg, b);
+  });
+  return side < 0 ? candidates[0] : candidates[1];
+}
+
+function sailingSample(atMs, lat, headingSign, side, windDirSeries, windSpeedSeries, maxBoatKt, maneuvering) {
   var windDir = nearestSeriesValue(windDirSeries, atMs);
   var windKt = nearestSeriesValue(windSpeedSeries, atMs);
-  var pos = pointOfSail(windDir, courseBearingForHeading(headingSign));
-  var vmg = maxBoatKt * windPowerFactor(windKt) * harborWindFactor(lat) * pos.factor;
-  return { vmg: vmg, courseType: pos.type, side: maneuverSide(pos.type, atMs, legStartMs), windKt: windKt, mode: 'sail' };
+  var desiredBearing = courseBearingForHeading(headingSign);
+  var pos = pointOfSail(windDir, desiredBearing);
+  var activeSide = (pos.type === 'tack' || pos.type === 'jibe') ? (side || -1) : 0;
+  var headingDeg = sailedHeading(windDir, desiredBearing, pos.type, activeSide);
+  var deltaRad = signedBearingDelta(desiredBearing, headingDeg) * Math.PI / 180;
+  var polarFactor = pos.type === 'tack' ? 0.76 : (pos.type === 'jibe' ? 0.82 : pos.factor);
+  var throughWaterKt = maxBoatKt * windPowerFactor(windKt) * harborWindFactor(lat) * polarFactor;
+  if (maneuvering) throughWaterKt *= pos.type === 'tack' ? SAIL_TACK_LOSS_FACTOR : SAIL_JIBE_LOSS_FACTOR;
+  var vmg = Math.max(0, throughWaterKt * Math.cos(deltaRad));
+  var lateralKt = throughWaterKt * Math.sin(deltaRad);
+  return {
+    vmg: vmg, lateralKt: lateralKt, throughWaterKt: throughWaterKt,
+    courseType: pos.type, side: activeSide, windKt: windKt, windDir: windDir,
+    headingDeg: headingDeg, desiredBearing: desiredBearing, mode: 'sail'
+  };
 }
 
 // SOG convention matches current: signed kt, north-positive.
@@ -2390,33 +2424,79 @@ function nearestLandmark(lat) {
 // caller passes as the motor speed in that case) with no sailing penalty and a straight
 // track — used for the pre-motor "motor first leg" sail-sim toggle. Each path point carries
 // `mode` ('motor'/'sail') so the renderer can draw a visually distinct dashed wake.
-function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, windDirSeries, windSpeedSeries, boatSpeedKt, stepMs, motor) {
-  function sample(atMs, lat) {
-    if (motor) return { vmg: boatSpeedKt, courseType: 'motor', side: 0, mode: 'motor' };
-    return sailingSample(atMs, startMs, lat, headingSign, windDirSeries, windSpeedSeries, boatSpeedKt);
+function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, windDirSeries, windSpeedSeries, boatSpeedKt, stepMs, motor, startCrossNm, endCrossNm) {
+  var desiredBearing = courseBearingForHeading(headingSign);
+  var crossNm = isFinite(startCrossNm) ? startCrossNm : 0;
+  var targetCrossNm = isFinite(endCrossNm) ? endCrossNm : 0;
+  var side = crossNm > targetCrossNm ? -1 : 1;
+  var lastManeuverMs = startMs;
+  var previousCourseType = null;
+
+  function sample(atMs, lat, maneuvering) {
+    if (motor) return { vmg: boatSpeedKt, lateralKt: 0, throughWaterKt: boatSpeedKt, courseType: 'motor', side: 0, headingDeg: desiredBearing, mode: 'motor' };
+    return sailingSample(atMs, lat, headingSign, side, windDirSeries, windSpeedSeries, boatSpeedKt, maneuvering);
   }
   // The leg's first point carries the instantaneous SOG/current/course state at startMs —
   // otherwise the sail-sim card's very first frame (rendered at departureMs, before any
   // playback) shows "--" for Current/SOG until the user hits play, even though a real
   // reading exists at that instant.
-  var s0 = sample(startMs, startLat);
+  var s0 = sample(startMs, startLat, false);
   var c0 = currentVelocityAt(curvePoints, startMs);
   var sog0 = sogAt(headingSign, s0.vmg, c0);
-  var path = [{ ms: startMs, lat: startLat, sog: sog0, c: c0, courseType: s0.courseType, side: s0.side, vmg: s0.vmg, mode: s0.mode }];
+  previousCourseType = s0.courseType;
+  var path = [{
+    ms: startMs, lat: startLat, crossNm: crossNm, sog: sog0, c: c0,
+    courseType: s0.courseType, side: s0.side, vmg: s0.vmg, lateralKt: s0.lateralKt,
+    throughWaterKt: s0.throughWaterKt, headingDeg: s0.headingDeg, maneuver: null, mode: s0.mode
+  }];
   if (endMs <= startMs) return path;
   var lat = startLat, t = startMs;
   while (t < endMs) {
     var dt = Math.min(stepMs, endMs - t);
     var midT = t + dt / 2;
-    var s = sample(midT, lat);
+    var probe = sample(midT, lat, false);
+    var maneuver = null;
+    if (!motor && (probe.courseType === 'tack' || probe.courseType === 'jibe')) {
+      var courseChanged = previousCourseType !== probe.courseType;
+      if (courseChanged) {
+        side = crossNm > targetCrossNm ? -1 : 1;
+        lastManeuverMs = t;
+        probe = sample(midT, lat, false);
+      }
+      var elapsed = midT - lastManeuverMs;
+      var corridor = probe.courseType === 'tack' ? SAIL_TACK_CORRIDOR_NM : SAIL_JIBE_CORRIDOR_NM;
+      var minLeg = probe.courseType === 'tack' ? SAIL_TACK_MIN_LEG_MS : SAIL_JIBE_MIN_LEG_MS;
+      var maxLeg = probe.courseType === 'tack' ? SAIL_TACK_MAX_LEG_MS : SAIL_JIBE_MAX_LEG_MS;
+      // The corridor narrows on a homebound leg so the last few legs converge on Pier 25
+      // instead of finishing an arbitrary fraction of a tack away from the mooring.
+      if (isFinite(endCrossNm)) {
+        var remainingFrac = clamp((endMs - midT) / (20 * 60000), 0.20, 1);
+        corridor *= remainingFrac;
+      }
+      var beyondEdge = (probe.lateralKt < 0 && crossNm <= targetCrossNm - corridor) ||
+        (probe.lateralKt > 0 && crossNm >= targetCrossNm + corridor);
+      if ((beyondEdge && elapsed >= minLeg) || elapsed >= maxLeg) {
+        side *= -1;
+        lastManeuverMs = midT;
+        maneuver = probe.courseType;
+        probe = sample(midT, lat, true);
+      }
+    }
+    previousCourseType = probe.courseType;
+    var s = probe;
     var c = currentVelocityAt(curvePoints, midT);
     var sog = sogAt(headingSign, s.vmg, c);
     var distNm = sog * (dt / 3600000);
     lat += distNm / NM_PER_DEG_LAT;
+    crossNm += s.lateralKt * (dt / 3600000);
     // Club boundary: never past Robbins Reef — hold at the line instead of continuing S.
     if (lat < SAIL_SOUTH_LIMIT_LAT) lat = SAIL_SOUTH_LIMIT_LAT;
     t += dt;
-    path.push({ ms: t, lat: lat, sog: sog, c: c, courseType: s.courseType, side: s.side, vmg: s.vmg, mode: s.mode });
+    path.push({
+      ms: t, lat: lat, crossNm: crossNm, sog: sog, c: c,
+      courseType: s.courseType, side: s.side, vmg: s.vmg, lateralKt: s.lateralKt,
+      throughWaterKt: s.throughWaterKt, headingDeg: s.headingDeg, maneuver: maneuver, mode: s.mode
+    });
   }
   return path;
 }
@@ -2426,9 +2506,11 @@ function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, windDir
 // always sails. Omitting these args reproduces the original all-sail round trip.
 function simulateRoundTrip(departureMs, returnMs, turnMs, startLat, headingSign, curvePoints, windDirSeries, windSpeedSeries, boatSpeedKt, stepMs, motorFirstLeg, motorSpeedKt) {
   var outSpeedKt = motorFirstLeg ? motorSpeedKt : boatSpeedKt;
-  var outPath = simulateLeg(departureMs, turnMs, startLat, headingSign, curvePoints, windDirSeries, windSpeedSeries, outSpeedKt, stepMs, !!motorFirstLeg);
+  var outPath = simulateLeg(departureMs, turnMs, startLat, headingSign, curvePoints, windDirSeries, windSpeedSeries, outSpeedKt, stepMs, !!motorFirstLeg, 0, null);
   var midLat = outPath.length ? outPath[outPath.length - 1].lat : startLat;
-  var inPath = simulateLeg(turnMs, returnMs, midLat, -headingSign, curvePoints, windDirSeries, windSpeedSeries, boatSpeedKt, stepMs, false);
+  var midCrossNm = outPath.length ? outPath[outPath.length - 1].crossNm : 0;
+  var inPath = simulateLeg(turnMs, returnMs, midLat, -headingSign, curvePoints, windDirSeries, windSpeedSeries, boatSpeedKt, stepMs, false, midCrossNm, 0);
+  if (inPath.length) inPath[inPath.length - 1].crossNm = 0;
   return { outPath: outPath, inPath: inPath, finalLat: inPath.length ? inPath[inPath.length - 1].lat : midLat };
 }
 
@@ -2492,15 +2574,19 @@ function furthestPointLabel(maxDistLat, maxDistNm) {
   return round1(maxDistNm) + ' nm ' + dir + ' · ' + sailAreaWordForLat(maxDistLat);
 }
 
-function buildHoldingPattern(startMs, endMs, limitLat, curvePoints, stepMs) {
+function buildHoldingPattern(startMs, endMs, limitLat, curvePoints, stepMs, startCrossNm) {
   var path = [], t = startMs, i = 0;
+  var baseCrossNm = isFinite(startCrossNm) ? startCrossNm : 0;
   while (t <= endMs) {
     var phase = i % 4;
     var offsetNm = phase === 0 ? 0 : (phase === 2 ? 0.10 : 0.05);
     var lat = limitLat + offsetNm / NM_PER_DEG_LAT; // always stay north of the boundary
+    var holdCrossNm = baseCrossNm + (phase === 1 ? -0.08 : (phase === 3 ? 0.08 : 0));
     path.push({
-      ms: t, lat: lat, sog: 0, c: currentVelocityAt(curvePoints, t), vmg: 0.8,
-      courseType: 'tack', side: phase < 2 ? -1 : 1, mode: 'hold'
+      ms: t, lat: lat, crossNm: holdCrossNm, sog: 0, c: currentVelocityAt(curvePoints, t), vmg: 0.8,
+      lateralKt: 0, throughWaterKt: 0.8, headingDeg: phase < 2 ? 270 : 90,
+      courseType: 'tack', side: phase < 2 ? -1 : 1,
+      maneuver: (phase === 0 && i > 0) ? 'tack' : null, mode: 'hold'
     });
     if (t === endMs) break;
     t = Math.min(endMs, t + stepMs);
@@ -2509,6 +2595,7 @@ function buildHoldingPattern(startMs, endMs, limitLat, curvePoints, stepMs) {
   if (path.length) {
     path[path.length - 1].lat = limitLat;
     path[path.length - 1].side = 0;
+    path[path.length - 1].crossNm = baseCrossNm;
   }
   return path;
 }
@@ -2527,7 +2614,7 @@ function applySouthLimitPlan(rt, returnMs, startLat, curvePoints, windDirSeries,
   var hit = Object.assign({}, rt.outPath[hitIdx], { lat: SAIL_SOUTH_LIMIT_LAT });
   var lo = hit.ms, hi = returnMs;
   function finalError(startMs) {
-    var leg = simulateLeg(startMs, returnMs, SAIL_SOUTH_LIMIT_LAT, 1, curvePoints, windDirSeries, windSpeedSeries, boatKt, stepMs, false);
+    var leg = simulateLeg(startMs, returnMs, SAIL_SOUTH_LIMIT_LAT, 1, curvePoints, windDirSeries, windSpeedSeries, boatKt, stepMs, false, hit.crossNm, 0);
     return leg[leg.length - 1].lat - startLat;
   }
   var fLo = finalError(lo), fHi = finalError(hi);
@@ -2543,8 +2630,9 @@ function applySouthLimitPlan(rt, returnMs, startLat, curvePoints, windDirSeries,
   }
 
   var outPath = rt.outPath.slice(0, hitIdx).concat([hit]);
-  var holdPath = buildHoldingPattern(hit.ms, leaveMs, SAIL_SOUTH_LIMIT_LAT, curvePoints, stepMs);
-  var inPath = simulateLeg(leaveMs, returnMs, SAIL_SOUTH_LIMIT_LAT, 1, curvePoints, windDirSeries, windSpeedSeries, boatKt, stepMs, false);
+  var holdPath = buildHoldingPattern(hit.ms, leaveMs, SAIL_SOUTH_LIMIT_LAT, curvePoints, stepMs, hit.crossNm);
+  var inPath = simulateLeg(leaveMs, returnMs, SAIL_SOUTH_LIMIT_LAT, 1, curvePoints, windDirSeries, windSpeedSeries, boatKt, stepMs, false, hit.crossNm, 0);
+  if (inPath.length) inPath[inPath.length - 1].crossNm = 0;
   return { outPath: outPath, holdPath: holdPath, inPath: inPath, boundaryArrivalMs: hit.ms, turnMs: leaveMs };
 }
 
@@ -2571,7 +2659,11 @@ function computeSailSim(departureMs, returnMs, curvePoints, windDirSeries, windS
   // cover the whole window and the margin is visible as the boat sitting at the mooring.
   if (returnMs > arriveByMs && path.length) {
     var arrivedLat = path[path.length - 1].lat;
-    path.push({ ms: returnMs, lat: arrivedLat, sog: 0, c: currentVelocityAt(curvePoints, returnMs), courseType: 'moored', side: 0, vmg: 0, mode: 'moored' });
+    path.push({
+      ms: returnMs, lat: arrivedLat, crossNm: 0, sog: 0, c: currentVelocityAt(curvePoints, returnMs),
+      courseType: 'moored', side: 0, vmg: 0, lateralKt: 0, throughWaterKt: 0,
+      headingDeg: SAIL_COURSE_BEARING_N, maneuver: null, mode: 'moored'
+    });
   }
 
   var maxDistNm = 0, maxDistLat = PIER25.lat;
@@ -3434,21 +3526,19 @@ function setupSailSimControls(sim) {
   }
 }
 
-// Item 1d: the strip's CSS width now matches this function's viewBox W 1:1 (both 200), so a
-// viewBox font-size renders at that many real physical px directly — no scale-factor fudging
-// needed (previously CSS width 116 vs viewBox W 150, a ~0.77 scale, forced font-size 12 to
-// only just clear ~9 physical px).
-var SAIL_STRIP_LABEL_FONT = 12;
-var SAIL_LANDMARK_LABEL_MIN_GAP = 13;
+var SAIL_STRIP_LABEL_FONT = 11;
+var SAIL_LANDMARK_LABEL_MIN_GAP = 12;
 
 function renderSailSimSvg(sim, atMs) {
-  var W = 200, H = 520, padTop = 16, padBottom = 16;
+  var W = 360, H = 460, padTop = 18, padBottom = 18;
   var innerH = H - padTop - padBottom;
-  var chX0 = 40, chX1 = 62, chCenter = (chX0 + chX1) / 2;
+  var chX0 = 72, chX1 = 220, chCenter = (chX0 + chX1) / 2;
   var bounds = sailStripLatBounds(sim);
   function y(la) { return latToY(la, padTop, innerH, bounds.latMin, bounds.latMax); }
+  function x(crossNm) { return chCenter + clamp(crossNm || 0, -0.55, 0.55) * 118; }
 
   var lat = sailValueAt(sim.path, atMs, 'lat');
+  var crossNm = sailValueAt(sim.path, atMs, 'crossNm');
   var step = sailStepAt(sim.path, atMs);
   var headingNow = atMs < sim.turnMs ? sim.headingSign : -sim.headingSign;
 
@@ -3520,19 +3610,14 @@ function renderSailSimSvg(sim, atMs) {
       ' ' + (ax + 4).toFixed(1) + ',' + tipY.toFixed(1) + '" fill="' + color + '"/>';
   });
 
-  // Wake: tack and jibe sides are computed by the sailing model, not invented by the
-  // renderer. This makes the ideal maneuver pattern readable even when north/south VMG is
-  // slow; reaches remain on the centerline and motor legs use a dashed wake.
-  var plannedPts = [], plannedMarks = [], previousPlanned = null;
+  // The wake uses the simulation's integrated lateral displacement. Tack/jibe markers come
+  // only from actual maneuver events, so a T/J means the planner changed sailed heading and
+  // paid the maneuver loss rather than merely alternating a decorative pixel offset.
+  var plannedPts = [], plannedMarks = [];
   sim.path.forEach(function (p) {
-    var px = chCenter;
-    if (p.courseType === 'tack') px = chCenter + p.side * 9;
-    else if (p.courseType === 'jibe') px = chCenter + p.side * 6;
-    if (previousPlanned && p.courseType === previousPlanned.courseType && p.side && p.side !== previousPlanned.side) {
-      plannedMarks.push({ x: px, y: y(p.lat), label: p.courseType === 'tack' ? 'T' : 'J' });
-    }
+    var px = x(p.crossNm);
+    if (p.maneuver) plannedMarks.push({ x: px, y: y(p.lat), label: p.maneuver === 'tack' ? 'T' : 'J' });
     plannedPts.push({ x: px, y: y(p.lat) });
-    previousPlanned = p;
   });
   if (plannedPts.length) {
     var plannedD = plannedPts.map(function (p, i) { return (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1); }).join(' ');
@@ -3543,17 +3628,12 @@ function renderSailSimSvg(sim, atMs) {
       '<text x="' + m.x.toFixed(1) + '" y="' + (m.y + 2.2).toFixed(1) + '" font-size="5.5" font-weight="750" text-anchor="middle" fill="var(--accent)" fill-opacity="0.65">' + m.label + '</text>';
   });
 
-  var wakePts = [], maneuverMarks = [], previousStep = null;
+  var wakePts = [], maneuverMarks = [];
   sim.path.forEach(function (p) {
     if (p.ms > atMs) return;
-    var xOff = chCenter;
-    if (p.courseType === 'tack') xOff = chCenter + p.side * 9;
-    else if (p.courseType === 'jibe') xOff = chCenter + p.side * 6;
-    if (previousStep && p.courseType === previousStep.courseType && p.side && p.side !== previousStep.side) {
-      maneuverMarks.push({ x: xOff, y: y(p.lat), label: p.courseType === 'tack' ? 'T' : 'J' });
-    }
+    var xOff = x(p.crossNm);
+    if (p.maneuver) maneuverMarks.push({ x: xOff, y: y(p.lat), label: p.maneuver === 'tack' ? 'T' : 'J' });
     wakePts.push({ x: xOff, y: y(p.lat), mode: p.mode || 'sail' });
-    previousStep = p;
   });
   var wakeRuns = [];
   wakePts.forEach(function (pt) {
@@ -3581,9 +3661,8 @@ function renderSailSimSvg(sim, atMs) {
 
   // Boat marker.
   if (lat != null) {
-    var boatDeg = headingNow > 0 ? 0 : 180;
-    if (step && step.mode === 'hold') boatDeg = step.side < 0 ? 180 : 0;
-    var boatX = step && step.side ? chCenter + step.side * (step.courseType === 'tack' ? 9 : 6) : chCenter;
+    var boatDeg = step && isFinite(step.headingDeg) ? step.headingDeg : (headingNow > 0 ? 0 : 180);
+    var boatX = x(crossNm);
     svg += '<g transform="translate(' + boatX + ',' + y(lat).toFixed(1) + ') rotate(' + boatDeg + ')">' +
       '<polygon points="0,-8 -5,6 5,6" fill="var(--accent)"/></g>';
   }
@@ -3594,7 +3673,7 @@ function renderSailSimSvg(sim, atMs) {
   var speedSeries = state.gridSeries ? state.gridSeries.windSpeedKt : null;
   var windDir = windSeries ? nearestSeriesValue(windSeries, atMs) : null;
   var windSpd = speedSeries ? nearestSeriesValue(speedSeries, atMs) : null;
-  var wcx = W - 22, wcy = 24;
+  var wcx = W - 28, wcy = 26;
   if (windDir != null) {
     var flowDeg = (windDir + 180) % 360;
     svg += '<g transform="translate(' + wcx + ',' + wcy + ') rotate(' + flowDeg.toFixed(1) + ')">' +
@@ -3628,11 +3707,24 @@ function renderSailSimReadouts(sim, atMs) {
   if (step) {
     if (step.mode === 'motor') courseLabel = 'Under power';
     else if (step.mode === 'hold') courseLabel = 'Holding · short tacks';
-    else if (step.courseType === 'tack') courseLabel = 'Tacking · ' + (step.side < 0 ? 'port' : 'starboard');
-    else if (step.courseType === 'jibe') courseLabel = 'Jibing · ' + (step.side < 0 ? 'port' : 'starboard');
-    else courseLabel = 'Reaching';
+    else if (step.courseType === 'tack') courseLabel = 'Beating · ' + (step.side < 0 ? 'port' : 'starboard') + ' tack';
+    else if (step.courseType === 'jibe') courseLabel = 'Broad reach · ' + (step.side < 0 ? 'port' : 'starboard') + ' jibe';
+    else courseLabel = 'Direct reach on river course';
   }
   var vmgLabel = step && step.vmg != null ? round1(step.vmg) + ' kt' : '--';
+  var headingLabel = step && isFinite(step.headingDeg)
+    ? degToCompass(step.headingDeg) + ' ' + Math.round(normalizeBearing(step.headingDeg)) + '°'
+    : '--';
+  var completedManeuvers = sim.path.filter(function (p) { return p.ms <= atMs && p.maneuver; });
+  var plannedManeuvers = sim.path.filter(function (p) { return p.maneuver; });
+  var tackCount = completedManeuvers.filter(function (p) { return p.maneuver === 'tack'; }).length;
+  var jibeCount = completedManeuvers.filter(function (p) { return p.maneuver === 'jibe'; }).length;
+  var plannedTacks = plannedManeuvers.filter(function (p) { return p.maneuver === 'tack'; }).length;
+  var plannedJibes = plannedManeuvers.filter(function (p) { return p.maneuver === 'jibe'; }).length;
+  var maneuverParts = [];
+  if (plannedTacks) maneuverParts.push(tackCount + '/' + plannedTacks + ' tacks');
+  if (plannedJibes) maneuverParts.push(jibeCount + '/' + plannedJibes + ' jibes');
+  var maneuverLabel = maneuverParts.length ? maneuverParts.join(' · ') : 'None required · direct course';
 
   // Item 1d: compact 2-column label/value grid — the last row (furthest/turn) runs long, so
   // it spans both columns instead of wrapping awkwardly in a half-width cell.
@@ -3640,7 +3732,9 @@ function renderSailSimReadouts(sim, atMs) {
     ['Clock', fmtTime(atMs)],
     ['Mode', modeLabel],
     ['Course', courseLabel],
+    ['Sailed heading', headingLabel],
     ['Sailing VMG', vmgLabel],
+    ['Maneuvers', maneuverLabel],
     ['Current', curLabel],
     ['SOG', sogLabel],
     ['Distance', distLabel],
@@ -3669,7 +3763,10 @@ function sailSimPathsEqual(pathA, pathB) {
   for (var i = 0; i < pathA.length; i++) {
     if (pathA[i].ms !== pathB[i].ms) return false;
     if (Math.abs((pathA[i].lat || 0) - (pathB[i].lat || 0)) > 1e-9) return false;
+    if (Math.abs((pathA[i].crossNm || 0) - (pathB[i].crossNm || 0)) > 1e-7) return false;
     if (pathA[i].courseType !== pathB[i].courseType || pathA[i].side !== pathB[i].side || pathA[i].mode !== pathB[i].mode) return false;
+    if (pathA[i].maneuver !== pathB[i].maneuver) return false;
+    if (Math.abs((pathA[i].headingDeg || 0) - (pathB[i].headingDeg || 0)) > 1e-5) return false;
     if (Math.abs((pathA[i].vmg || 0) - (pathB[i].vmg || 0)) > 1e-6) return false;
   }
   return true;
