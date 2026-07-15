@@ -157,7 +157,7 @@ const conflictingCells = dedupeRadarStormCells([
 assert.equal(conflictingCells.length, 2, 'nearby cross-radar cells with incompatible motion must remain distinct');
 
 const manyCells = Array.from({ length: 30 }, (_, index) => ({ ...cell, id: String(index), lon: cell.lon + index * 0.05 }));
-assert.equal(dedupeRadarStormCells(manyCells, 5).length, 5, 'busy-day tracks must be capped to keep the map readable');
+assert.equal(dedupeRadarStormCells(manyCells, 5).length, 5, 'deduplication must retain its caller-supplied feed cap');
 
 const nearbyWeakCell = { ...cell, id: 'near', lat: 40.72, lon: -74.01, maxDbz: 35 };
 const distantStrongCell = { ...cell, id: 'far', lat: 45, lon: -80, maxDbz: 65 };
@@ -167,6 +167,37 @@ const selectedCells = selectRadarStormCells(
   1
 );
 assert.equal(selectedCells[0].id, 'near', 'a visible NYC cell must not be hidden by stronger distant cells');
+
+const approachingCell = { ...cell, id: 'approaching', lat: 40.72, lon: -74.7, bearingDeg: 90, speedKt: 40, maxDbz: 35 };
+const nearbyDepartingCell = { ...cell, id: 'departing', lat: 40.72, lon: -74.2, bearingDeg: 270, speedKt: 40, maxDbz: 65, tvs: 'TVS' };
+assert.equal(
+  selectRadarStormCells([nearbyDepartingCell, approachingCell], null, 1)[0].id,
+  'approaching',
+  'closest projected approach to Pier 25 must outrank present distance and storm attributes'
+);
+
+const equalApproachWeak = { ...cell, id: 'weak', lat: 40.72, lon: -74.3, bearingDeg: 90, speedKt: 10, maxDbz: 35, tvs: '' };
+const equalApproachSignificant = { ...equalApproachWeak, id: 'significant', maxDbz: 58, tvs: 'TVS' };
+assert.equal(
+  selectRadarStormCells([equalApproachWeak, equalApproachSignificant], null, 1)[0].id,
+  'significant',
+  'meteorological significance must break equal-approach ties'
+);
+const equalApproachOlder = { ...equalApproachWeak, id: 'older', validMs: cell.validMs - 5 * 60000 };
+const equalApproachNewer = { ...equalApproachWeak, id: 'newer', validMs: cell.validMs };
+assert.equal(
+  selectRadarStormCells([equalApproachOlder, equalApproachNewer], null, 1)[0].id,
+  'newer',
+  'recency must break ties when projected approach and significance are equal'
+);
+
+const cappedCells = Array.from({ length: 12 }, (_, index) => ({
+  ...cell, id: 'cap-' + index, lat: 40.72 + index * 0.01, lon: -74.4, bearingDeg: 90
+}));
+assert.equal(selectRadarStormCells(cappedCells, null, 24).length, 4, 'render selection must never exceed four radar-cell tracks');
+assert.equal(selectRadarStormCells(cappedCells, null).length, 4, 'the default render selection cap must be four');
+assert.ok(stormCode.includes('approachNm: radarCellProjectedApproachNm(cell, pier)'), 'projected approach must be computed once per cell before sorting');
+assert.ok(stormCode.includes('minutes <= 60; minutes += 1'), 'projected approach must use minute resolution for fast cells');
 
 assert.deepEqual(buildStormLegendItems(0, [], 0), [], 'empty overlays must not show a legend');
 const severeLegend = buildStormLegendItems(0, [alert], 1);
@@ -191,5 +222,14 @@ assert.ok(html.includes('if (body.innerHTML !== nextHtml) body.innerHTML = nextH
 assert.ok(!html.includes("clearStormTrackLayer();\n  setRadarStormStatus('');"), 'map movement must not transiently clear live regions');
 assert.ok(!html.includes('No radar-tracked storm cells or active NWS warnings'), 'normal no-data state must stay silent');
 assert.ok(!html.includes('Storm cell and warning overlay is off.'), 'unchecked state must stay silent');
+assert.ok(html.includes('var isEndpoint = pointIndex === projection.track.length - 1;'), 'radar-cell rendering must identify the +60-minute endpoint');
+assert.ok(
+  html.includes('{ permanent: isEndpoint, direction: \'right\', className: \'storm-time-label\' }'),
+  'only the +60-minute radar-cell label may be permanent; intermediate tick times stay hover-only'
+);
+assert.ok(
+  html.includes("if (trackIndex === 0 && pointIndex > 0)"),
+  'official NWS warning-motion rendering must remain independent from radar-cell decluttering'
+);
 
 console.log('warning and radar-cell storm track assertions passed');

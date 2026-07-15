@@ -6637,7 +6637,7 @@ function bearingDifferenceDeg(a, b) {
 
 // Neighboring radars often identify the same physical centroid under different IDs. Keep
 // distinct cells from one radar, but collapse cross-radar centroids within 2 nm, preferring
-// the stronger/newer observation. The cap keeps permanent time labels usable on busy days.
+// the stronger/newer observation.
 function dedupeRadarStormCells(cells, maxCount) {
   var sorted = (cells || []).slice().sort(function (a, b) {
     var timeDiff = b.validMs - a.validMs;
@@ -6667,12 +6667,40 @@ function dedupeRadarStormCells(cells, maxCount) {
 }
 
 function selectRadarStormCells(cells, visibleDomain, maxCount) {
-  var visible = [], elsewhere = [];
-  (cells || []).forEach(function (cell) {
-    (pointInDomain(cell.lat, cell.lon, visibleDomain) ? visible : elsewhere).push(cell);
-  });
-  elsewhere.sort(function (a, b) { return stormCellDistanceNm(a, PIER25) - stormCellDistanceNm(b, PIER25); });
-  return visible.concat(elsewhere).slice(0, maxCount || 24);
+  var pier = typeof PIER25 !== 'undefined' ? PIER25 : { lat: 40.7203, lon: -74.0135 };
+  var limit = Math.min(4, Math.max(0, maxCount == null ? 4 : maxCount));
+  return (cells || []).map(function (cell) {
+    return { cell: cell, approachNm: radarCellProjectedApproachNm(cell, pier) };
+  }).sort(function (aRanked, bRanked) {
+    var approachDiff = aRanked.approachNm - bRanked.approachNm;
+    if (approachDiff) return approachDiff;
+    var a = aRanked.cell, b = bRanked.cell;
+    var tvsDiff = Number(!!b.tvs) - Number(!!a.tvs);
+    if (tvsDiff) return tvsDiff;
+    var mesoDiff = Number(!!b.meso) - Number(!!a.meso);
+    if (mesoDiff) return mesoDiff;
+    var severeHailDiff = (b.severeHailProbability == null ? -Infinity : b.severeHailProbability) -
+      (a.severeHailProbability == null ? -Infinity : a.severeHailProbability);
+    if (severeHailDiff) return severeHailDiff;
+    var dbzDiff = (b.maxDbz == null ? -Infinity : b.maxDbz) - (a.maxDbz == null ? -Infinity : a.maxDbz);
+    if (dbzDiff) return dbzDiff;
+    var vilDiff = (b.vil == null ? -Infinity : b.vil) - (a.vil == null ? -Infinity : a.vil);
+    if (vilDiff) return vilDiff;
+    var timeDiff = b.validMs - a.validMs;
+    if (timeDiff) return timeDiff;
+    return String(a.radar + ':' + a.id).localeCompare(String(b.radar + ':' + b.id));
+  }).slice(0, limit).map(function (ranked) { return ranked.cell; });
+}
+
+// This is a ranking aid, not an arrival forecast. Sample the reported one-hour linear
+// SCIT motion every minute and retain the closest projected approach to Pier 25.
+function radarCellProjectedApproachNm(cell, target) {
+  var closest = Infinity;
+  for (var minutes = 0; minutes <= 60; minutes += 1) {
+    var point = destinationPoint(cell.lat, cell.lon, cell.bearingDeg, cell.speedKt * minutes / 60);
+    closest = Math.min(closest, stormCellDistanceNm({ lat: point[0], lon: point[1] }, target));
+  }
+  return closest;
 }
 
 // Format documented by NWS CAP: timestamp...storm...DDDDEG...SSKT...lat,lon [...].
@@ -6844,7 +6872,7 @@ function renderStormOverlays(alerts, cells) {
   );
   var mapBounds = radarState.map.getBounds();
   var visibleDomain = { south: mapBounds.getSouth(), west: mapBounds.getWest(), north: mapBounds.getNorth(), east: mapBounds.getEast() };
-  var displayedStormCells = selectRadarStormCells(radarState.stormCells, visibleDomain, 24);
+  var displayedStormCells = selectRadarStormCells(radarState.stormCells, visibleDomain, 4);
   var status = $('radarStormStatus');
   if (!radarState.stormOverlayEnabled) {
     setRadarStormStatus('');
@@ -6888,10 +6916,11 @@ function renderStormOverlays(alerts, cells) {
     projection.track.forEach(function (point, pointIndex) {
       allBounds.push(point);
       if (pointIndex === 0) return;
+      var isEndpoint = pointIndex === projection.track.length - 1;
       L.polyline(buildStormTrackTick(point, cell.bearingDeg, 0.7), { color: cellTrackColor, weight: 2, opacity: 0.96 })
         .bindPopup(popup).addTo(cellGroup);
       L.circleMarker(point, { radius: 1.8, color: cellTrackColor, weight: 1, fillColor: cellTrackColor, fillOpacity: 1 })
-        .bindTooltip(fmtTime(projection.times[pointIndex]), { permanent: true, direction: 'right', className: 'storm-time-label' }).addTo(cellGroup);
+        .bindTooltip(fmtTime(projection.times[pointIndex]), { permanent: isEndpoint, direction: 'right', className: 'storm-time-label' }).addTo(cellGroup);
     });
   });
 

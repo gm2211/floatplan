@@ -39,7 +39,7 @@ All thresholds in **knots**. All wind data converted to knots regardless of sour
    - Convert km/h or mph → knots as required by observed `uom`.
 4. **Advisories**: `alerts/active` for the marine zone covering NY Harbor (expected ANZ338) AND for the point (land alerts like Severe T-storm). Merge, dedupe by id.
 5. **Marine text forecast**: zone forecast text for the marine zone (nice-to-have card, collapsible).
-6. **Radar**: Leaflet map centered ~40.70,-74.02, zoom ~10. Base tiles: CARTO light/dark (auto per theme). RainViewer frames (past + nowcast) as animated overlay with play/pause + frame slider + timestamp label. Marker at Pier 25.
+6. **Radar**: Leaflet map centered ~40.70,-74.02, zoom ~10. Base tiles: CARTO light/dark (auto per theme). RainViewer frames (past + nowcast) as animated overlay with play/pause + frame slider + timestamp label. Marker at Pier 25. Preserve every active NWS warning polygon and its official motion overlay. Separately cap radar-cell linear SCIT projections at four, ranked first by closest projected one-hour approach to Pier 25 and then by meteorological significance and recency. Keep 15-minute ticks, but permanently label only each track's +60-minute endpoint; intermediate times appear on hover.
 
 ## Plan inputs
 
