@@ -86,8 +86,8 @@ assert.ok(html.includes('data-current-station="kvk">Kill Van Kull'));
 assert.ok(html.includes('data-current-station="newark">Newark Bay'));
 assert.ok(html.includes('data-current-station="narrows">The Narrows'));
 assert.ok(html.includes("lsSetJSON('obsCurrentStation', station)"), 'current reference choice must persist');
-assert.ok(html.includes('Planning and the sail simulator always use the Hudson River Entrance prediction.'));
 assert.ok(html.includes("var STATION_CURRENT = 'NYH1927'"), 'planning must remain on the Hudson prediction station');
+assert.ok(!html.includes('observed-reference-note'), 'Observed Now must not repeat a visible provenance paragraph');
 
 const sourceDetails = html.match(/<details class="source-links">/g) || [];
 assert.equal(sourceDetails.length, 12, 'every widget source footer should use the same collapsed disclosure');
@@ -100,6 +100,7 @@ assert.ok(timelineCard.indexOf('id="timelineError"') < timelineSourcesStart, 'cu
 assert.ok(timelineCard.indexOf('id="waterError"') < timelineSourcesStart, 'water-level errors must remain visible outside Sources');
 assert.ok(timelineCard.indexOf('id="timelineCurrentCompare"') > timelineSourcesStart, 'measured phase comparison must stay inside collapsed Sources');
 assert.ok(timelineCard.indexOf('Predicted current: Hudson River Entrance') > timelineSourcesStart, 'station provenance must stay inside collapsed Sources');
+assert.ok(timelineCard.indexOf('remote harbor references, not Pier 25') > timelineSourcesStart, 'remote-station provenance must remain available inside collapsed Sources');
 assert.ok(timelineCard.includes('class="source-links-notes"'), 'timeline provenance notes need a full-width source row');
 assert.ok(!timelineCard.includes('<details class="source-links" open>'), 'timeline Sources must remain collapsed by default');
 ['srcTimelinePorts', 'srcTimelineCurrents', 'srcTimelineKvk', 'srcTimelineNarrows', 'srcTimelineLevelPredicted', 'srcTimelineLevelObserved'].forEach(id => {
