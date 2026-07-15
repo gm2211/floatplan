@@ -160,9 +160,7 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 }
 .chip.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .chip.hidden { display: none; }
-/* A chip for an option that exists but isn't usable yet (e.g. Willy Wall before a
-   WeatherFlow token is configured) — visible so it's discoverable, dashed+dim so it
-   doesn't read as selectable data. */
+/* A visible but temporarily unavailable station remains discoverable. */
 .chip.chip-dim { opacity: 0.6; border-style: dashed; }
 
 .custom-duration-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
@@ -576,17 +574,6 @@ pre#marineTextContent { white-space: pre-wrap; font-family: inherit; font-size: 
 .observed-more-note { font-size: 11px; color: var(--ink-dim); margin-top: 6px; }
 .chip.setup-required { border-style: dashed; color: var(--ink-dim); }
 .chip.station-unavailable { border-color: color-mix(in srgb, var(--red) 45%, var(--border)); color: var(--red); }
-.weatherflow-setup {
-  margin: 10px 0 12px; padding: 12px; border: 1px solid var(--border);
-  border-radius: 10px; background: color-mix(in srgb, var(--bg) 72%, transparent);
-}
-.weatherflow-setup strong { display: block; margin-bottom: 3px; }
-.weatherflow-setup p { margin: 0 0 10px; font-size: 12px; line-height: 1.45; color: var(--ink-dim); max-width: 62ch; }
-.weatherflow-setup .form-grid { margin-bottom: 8px; }
-.weatherflow-setup-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
-.weatherflow-setup-status { margin-right: auto; font-size: 11px; color: var(--ink-dim); }
-.weatherflow-setup-status.error { color: var(--red); }
-
 .toast-container { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 200; display: flex; flex-direction: column; gap: 6px; }
 .toast { background: var(--navy); color: var(--bg-card); padding: 8px 14px; border-radius: 8px; font-size: 13px; box-shadow: var(--shadow); }
 
@@ -859,20 +846,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     <div class="chip-row obs-wind-station-row" id="obsWindStationRow">
       <button type="button" class="chip active" data-station="robbinsReef">Robbins Reef</button>
       <button type="button" class="chip" data-station="kjrb">Wall St Heliport</button>
-      <button type="button" class="chip setup-required" data-station="weatherflow" id="obsStationWeatherflowChip">Willy Wall</button>
-    </div>
-    <div class="weatherflow-setup hidden" id="weatherFlowSetup">
-      <strong>Connect Willy Wall</strong>
-      <p>This optional station uses your WeatherFlow personal API token and station ID. They are stored only in this browser and sent only to WeatherFlow when refreshing observations.</p>
-      <div class="form-grid">
-        <div><label for="weatherFlowSetupToken">API token</label><input type="text" id="weatherFlowSetupToken" autocomplete="off"></div>
-        <div><label for="weatherFlowSetupStationId">Station ID</label><input type="text" id="weatherFlowSetupStationId" inputmode="numeric"></div>
-      </div>
-      <div class="weatherflow-setup-actions">
-        <span class="weatherflow-setup-status" id="weatherFlowSetupStatus"></span>
-        <button type="button" class="btn-ghost" id="weatherFlowSetupCancel">Cancel</button>
-        <button type="button" class="btn-primary" id="weatherFlowSetupConnect">Connect station</button>
-      </div>
+      <button type="button" class="chip station-unavailable" data-station="weatherflow" id="obsStationWeatherflowChip">Willy Wall</button>
     </div>
     <div class="observed-primary" id="observedPrimary">
       <div class="observed-row" id="obsWindRow"></div>
@@ -887,7 +861,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <div class="observed-row" id="obsKvkRow"></div>
       <p class="observed-more-note">Kill Van Kull LB 14 &middot; live meter &middot; different water body &mdash; harbor phase check only, not Pier 25 current.</p>
     </div>
-    <div class="source-links"><a id="srcObservedRobbins" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8530973" target="_blank" rel="noopener noreferrer">Robbins Reef NOAA</a><a href="https://api.weather.gov/stations/KJRB/observations/latest" target="_blank" rel="noopener noreferrer">Wall St NWS</a><a id="srcObservedKvk" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n06010" target="_blank" rel="noopener noreferrer">Kill Van Kull NOAA</a><a id="srcObservedBattery" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">The Battery NOAA</a></div>
+    <div class="source-links"><a id="srcObservedRobbins" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8530973" target="_blank" rel="noopener noreferrer">Robbins Reef NOAA</a><a href="https://api.weather.gov/stations/KJRB/observations/latest" target="_blank" rel="noopener noreferrer">Wall St NWS</a><a href="https://www.wunderground.com/dashboard/pws/KNJNEWJE43" target="_blank" rel="noopener noreferrer">Willy Wall Wunderground</a><a id="srcObservedKvk" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n06010" target="_blank" rel="noopener noreferrer">Kill Van Kull NOAA</a><a id="srcObservedBattery" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">The Battery NOAA</a></div>
   </section>
 
   <section class="card" id="sunTwilightCard">
@@ -1125,13 +1099,6 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <label for="motorSpeedKt">Motor speed (kt through water)</label>
       <input type="number" id="motorSpeedKt" step="0.5" min="0.5">
     </div>
-    <div class="settings-field settings-field-group">
-      <label>WeatherFlow station (optional &mdash; adds a "Willy Wall" wind option)</label>
-      <div class="limits-grid">
-        <div><label for="weatherFlowToken">API token</label><input type="text" id="weatherFlowToken" placeholder="Optional"></div>
-        <div><label for="weatherFlowStationId">Station ID</label><input type="text" id="weatherFlowStationId" placeholder="Optional"></div>
-      </div>
-    </div>
     <div class="settings-actions">
       <button class="btn-ghost" id="settingsResetBtn">Reset defaults</button>
       <button class="btn-secondary" id="settingsCloseBtn">Close</button>
@@ -1203,6 +1170,11 @@ var STATION_TIDE = '8518750';
 var STATION_WIND_ROBBINS_REEF = '8530973'; // Battery has no wind sensor; nearest live wind obs.
 var STATION_KVK_CURRENT = 'n06010'; // Kill Van Kull LB 14 — live meter, different water body from Pier 25.
 var KJRB_OBS_URL = 'https://api.weather.gov/stations/KJRB/observations/latest'; // Wall St Heliport.
+var WILLY_WALL_SOURCE_URL = 'https://www.wunderground.com/dashboard/pws/KNJNEWJE43';
+// Wunderground's public page is converted to browser-readable text by Jina Reader. This
+// avoids asking sailors for an API token while every displayed value still links to the
+// original KNJNEWJE43 station page for verification.
+var WILLY_WALL_FEED_URL = 'https://r.jina.ai/http://www.wunderground.com/dashboard/pws/KNJNEWJE43';
 var ZONE_MARINE = 'ANZ338';
 var GRID_URL = 'https://api.weather.gov/gridpoints/OKX/33,42';
 var HOURLY_URL = 'https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly';
@@ -1237,8 +1209,7 @@ var DEFAULT_MOTOR_SPEED_KT = 6;
 var DEFAULT_CUSTOM_DURATION_HOURS = 4;
 var DEFAULT_SETTINGS = {
   theme: 'light', monitorInterval: 10, limits: DEFAULT_LIMITS,
-  boatSpeedKt: DEFAULT_BOAT_SPEED_KT, motorSpeedKt: DEFAULT_MOTOR_SPEED_KT,
-  weatherFlowToken: '', weatherFlowStationId: ''
+  boatSpeedKt: DEFAULT_BOAT_SPEED_KT, motorSpeedKt: DEFAULT_MOTOR_SPEED_KT
 };
 
 /* ============================ Small utilities ============================ */
@@ -1624,39 +1595,27 @@ function fetchObservedWindKjrb() {
   }).catch(function () { return null; });
 }
 
-// Optional third wind station ("Willy Wall"): a user-owned WeatherFlow/Tempest station.
-// Invisible unless both a token and station id are configured in Settings; any failure
-// (network, auth, unexpected payload shape) resolves null so the caller hides the option
-// silently rather than surfacing an error for a feature most users never configure.
-function parseWeatherFlowObs(json) {
+function parseWillyWallText(text) {
   try {
-    var obs = json && json.obs && json.obs[0];
-    if (!obs || typeof obs !== 'object' || Array.isArray(obs)) return null;
-    var msPerKt = 1.943844; // WeatherFlow reports wind in m/s.
-    var sustainedMs = obs.wind_avg, gustMs = obs.wind_gust, dirDeg = obs.wind_direction;
-    var tsMs = obs.timestamp != null ? obs.timestamp * 1000 : null;
+    if (!text || /Station Summary\s*[\s\S]{0,80}?Offline/i.test(text)) return null;
+    var wind = /WIND & GUST[\s\S]{0,180}?([0-9]+(?:\.[0-9]+)?)°?\s*\/\s*([0-9]+(?:\.[0-9]+)?)°?\s*mph/i.exec(text);
+    if (!wind) return null;
+    var direction = /WIND FROM\s*\n+\s*([NSEW]{1,3})\s*(?:\n|$)/i.exec(text);
+    var age = /Online\s*\(updated\s+(\d+)\s+minutes?\s+ago\)/i.exec(text);
     return {
-      ms: isFinite(tsMs) ? tsMs : null,
-      sustainedKt: sustainedMs != null ? sustainedMs * msPerKt : null,
-      gustKt: gustMs != null ? gustMs * msPerKt : null,
-      dirDeg: dirDeg != null ? dirDeg : null,
-      dirCardinal: null
+      ms: Date.now() - (age ? parseInt(age[1], 10) : 0) * 60000,
+      sustainedKt: parseFloat(wind[1]) * KT_PER_MPH,
+      gustKt: parseFloat(wind[2]) * KT_PER_MPH,
+      dirDeg: null,
+      dirCardinal: direction ? direction[1].toUpperCase() : null
     };
   } catch (e) { return null; }
 }
-function fetchObservedWindWeatherFlow(token, stationId) {
-  var url = 'https://swd.weatherflow.com/swd/rest/observations/station/' + encodeURIComponent(stationId) +
-    '?token=' + encodeURIComponent(token);
-  try {
-    return fetchWithRetry(url, { maxRetries: 0 }).then(function (res) {
-      if (!res.ok) throw new Error('WeatherFlow: HTTP ' + res.status);
-      return res.json();
-    }).then(function (json) {
-      return parseWeatherFlowObs(json);
-    }).catch(function () { return null; });
-  } catch (e) {
-    return Promise.resolve(null);
-  }
+function fetchObservedWindWillyWall() {
+  return fetchWithRetry(WILLY_WALL_FEED_URL, { maxRetries: 1 }).then(function (res) {
+    if (!res.ok) throw new Error('Willy Wall: HTTP ' + res.status);
+    return res.text();
+  }).then(parseWillyWallText).catch(function () { return null; });
 }
 
 // Kill Van Kull LB 14 — the only *live measured* current meter near Pier 25 (NYH1927 is
@@ -3775,8 +3734,7 @@ function updateObsWindStationChipActive() {
 }
 
 // Single entry point for changing the selected wind station: persists the choice, updates
-// chip state, and re-renders the wind row immediately (used by the click handler and by the
-// silent fallback-to-Robbins-Reef paths in maybeLoadWeatherFlow).
+// chip state, and re-renders the wind row immediately.
 function selectObsWindStation(station) {
   state.obsWindStation = station;
   lsSetJSON('obsWindStation', station);
@@ -3784,63 +3742,14 @@ function selectObsWindStation(station) {
   renderObsWindRow(state.lastMaxSustainedKt, state.lastMaxGustKt, (state.settings && state.settings.limits) || DEFAULT_LIMITS);
 }
 
-function weatherFlowConfigured() {
-  var s = state.settings || {};
-  return !!(s.weatherFlowToken && s.weatherFlowStationId);
-}
-function updateWeatherFlowChipState(connected) {
+function updateWillyWallChipState(available) {
   var chip = $('obsStationWeatherflowChip');
   if (!chip) return;
   showEl(chip);
-  var configured = weatherFlowConfigured();
-  chip.classList.toggle('setup-required', !configured);
-  chip.classList.toggle('station-unavailable', configured && connected === false);
-  chip.title = configured ? (connected === false ? 'Station unavailable; click to review connection' : 'Use Willy Wall observations') : 'Connect Willy Wall';
+  chip.classList.remove('setup-required');
+  chip.classList.toggle('station-unavailable', !available);
+  chip.title = available ? 'Use Willy Wall observations' : 'Willy Wall is not reporting right now';
   chip.setAttribute('aria-label', chip.title);
-}
-function openWeatherFlowSetup(message) {
-  var s = state.settings || {};
-  $('weatherFlowSetupToken').value = s.weatherFlowToken || '';
-  $('weatherFlowSetupStationId').value = s.weatherFlowStationId || '';
-  var status = $('weatherFlowSetupStatus');
-  status.textContent = message || '';
-  status.classList.toggle('error', !!message);
-  showEl($('weatherFlowSetup'));
-  $('obsStationWeatherflowChip').setAttribute('aria-expanded', 'true');
-}
-function closeWeatherFlowSetup() {
-  hideEl($('weatherFlowSetup'));
-  $('obsStationWeatherflowChip').setAttribute('aria-expanded', 'false');
-}
-function connectWeatherFlowFromSetup() {
-  var token = $('weatherFlowSetupToken').value.trim();
-  var stationId = $('weatherFlowSetupStationId').value.trim();
-  var status = $('weatherFlowSetupStatus');
-  if (!token || !stationId) {
-    status.textContent = 'Enter both the API token and station ID.';
-    status.classList.add('error');
-    return;
-  }
-  state.settings.weatherFlowToken = token;
-  state.settings.weatherFlowStationId = stationId;
-  saveSettings(state.settings);
-  // Keep the general Settings copy synchronized for users who open it later.
-  $('weatherFlowToken').value = token;
-  $('weatherFlowStationId').value = stationId;
-  status.textContent = 'Connecting…';
-  status.classList.remove('error');
-  $('weatherFlowSetupConnect').disabled = true;
-  maybeLoadWeatherFlow().then(function (ok) {
-    $('weatherFlowSetupConnect').disabled = false;
-    if (!ok) {
-      status.textContent = 'Could not load this station. Check the token and station ID.';
-      status.classList.add('error');
-      return;
-    }
-    selectObsWindStation('weatherflow');
-    closeWeatherFlowSetup();
-    showToast('Willy Wall connected');
-  });
 }
 
 function renderObsWindRow(maxSustainedKt, maxGustKt, limits) {
@@ -3852,7 +3761,10 @@ function renderObsWindRow(maxSustainedKt, maxGustKt, limits) {
   var w = observedWindDataForStation(station);
 
   if (!w) {
-    el.innerHTML = '<span>Wind &middot; ' + escapeHtml(label) + '</span><span>&mdash;</span>';
+    el.innerHTML = '<span>Wind &middot; ' + escapeHtml(label) + '</span>' +
+      (station === 'weatherflow'
+        ? '<a href="' + WILLY_WALL_SOURCE_URL + '" target="_blank" rel="noopener noreferrer">Unavailable &middot; check source</a>'
+        : '<span>&mdash;</span>');
     return;
   }
 
@@ -5796,28 +5708,17 @@ function loadKvkCurrent() {
     state.kvkCurrentRaw = data;
   }).then(function () { return true; }).catch(function () { return false; });
 }
-// Optional "Willy Wall" WeatherFlow station. The chip remains visible when unconfigured so
-// it can open the focused inline setup; connection state is communicated without hiding it.
-function maybeLoadWeatherFlow() {
-  var s = state.settings;
-  var token = s && s.weatherFlowToken, stationId = s && s.weatherFlowStationId;
-  if (!token || !stationId) {
-    updateWeatherFlowChipState(false);
-    if (state.obsWindStation === 'weatherflow') selectObsWindStation('robbinsReef');
-    return Promise.resolve(false);
-  }
-  return fetchObservedWindWeatherFlow(s.weatherFlowToken, s.weatherFlowStationId).then(function (data) {
-    if (!data) {
-      updateWeatherFlowChipState(false);
-      if (state.obsWindStation === 'weatherflow') selectObsWindStation('robbinsReef');
-      return false;
-    }
+// Willy Wall comes from the public KNJNEWJE43 Wunderground dashboard. It loads automatically;
+// no token or per-device setup is required. An unavailable round leaves the station selectable
+// and links straight to the source rather than silently switching the sailor to another sensor.
+function loadWillyWall() {
+  return fetchObservedWindWillyWall().then(function (data) {
     state.obsWindWeatherflowRaw = data;
-    updateWeatherFlowChipState(true);
+    updateWillyWallChipState(!!data);
     if (state.obsWindStation === 'weatherflow') {
       renderObsWindRow(state.lastMaxSustainedKt, state.lastMaxGustKt, (state.settings && state.settings.limits) || DEFAULT_LIMITS);
     }
-    return true;
+    return !!data;
   });
 }
 function parseGridpointSeries(data) {
@@ -6026,7 +5927,7 @@ function loadAll() {
   return Promise.all([
     loadCurrentsSlack(), loadCurrentsCurve(), loadWater(), loadGridpoint(),
     loadHourly(), loadAlerts(), loadMarineText(), loadRadar(true), loadObserved(),
-    loadObservedKjrb(), loadKvkCurrent(), maybeLoadWeatherFlow()
+    loadObservedKjrb(), loadKvkCurrent(), loadWillyWall()
   ]).then(function (results) {
     return results.some(function (ok) { return ok === true; });
   });
@@ -7149,8 +7050,6 @@ function openSettingsModal() {
   $('limitNoGoGust').value = s.limits.noGoGust;
   $('boatSpeedKt').value = s.boatSpeedKt;
   $('motorSpeedKt').value = s.motorSpeedKt;
-  $('weatherFlowToken').value = s.weatherFlowToken || '';
-  $('weatherFlowStationId').value = s.weatherFlowStationId || '';
   showEl($('settingsOverlay'));
 }
 function closeSettingsModal() { hideEl($('settingsOverlay')); }
@@ -7164,13 +7063,10 @@ function saveSettingsFromModal() {
   s.limits.noGoGust = parseFloat($('limitNoGoGust').value) || DEFAULT_LIMITS.noGoGust;
   s.boatSpeedKt = parseFloat($('boatSpeedKt').value) || DEFAULT_BOAT_SPEED_KT;
   s.motorSpeedKt = parseFloat($('motorSpeedKt').value) || DEFAULT_MOTOR_SPEED_KT;
-  s.weatherFlowToken = $('weatherFlowToken').value.trim();
-  s.weatherFlowStationId = $('weatherFlowStationId').value.trim();
   saveSettings(s);
   setText('monitorIntervalLabel', String(s.monitorInterval));
   applyTheme();
   recomputeWindowDependentUI();
-  maybeLoadWeatherFlow(); // token/station id may have just been added, removed, or changed
   if (state.monitorEnabled) startMonitor(); // re-arm with new interval
   closeSettingsModal();
 }
@@ -7783,16 +7679,9 @@ function init() {
   updateObsWindStationChipActive();
   document.querySelectorAll('#obsWindStationRow .chip').forEach(function (chip) {
     chip.addEventListener('click', function () {
-      if (chip.dataset.station === 'weatherflow') {
-        if (!weatherFlowConfigured()) { openWeatherFlowSetup(); return; }
-        if (!state.obsWindWeatherflowRaw) { openWeatherFlowSetup('Station data is unavailable. Review the connection details.'); return; }
-        closeWeatherFlowSetup();
-      }
       selectObsWindStation(chip.dataset.station);
     });
   });
-  $('weatherFlowSetupCancel').addEventListener('click', closeWeatherFlowSetup);
-  $('weatherFlowSetupConnect').addEventListener('click', connectWeatherFlowFromSetup);
 
   $('savePlanBtn').addEventListener('click', onGeneratePlanMainClick);
   $('createPlanCodeBtn').addEventListener('click', createCurrentFloatCode);
