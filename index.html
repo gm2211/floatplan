@@ -520,30 +520,31 @@ pre#marineTextContent { white-space: pre-wrap; font-family: inherit; font-size: 
 }
 .marine-info-block p { margin: 0; font-size: 12.5px; }
 .marine-tab-row { margin-bottom: 10px; }
+.marine-table { table-layout: fixed; }
 .marine-table td, .marine-table th { white-space: normal; vertical-align: top; }
-.marine-table td:nth-child(2) { padding: 5px 8px; }
+.marine-table th:nth-child(1) { width: 13%; }
+.marine-table th:nth-child(2) { width: 38%; }
+.marine-table th:nth-child(3) { width: 29%; }
+.marine-table th:nth-child(4) { width: 20%; }
+.marine-table .marine-wind-cell { padding: 0; }
 .marine-wind-status {
-  position: relative; min-height: 42px; display: block; line-height: 1.4;
-  padding: 9px 12px 9px 15px; border: 1px solid transparent; border-radius: 10px;
-  overflow: hidden;
+  min-height: 0; display: flex; align-items: flex-start; gap: 8px; line-height: 1.4;
+  padding: 9px 10px; border: 0; border-radius: 0;
 }
-.marine-wind-status::before {
-  content: ''; position: absolute; left: 7px; top: 10px; bottom: 10px; width: 3px;
-  border-radius: 999px; background: currentColor; opacity: 0.72;
+.marine-wind-status .metric-arrow {
+  display: block; flex: 0 0 14px; margin: 2px 0 0; vertical-align: baseline;
 }
-.marine-wind-status:not(.cell-green):not(.cell-yellow):not(.cell-red)::before { display: none; }
-.marine-wind-status .metric-arrow { display: inline-block; margin: 0 6px 0 0; vertical-align: -2px; }
 .marine-wind-status.cell-green {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--green-bg) 92%, transparent), color-mix(in srgb, var(--green-bg) 52%, transparent) 72%, transparent);
-  border-color: color-mix(in srgb, var(--green) 28%, transparent); color: var(--green);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--green-bg) 68%, transparent), color-mix(in srgb, var(--green-bg) 22%, transparent) 76%, transparent);
+  color: var(--green);
 }
 .marine-wind-status.cell-yellow {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--yellow-bg) 92%, transparent), color-mix(in srgb, var(--yellow-bg) 52%, transparent) 72%, transparent);
-  border-color: color-mix(in srgb, var(--yellow) 28%, transparent); color: var(--yellow);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--yellow-bg) 68%, transparent), color-mix(in srgb, var(--yellow-bg) 22%, transparent) 76%, transparent);
+  color: var(--yellow);
 }
 .marine-wind-status.cell-red {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--red-bg) 92%, transparent), color-mix(in srgb, var(--red-bg) 52%, transparent) 72%, transparent);
-  border-color: color-mix(in srgb, var(--red) 28%, transparent); color: var(--red);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--red-bg) 68%, transparent), color-mix(in srgb, var(--red-bg) 22%, transparent) 76%, transparent);
+  color: var(--red);
 }
 .hazard-chip {
   display: inline-block; font-size: 11px; font-weight: 600; border-radius: 999px;
@@ -5428,7 +5429,7 @@ function renderMarineSummaryTable(parsed, limits) {
     return windRows.map(function (w, i) {
       var cells = (i === 0) ? '<td rowspan="' + span + '">' + escapeHtml(p.name) + '</td>' : '';
       var cls = (w && w.direction != null) ? windCellClass(w.max, w.gustKt, limits) : '';
-      cells += '<td><div class="marine-wind-status ' + cls + '">' + windRowLabelHtml(w) + '</div></td>';
+      cells += '<td class="marine-wind-cell"><div class="marine-wind-status ' + cls + '">' + windRowLabelHtml(w) + '</div></td>';
       if (i === 0) {
         cells += '<td rowspan="' + span + '">' + (p.wavesText ? escapeHtml(p.wavesText) : '--') + '</td>';
         cells += '<td rowspan="' + span + '">' + hazardChipsHtml(p.hazards) + '</td>';
