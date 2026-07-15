@@ -47,6 +47,7 @@
   --flood: #1f7a8c;
   --ebb: #b5562f;
   --violet: #7c3aed;
+  --measured-current: #b83280;
   --shadow: 0 1px 3px rgba(20,32,43,0.10), 0 1px 2px rgba(20,32,43,0.08);
   --track: #e5ddc8;
   --bg-inset: #0d1b26;
@@ -71,6 +72,7 @@
   --flood: #5fc7d6;
   --ebb: #e08a5f;
   --violet: #c4b5fd;
+  --measured-current: #f08bd6;
   --shadow: 0 1px 4px rgba(0,0,0,0.5);
   --track: #1a2c3c;
   --bg-inset: #060d16;
@@ -269,7 +271,7 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .chart-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--ink-dim); margin-top: 8px; }
 .chart-legend .swatch { display: inline-block; width: 16px; height: 3px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
 .chart-legend .swatch-current { background: linear-gradient(90deg, var(--flood) 50%, var(--ebb) 50%); }
-.chart-legend .swatch-measured-current { background: var(--violet); border-radius: 50%; width: 8px; height: 8px; }
+.chart-legend .swatch-measured-current { background: var(--measured-current); }
 .chart-legend .swatch-pred { background: var(--navy); }
 .chart-legend .swatch-obs { background: var(--violet); }
 .timeline-mode-row { margin-bottom: 10px; }
@@ -1072,7 +1074,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     <div class="svg-wrap" id="timelineSvgWrap"></div>
     <div class="chart-legend" id="timelineLegend">
       <span><span class="swatch swatch-current"></span>predicted current</span>
-      <span class="hidden" id="timelineLegendMeasuredCurrent"><span class="swatch swatch-measured-current"></span>measured current (harbor phase check)</span>
+      <span class="hidden" id="timelineLegendMeasuredCurrent"><span class="swatch swatch-measured-current"></span>observed current &middot; Kill Van Kull (remote)</span>
       <span class="timeline-water-legend hidden"><span class="swatch swatch-pred"></span>predicted water level</span>
       <span class="timeline-water-legend hidden" id="timelineLegendObs"><span class="swatch swatch-obs"></span>observed water level</span>
     </div>
@@ -1082,9 +1084,9 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     <details class="source-links"><summary>Sources</summary><div class="source-links-body">
       <div class="source-links-notes">
         <div class="chart-footnote" id="timelineCurrentCompare"></div>
-        <div class="chart-footnote">Predicted current: Hudson River Entrance (NYH1927) &middot; measured phase check: Kill Van Kull LB 14 &middot; water level: The Battery (8518750)</div>
+        <div class="chart-footnote">Predicted current: Hudson River Entrance (NYH1927) &middot; observed current: Kill Van Kull LB 14 remote harbor reference, not Pier 25 &middot; water level: The Battery (8518750)</div>
       </div>
-      <a id="srcTimelineCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">Current prediction</a><a id="srcTimelineKvk" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n06010" target="_blank" rel="noopener noreferrer">Measured phase check</a><a id="srcTimelineLevelPredicted" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Water-level prediction</a><a id="srcTimelineLevelObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Measured water level</a>
+      <a id="srcTimelineCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">Current prediction</a><a id="srcTimelineKvk" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n06010" target="_blank" rel="noopener noreferrer">Kill Van Kull LB 14 observed current</a><a id="srcTimelineLevelPredicted" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Water-level prediction</a><a id="srcTimelineLevelObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Measured water level</a>
     </div></details>
   </section>
 
@@ -1345,6 +1347,9 @@ var STATION_WIND_ROBBINS_REEF = '8530973'; // Battery has no wind sensor; neares
 var STATION_KVK_CURRENT = 'n06010'; // Kill Van Kull LB 14 — live meter, different water body from Pier 25.
 var STATION_NEWARK_CURRENT = 'n07010'; // Newark Bay Entrance LB 18, live PORTS current meter.
 var STATION_NARROWS_CURRENT = 'n03020'; // The Narrows, active PORTS station; may report no live sample.
+var KVK_FLOOD_AXIS_DEG = 255; // LB 14 flood runs toward 255°; positive chart values mean flood-axis flow.
+var MEASURED_CURRENT_HISTORY_HOURS = 24;
+var MEASURED_CURRENT_GAP_MS = 15 * 60000;
 var KJRB_OBS_URL = 'https://api.weather.gov/stations/KJRB/observations/latest'; // Wall St Heliport.
 var WILLY_WALL_SOURCE_URL = 'https://www.wunderground.com/dashboard/pws/KNJNEWJE43';
 // Weather Underground's own dashboard reads KNJNEWJE43 through this public, CORS-enabled
@@ -1652,7 +1657,7 @@ function refreshSourceLinks(departureMs) {
     setSourceHref(id, slackUrl);
   });
   setSourceHref('srcTimelineCurrents', buildCurrentsUrl(departureMs, '30'));
-  setSourceHref('srcTimelineKvk', buildKvkCurrentUrl());
+  setSourceHref('srcTimelineKvk', buildKvkCurrentHistoryUrl(Date.now()));
   setSourceHref('srcTimelineLevelPredicted', buildLevelPredictedUrl(departureMs));
   setSourceHref('srcTimelineLevelObserved', buildLevelObservedUrl(departureMs));
   setSourceHref('srcObservedRobbins', buildCoopsObsUrl(STATION_WIND_ROBBINS_REEF, 'wind'));
@@ -1860,6 +1865,23 @@ function buildMeasuredCurrentUrl(station) {
     '&units=english&time_zone=gmt&format=json&application=floatplan';
 }
 function buildKvkCurrentUrl() { return buildMeasuredCurrentUrl(STATION_KVK_CURRENT); }
+function noaaUtcMinute(ms) {
+  var d = new Date(ms);
+  return '' + d.getUTCFullYear() + pad2(d.getUTCMonth() + 1) + pad2(d.getUTCDate()) +
+    ' ' + pad2(d.getUTCHours()) + ':' + pad2(d.getUTCMinutes());
+}
+function buildMeasuredCurrentHistoryUrl(station, nowMs, rangeHours) {
+  var hours = Math.max(1, Math.round(rangeHours || MEASURED_CURRENT_HISTORY_HOURS));
+  var endMs = nowMs != null && isFinite(nowMs) ? nowMs : Date.now();
+  var begin = noaaUtcMinute(endMs - hours * 3600000);
+  return 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter' +
+    '?product=currents&station=' + station + '&begin_date=' + encodeURIComponent(begin) +
+    '&range=' + hours +
+    '&units=english&time_zone=gmt&format=json&application=floatplan';
+}
+function buildKvkCurrentHistoryUrl(nowMs) {
+  return buildMeasuredCurrentHistoryUrl(STATION_KVK_CURRENT, nowMs, MEASURED_CURRENT_HISTORY_HOURS);
+}
 function parseMeasuredCurrentRow(row) {
   if (!row) return null;
   var speedKt = row.s != null ? parseFloat(row.s) : null;
@@ -1872,6 +1894,56 @@ function parseMeasuredCurrentRow(row) {
     bin: row.b || null
   };
 }
+function parseMeasuredCurrentSeries(rows) {
+  return (rows || []).map(parseMeasuredCurrentRow).filter(function (p) {
+    return p && p.ms != null && isFinite(p.ms) && p.speedKt != null && isFinite(p.speedKt) &&
+      p.dirDeg != null && isFinite(p.dirDeg);
+  }).sort(function (a, b) { return a.ms - b.ms; });
+}
+function projectCurrentAlongAxis(speedKt, dirDeg, axisDeg) {
+  if (speedKt == null || dirDeg == null || axisDeg == null ||
+      !isFinite(speedKt) || !isFinite(dirDeg) || !isFinite(axisDeg)) return null;
+  return speedKt * Math.cos((dirDeg - axisDeg) * Math.PI / 180);
+}
+function projectKvkCurrentSeries(points) {
+  return (points || []).map(function (p) {
+    var v = projectCurrentAlongAxis(p.speedKt, p.dirDeg, KVK_FLOOD_AXIS_DEG);
+    return v == null ? null : { ms: p.ms, v: v, speedKt: p.speedKt, dirDeg: p.dirDeg, bin: p.bin };
+  }).filter(function (p) {
+    return p && p.ms != null && isFinite(p.ms) && p.v != null && isFinite(p.v);
+  }).sort(function (a, b) { return a.ms - b.ms; });
+}
+function buildMeasuredCurrentSegments(points, nowMs, gapMs) {
+  var cutoff = nowMs != null && isFinite(nowMs) ? nowMs : Date.now();
+  var maxGap = gapMs != null && isFinite(gapMs) ? gapMs : MEASURED_CURRENT_GAP_MS;
+  var eligible = (points || []).filter(function (p) {
+    return p && p.ms != null && isFinite(p.ms) && p.v != null && isFinite(p.v) && p.ms <= cutoff;
+  }).sort(function (a, b) { return a.ms - b.ms; });
+  var segments = [];
+  eligible.forEach(function (p) {
+    var segment = segments[segments.length - 1];
+    if (!segment || p.ms - segment[segment.length - 1].ms > maxGap) {
+      segment = [];
+      segments.push(segment);
+    }
+    segment.push(p);
+  });
+  return segments;
+}
+function measuredCurrentValueAt(points, atMs, gapMs) {
+  if (!points || !points.length) return null;
+  var maxGap = gapMs != null && isFinite(gapMs) ? gapMs : MEASURED_CURRENT_GAP_MS;
+  if (atMs < points[0].ms || atMs > points[points.length - 1].ms) return null;
+  for (var i = 0; i < points.length - 1; i++) {
+    var a = points[i], b = points[i + 1];
+    if (atMs >= a.ms && atMs <= b.ms) {
+      if (b.ms - a.ms > maxGap) return null;
+      var t = b.ms === a.ms ? 0 : (atMs - a.ms) / (b.ms - a.ms);
+      return a.v + t * (b.v - a.v);
+    }
+  }
+  return atMs === points[points.length - 1].ms ? points[points.length - 1].v : null;
+}
 function fetchMeasuredCurrent(station, label) {
   return fetchCoopsJson(buildMeasuredCurrentUrl(station), label + ' current').then(function (json) {
     return parseMeasuredCurrentRow(json.data && json.data[0]);
@@ -1880,6 +1952,14 @@ function fetchMeasuredCurrent(station, label) {
 function fetchKvkCurrent() { return fetchMeasuredCurrent(STATION_KVK_CURRENT, 'Kill Van Kull'); }
 function fetchNewarkCurrent() { return fetchMeasuredCurrent(STATION_NEWARK_CURRENT, 'Newark Bay'); }
 function fetchNarrowsCurrent() { return fetchMeasuredCurrent(STATION_NARROWS_CURRENT, 'The Narrows'); }
+function fetchMeasuredCurrentHistory(station, label, nowMs, rangeHours) {
+  return fetchCoopsJson(buildMeasuredCurrentHistoryUrl(station, nowMs, rangeHours), label + ' current history').then(function (json) {
+    return parseMeasuredCurrentSeries(json.data);
+  });
+}
+function fetchKvkCurrentHistory(nowMs) {
+  return fetchMeasuredCurrentHistory(STATION_KVK_CURRENT, 'Kill Van Kull LB 14', nowMs, MEASURED_CURRENT_HISTORY_HOURS);
+}
 
 function fetchObservedScalar(product, extra) {
   return fetchCoopsJson(buildCoopsObsUrl(STATION_TIDE, product, extra), 'Observed ' + product).then(function (json) {
@@ -3391,8 +3471,22 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   function xToMs(px) { return domStart + (px - padL) / (W - padL - padR) * (domEnd - domStart); }
 
   var ptsInDomain = curvePoints.filter(function (p) { return p.ms >= domStart && p.ms <= domEnd; });
+  // NOAA does not operate a current meter at Pier 25. Keep the measured LB 14 series
+  // visibly separate as a remote harbor reference, and merge its newest standalone sample
+  // so the endpoint remains visible if the two NOAA requests land a few minutes apart.
+  var kvkSamples = (state.kvkCurrentHistoryRaw || []).slice();
+  var kvkLatest = state.kvkCurrentRaw;
+  if (kvkLatest && kvkLatest.ms != null && !kvkSamples.some(function (p) { return p.ms === kvkLatest.ms; })) {
+    kvkSamples.push(kvkLatest);
+  }
+  var measuredAll = projectKvkCurrentSeries(kvkSamples).filter(function (p) { return p.ms <= nowMs; });
+  var measuredInDomain = measuredAll.filter(function (p) { return p.ms >= domStart && p.ms <= domEnd; });
+  var measuredSegments = buildMeasuredCurrentSegments(measuredInDomain, nowMs, MEASURED_CURRENT_GAP_MS);
+  var latestMeasured = measuredInDomain.length ? measuredInDomain[measuredInDomain.length - 1] : null;
+  var latestMeasuredAll = measuredAll.length ? measuredAll[measuredAll.length - 1] : null;
   var maxAbs = 1;
   ptsInDomain.forEach(function (p) { maxAbs = Math.max(maxAbs, Math.abs(p.v)); });
+  measuredInDomain.forEach(function (p) { maxAbs = Math.max(maxAbs, Math.abs(p.v)); });
   maxAbs = Math.ceil((maxAbs + 0.3) * 2) / 2; // small headroom, rounded to 0.5kt
 
   function yCur(v) { return padT + (H - padT - padB) / 2 - (v / maxAbs) * ((H - padT - padB) / 2); }
@@ -3409,7 +3503,7 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   function yLvl(v) { return padT + (H - padT - padB) - (v - levelMin) / (levelMax - levelMin) * (H - padT - padB); }
 
   var flood = 'var(--flood)', ebb = 'var(--ebb)', inkDim = 'var(--ink-dim)', accent = 'var(--accent)';
-  var levelPredColor = 'var(--navy)', levelObsColor = 'var(--violet)';
+  var levelPredColor = 'var(--navy)', levelObsColor = 'var(--violet)', measuredCurrentColor = 'var(--measured-current)';
   var zeroY = yCur(0);
 
   // Split the current curve into flood/ebb-colored segments, interpolating the
@@ -3439,20 +3533,20 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
     return '<path d="' + s.d.trim() + '" fill="none" stroke="var(--' + s.color + ')" stroke-width="2.5"/>';
   }).join('');
 
-  // NYH1927 is predictions-only. Plot the nearest live current meter as a single purple
-  // phase-check point, with its different-water-body provenance stated in the legend and
-  // footnote. Direction is "toward" bearing, so its north component gives the signed value.
-  var measuredCurrentHtml = '';
-  var kvk = state.kvkCurrentRaw;
-  var measuredSignedKt = null;
-  if (kvk && kvk.ms != null && kvk.speedKt != null && kvk.dirDeg != null) {
-    measuredSignedKt = kvk.speedKt * Math.cos(kvk.dirDeg * Math.PI / 180);
-    if (kvk.ms >= domStart && kvk.ms <= domEnd) {
-      var mx = x(kvk.ms), my = yCur(measuredSignedKt);
-      measuredCurrentHtml = '<line x1="' + mx.toFixed(1) + '" y1="' + zeroY.toFixed(1) + '" x2="' + mx.toFixed(1) + '" y2="' + my.toFixed(1) + '" stroke="' + levelObsColor + '" stroke-width="1" stroke-dasharray="2,2" stroke-opacity="0.55"/>' +
-        '<circle cx="' + mx.toFixed(1) + '" cy="' + my.toFixed(1) + '" r="4" fill="' + levelObsColor + '" stroke="var(--bg-card)" stroke-width="1.5"/>';
-    }
+  // Draw only observed samples at or before now. Each discontinuity over 15 minutes starts
+  // a new SVG path so a NOAA outage never looks like a measured current bridge.
+  var measuredCurrentHtml = measuredSegments.map(function (segment) {
+    if (segment.length < 2) return '';
+    var d = segment.map(function (p, i) {
+      return (i ? 'L' : 'M') + x(p.ms).toFixed(1) + ',' + yCur(p.v).toFixed(1);
+    }).join(' ');
+    return '<path d="' + d + '" fill="none" stroke="' + measuredCurrentColor + '" stroke-width="2"/>';
+  }).join('');
+  if (latestMeasured) {
+    measuredCurrentHtml += '<circle cx="' + x(latestMeasured.ms).toFixed(1) + '" cy="' + yCur(latestMeasured.v).toFixed(1) +
+      '" r="3.5" fill="' + measuredCurrentColor + '" stroke="var(--bg-card)" stroke-width="1.5"/>';
   }
+  var measuredSignedKt = latestMeasuredAll ? latestMeasuredAll.v : null;
 
   function levelPathD(points) {
     var d = '';
@@ -3592,16 +3686,18 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   });
   if (obsFootnoteEl) obsFootnoteEl.classList.toggle('hidden', !showWater || hasObs);
   var measuredLegend = $('timelineLegendMeasuredCurrent');
-  if (measuredLegend) measuredLegend.classList.toggle('hidden', measuredSignedKt == null);
+  if (measuredLegend) measuredLegend.classList.toggle('hidden', measuredInDomain.length === 0);
   var compareEl = $('timelineCurrentCompare');
   if (compareEl) {
-    if (measuredSignedKt == null || !kvk) {
-      compareEl.textContent = 'Measured current unavailable; the curve is harmonic prediction only.';
+    if (measuredSignedKt == null || !latestMeasuredAll) {
+      compareEl.textContent = 'Kill Van Kull LB 14 observed current is unavailable. This remote harbor reference is not a Pier 25 measurement; the Hudson curve is harmonic prediction only.';
     } else {
-      var predictedAtMeasure = currentVelocityAt(curvePoints, kvk.ms);
-      var measuredPhase = measuredSignedKt >= 0 ? 'north-flowing' : 'south-flowing';
+      var predictedAtMeasure = currentVelocityAt(curvePoints, latestMeasuredAll.ms);
+      var measuredPhase = measuredSignedKt >= 0 ? 'flood-axis' : 'ebb-axis';
       var predictedPhase = predictedAtMeasure == null ? 'unavailable' : ((predictedAtMeasure >= 0 ? 'north-flowing ' : 'south-flowing ') + round1(Math.abs(predictedAtMeasure)) + ' kt');
-      compareEl.textContent = 'Measured phase check: Kill Van Kull ' + measuredPhase + ' ' + round1(Math.abs(measuredSignedKt)) + ' kt at ' + fmtTime(kvk.ms) + '; Hudson prediction then: ' + predictedPhase + '.';
+      compareEl.textContent = 'Observed Kill Van Kull LB 14 remote harbor reference: ' + measuredPhase + ' ' +
+        round1(Math.abs(measuredSignedKt)) + ' kt at ' + fmtTime(latestMeasuredAll.ms) +
+        '; Hudson prediction then: ' + predictedPhase + '. This is not a Pier 25 measurement.';
     }
   }
 
@@ -3609,15 +3705,17 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   if (svgEl) {
     attachChartScrub(svgEl, xToMs, function (ms) {
       var vCur = currentVelocityAt(curvePoints, ms);
+      var vMeasured = measuredCurrentValueAt(measuredInDomain, ms, MEASURED_CURRENT_GAP_MS);
       var vPred = showWater ? levelValueAt(levelPredictedPoints, ms) : null;
       // Observations stop at now; never extend the last measured value into the future.
       var vObs = (showWater && ms <= nowMs) ? levelValueAt(levelObservedPoints, ms) : null;
-      if (vCur == null && vPred == null && vObs == null) return null;
+      if (vCur == null && vMeasured == null && vPred == null && vObs == null) return null;
       var curState = classifyCurrent(vCur);
       var phaseWord = curState === 'unknown' ? '' : (curState.charAt(0).toUpperCase() + curState.slice(1));
       var rows = [];
       rows.push('<div class="scrub-time">' + escapeHtml(fmtTime(ms)) + '</div>');
       if (vCur != null) rows.push('<div>' + escapeHtml(phaseWord) + ' ' + round1(Math.abs(vCur)) + ' kt' + (vCur !== 0 ? (vCur > 0 ? ' (N)' : ' (S)') : '') + '</div>');
+      if (vMeasured != null) rows.push('<div>Kill Van Kull LB 14 remote ref (not Pier 25) ' + round1(Math.abs(vMeasured)) + ' kt ' + (vMeasured >= 0 ? 'flood-axis' : 'ebb-axis') + '</div>');
       if (vPred != null) rows.push('<div>Level ' + vPred.toFixed(1) + ' ft (pred)</div>');
       if (vObs != null) rows.push('<div>Level ' + vObs.toFixed(1) + ' ft (obs)</div>');
       // Pin a dot on each curve where the scrub line crosses it, matching each series'
@@ -3626,6 +3724,7 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
       var dots = [];
       var sx = x(ms);
       if (vCur != null) dots.push({ x: sx, y: yCur(vCur), color: vCur >= 0 ? flood : ebb });
+      if (vMeasured != null) dots.push({ x: sx, y: yCur(vMeasured), color: measuredCurrentColor });
       if (vPred != null) dots.push({ x: sx, y: yLvl(vPred), color: levelPredColor });
       if (vObs != null) dots.push({ x: sx, y: yLvl(vObs), color: levelObsColor });
       return { html: rows.join(''), dots: dots };
@@ -6642,7 +6741,7 @@ var state = {
   gridpointRaw: null, hourlyRaw: null, alertsRaw: null, stormAlertsRaw: null, stormCellsRaw: null, marineTextRaw: null,
   observedRaw: null, windModelsRaw: null, windModelSeries: null, windModel: 'nws',
   obsWindStation: 'robbinsReef', obsWindKjrbRaw: null, obsWindWeatherflowRaw: null,
-  obsCurrentStation: 'hudson', kvkCurrentRaw: null, newarkCurrentRaw: null, narrowsCurrentRaw: null,
+  obsCurrentStation: 'hudson', kvkCurrentRaw: null, kvkCurrentHistoryRaw: [], newarkCurrentRaw: null, narrowsCurrentRaw: null,
   curvePoints: [], slackEvents: [], gridSeries: null,
   levelPredictedPoints: [], levelObservedPoints: [], hiloEvents: [],
   lastVerdict: null, lastDirectionRec: null, lastPreMotorAdvice: null,
@@ -6758,6 +6857,11 @@ function loadKvkCurrent() {
   return loadSource('kvkCurrent', fetchKvkCurrent, 'observedCard', function (data) {
     state.kvkCurrentRaw = data;
     updateObsCurrentStationChipActive();
+  }).then(function () { return true; }).catch(function () { return false; });
+}
+function loadKvkCurrentHistory() {
+  return loadSource('kvkCurrentHistory', function () { return fetchKvkCurrentHistory(Date.now()); }, 'timelineCard', function (data) {
+    state.kvkCurrentHistoryRaw = data || [];
   }).then(function () { return true; }).catch(function () { return false; });
 }
 function loadNewarkCurrent() {
@@ -7023,7 +7127,7 @@ function loadAll() {
   return Promise.all([
     loadCurrentsSlack(), loadCurrentsCurve(), loadWater(), loadGridpoint(),
     loadHourly(), loadAlerts(), loadStormAlerts(), loadStormCells(), loadMarineText(), loadRadar(true), loadObserved(),
-    loadObservedKjrb(), loadKvkCurrent(), loadNewarkCurrent(), loadNarrowsCurrent(), loadWillyWall()
+    loadObservedKjrb(), loadKvkCurrent(), loadKvkCurrentHistory(), loadNewarkCurrent(), loadNarrowsCurrent(), loadWillyWall()
   ]).then(function (results) {
     return results.some(function (ok) { return ok === true; });
   });
