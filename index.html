@@ -291,6 +291,8 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .source-links summary::after { content: "\203A"; font-size: 13px; line-height: 1; transform: rotate(90deg); transition: transform 0.15s ease; }
 .source-links[open] summary::after { transform: rotate(-90deg); }
 .source-links-body { display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 9px; margin-top: 5px; }
+.source-links-notes { flex: 1 1 100%; display: grid; gap: 3px; margin-bottom: 2px; }
+.source-links-notes .chart-footnote { margin-top: 0; }
 .source-links a { color: var(--accent); text-underline-offset: 2px; }
 .source-links a:hover { text-decoration-thickness: 2px; }
 .source-links .computed-source { color: var(--ink-dim); }
@@ -1074,12 +1076,16 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <span class="timeline-water-legend hidden"><span class="swatch swatch-pred"></span>predicted water level</span>
       <span class="timeline-water-legend hidden" id="timelineLegendObs"><span class="swatch swatch-obs"></span>observed water level</span>
     </div>
-    <div class="chart-footnote" id="timelineCurrentCompare"></div>
     <div class="chart-footnote hidden" id="timelineObsFootnote">Observed water level appears once the window includes elapsed time.</div>
-    <div class="chart-footnote">Predicted current: Hudson River Entrance (NYH1927) &middot; measured phase check: Kill Van Kull LB 14 &middot; water level: The Battery (8518750)</div>
     <div class="card-error hidden" id="timelineError"></div>
     <div class="card-error hidden" id="waterError"></div>
-    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a id="srcTimelineCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">Current prediction</a><a id="srcTimelineKvk" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n06010" target="_blank" rel="noopener noreferrer">Measured phase check</a><a id="srcTimelineLevelPredicted" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Water-level prediction</a><a id="srcTimelineLevelObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Measured water level</a></div></details>
+    <details class="source-links"><summary>Sources</summary><div class="source-links-body">
+      <div class="source-links-notes">
+        <div class="chart-footnote" id="timelineCurrentCompare"></div>
+        <div class="chart-footnote">Predicted current: Hudson River Entrance (NYH1927) &middot; measured phase check: Kill Van Kull LB 14 &middot; water level: The Battery (8518750)</div>
+      </div>
+      <a id="srcTimelineCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">Current prediction</a><a id="srcTimelineKvk" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n06010" target="_blank" rel="noopener noreferrer">Measured phase check</a><a id="srcTimelineLevelPredicted" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Water-level prediction</a><a id="srcTimelineLevelObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Measured water level</a>
+    </div></details>
   </section>
 
   <section class="card" id="sailSimCard">

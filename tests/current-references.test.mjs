@@ -37,4 +37,20 @@ const sourceDetails = html.match(/<details class="source-links">/g) || [];
 assert.equal(sourceDetails.length, 12, 'every widget source footer should use the same collapsed disclosure');
 assert.equal((html.match(/<div class="source-links">/g) || []).length, 0);
 
+const timelineCard = html.slice(html.indexOf('<section class="card" id="timelineCard">'), html.indexOf('<section class="card" id="sailSimCard">'));
+const timelineSourcesStart = timelineCard.indexOf('<details class="source-links">');
+assert.ok(timelineSourcesStart >= 0, 'timeline Sources disclosure not found');
+assert.ok(timelineCard.indexOf('id="timelineError"') < timelineSourcesStart, 'current errors must remain visible outside Sources');
+assert.ok(timelineCard.indexOf('id="waterError"') < timelineSourcesStart, 'water-level errors must remain visible outside Sources');
+assert.ok(timelineCard.indexOf('id="timelineCurrentCompare"') > timelineSourcesStart, 'measured phase comparison must stay inside collapsed Sources');
+assert.ok(timelineCard.indexOf('Predicted current: Hudson River Entrance') > timelineSourcesStart, 'station provenance must stay inside collapsed Sources');
+assert.ok(timelineCard.includes('class="source-links-notes"'), 'timeline provenance notes need a full-width source row');
+assert.ok(!timelineCard.includes('<details class="source-links" open>'), 'timeline Sources must remain collapsed by default');
+['srcTimelineCurrents', 'srcTimelineKvk', 'srcTimelineLevelPredicted', 'srcTimelineLevelObserved'].forEach(id => {
+  assert.ok(timelineCard.includes(`id="${id}"`), `${id} source link must remain available`);
+});
+assert.ok(html.includes('Measured current unavailable; the curve is harmonic prediction only.'));
+assert.ok(html.includes('Measured phase check: Kill Van Kull '));
+assert.ok(html.includes('.source-links-notes { flex: 1 1 100%;'), 'source notes must occupy a full row above the links');
+
 console.log('Current reference picker and source disclosure assertions passed');
