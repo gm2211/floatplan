@@ -302,21 +302,22 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 }
 .chart-scrub-readout .scrub-time { font-weight: 650; margin-bottom: 2px; }
 
-/* .sailsim-top holds the strip + readouts side by side; .sailsim-controls is a full-width
-   row underneath (item 1d) so the scrubber gets the whole card's width instead of being
-   squeezed into the narrow readouts column. */
-.sailsim-body { display: flex; flex-direction: column; gap: 12px; }
-.sailsim-top { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
-.sailsim-strip-wrap { flex: 1 1 360px; min-width: 300px; max-width: 480px; }
+/* The route stays beside its compact readout legend whenever the card can fit both. This
+   keeps the simulator short in the three-column dashboard without shrinking the chart's
+   real lateral maneuver geometry into an unreadable strip. */
+#sailSimCard { container-type: inline-size; }
+.sailsim-body { display: flex; flex-direction: column; gap: 10px; }
+.sailsim-top { display: grid; grid-template-columns: minmax(230px, 1.35fr) minmax(160px, 0.85fr); gap: 10px; align-items: start; }
+.sailsim-strip-wrap { min-width: 0; max-width: none; }
 .sailsim-strip-wrap svg { width: 100%; height: auto; display: block; }
 .sailsim-readouts {
-  flex: 1 1 320px; min-width: 260px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px 22px;
+  min-width: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 7px 12px;
   align-content: start;
 }
-.sailsim-readout-row { border-bottom: 1px dashed var(--border); padding-bottom: 8px; }
+.sailsim-readout-row { min-width: 0; border-bottom: 1px dashed var(--border); padding-bottom: 5px; }
 .sailsim-readout-row--full { grid-column: 1 / -1; }
-.sailsim-readout-label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-dim); }
-.sailsim-readout-value { display: block; margin-top: 2px; font-size: 14px; line-height: 1.35; font-weight: 650; }
+.sailsim-readout-label { display: block; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-dim); }
+.sailsim-readout-value { display: block; margin-top: 1px; font-size: 12.5px; line-height: 1.3; font-weight: 650; overflow-wrap: anywhere; }
 .sailsim-controls { display: flex; align-items: center; gap: 8px; width: 100%; flex-wrap: wrap; }
 .sailsim-controls input[type="range"] { flex: 1 1 140px; min-width: 100px; }
 .sailsim-controls input[type="range"]:disabled { opacity: 0.5; }
@@ -325,6 +326,13 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
   border-radius: 8px; padding: 8px 10px;
 }
 .sailsim-motor-toggle { margin: 0 0 0 auto; }
+
+@container (max-width: 405px) {
+  .sailsim-top { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .sailsim-strip-wrap { max-width: 520px; margin-inline: auto; }
+  .sailsim-readouts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .sailsim-readout-row--full { grid-column: 1 / -1; }
+}
 
 .wind-summary { font-size: 14px; margin-bottom: 8px; color: var(--ink-dim); }
 .wind-now { text-align: center; padding: 4px 0 14px; }
@@ -1082,7 +1090,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       </div>
       <div class="sailsim-warning hidden" id="sailSimWarning"></div>
     </div>
-    <div class="chart-footnote">Conservative harbor estimate: each leg uses forecast wind direction and speed, a harbor-adjusted polar, sailed heading, current, cross-track limits, and time lost in tacks or jibes. T/J marks each computed maneuver; a feasible direct reach stays straight. The boat returns 15 minutes before the window ends and never sails past Robbins Reef. Planning approximation, not navigation.</div>
+    <div class="chart-footnote">Harbor estimate: forecast wind is reduced for Manhattan shadow and Entrance current is adjusted by location. T/J marks a computed maneuver; direct reaches stay straight. Immediate turn at Robbins limit, 15-minute reserve. Planning only.</div>
     <div class="card-error hidden" id="sailSimError"></div>
     <details class="source-links"><summary>Sources</summary><div class="source-links-body"><span class="computed-source">Simulation inputs</span><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS wind</a><a id="srcSailSimCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA currents</a><a href="https://www.ussailing.org/wp-content/uploads/2018/01/Speed-Guide-Explanation.pdf" target="_blank" rel="noopener noreferrer">US Sailing speed guide</a></div></details>
   </section>
@@ -2368,8 +2376,8 @@ function computeDirectionRec(curvePoints, slackEvents, departureMs, returnMs, no
 /* ============================== Sail simulator physics ============================== */
 // Pure functions only — no DOM, no reads of the global `state` — so they're smoke-testable
 // standalone. Course bearings (11°/183°) match the Hudson's actual axis through Manhattan,
-// not true north/south. Latitude is used as the sole position coordinate (the strip is a
-// 1-D north/south schematic); 1 degree latitude = 60 nm, matched to the spec's convention.
+// not true north/south. Latitude tracks river progress while crossNm integrates the lateral
+// component of each sailed heading; 1 degree latitude = 60 nm.
 
 // `short` (optional): the label drawn on the strip itself, which is physically narrow — full
 // `name` is used everywhere else (furthest-point text, etc). Ordered south to north.
@@ -2377,9 +2385,8 @@ var SAIL_LANDMARKS = [
   { name: 'The Narrows / Verrazzano', short: 'The Narrows', lat: 40.606 },
   { name: 'Robbins Reef (S limit)', short: 'Robbins Reef', lat: 40.6577 },
   { name: 'Red Hook', lat: 40.674 },
-  { name: 'Governors Island', lat: 40.690 },
   { name: 'Statue of Liberty', lat: 40.689 },
-  { name: 'Robbins Reef', lat: 40.657 },
+  { name: 'Governors Island', lat: 40.690 },
   { name: 'Ellis Island', lat: 40.699 },
   { name: 'The Battery', lat: 40.703 },
   { name: 'Pier 25', lat: 40.7203 },
@@ -2387,10 +2394,8 @@ var SAIL_LANDMARKS = [
   { name: '79th St Boat Basin', short: '79th St', lat: 40.787 },
   { name: 'GWB', lat: 40.851 }
 ];
-// Item 1b: 40.68 clamped a reaching boat's southbound track invisibly off the strip's bottom
-// edge (a boat 8+ nm south of Pier 25 legitimately reaches the Narrows) — 40.60 covers that
-// normally, and sailStripLatBounds() below extends even further for tracks that exceed even
-// this range, so the boat marker is never off-scale.
+// Fallback domain used only before a simulation path exists. Once computed, the route view
+// zooms to its actual track via sailStripLatBounds().
 var SAIL_LAT_MIN = 40.60, SAIL_LAT_MAX = 40.86;
 var SAIL_COURSE_BEARING_N = 11, SAIL_COURSE_BEARING_S = 183;
 var SAIL_BEATING_THRESHOLD_DEG = 50;
@@ -2435,7 +2440,7 @@ var SAIL_CLOSE_HAULED_DEG = 47;
 var SAIL_BROAD_REACH_DEG = 28;
 var SAIL_TACK_LOSS_FACTOR = 0.28;
 var SAIL_JIBE_LOSS_FACTOR = 0.42;
-var SAIL_SOUTH_LIMIT_LAT = 40.657;
+var SAIL_SOUTH_LIMIT_LAT = 40.6577;
 
 // Nearest-value fallback over an expandSeries()-shaped array: tries the exact valueAtMs()
 // lookup first (atMs inside some [startMs,endMs)), then falls back to whichever interval's
@@ -2479,10 +2484,25 @@ function windPowerFactor(windKt) {
   return 0.15 + (windKt - 3) / 13 * 0.77;
 }
 function harborWindFactor(lat) {
-  if (lat >= 40.700 && lat <= 40.790) return 0.58; // Manhattan building/pier wind shadow
-  if (lat > 40.790) return 0.68;
-  if (lat >= 40.685) return 0.72; // Battery, Ellis/Liberty Island turbulence
-  return 0.80; // more open Upper Bay
+  if (lat >= 40.700 && lat <= 40.790) return 0.48; // Manhattan building/pier wind shadow
+  if (lat > 40.790) return 0.60;
+  if (lat >= 40.685) return 0.64; // Battery, Ellis/Liberty Island turbulence
+  return 0.74; // more open Upper Bay
+}
+
+// NYH1927 is a model prediction for the Hudson River Entrance, not a Pier 25 meter. Apply
+// less of it in the constricted, friction-heavy river and progressively more in open Upper
+// Bay. This keeps the phase and direction useful without pretending entrance velocity is
+// the boat's local current alongside Manhattan.
+function harborCurrentFactor(lat) {
+  if (lat >= 40.700) return 0.52;
+  if (lat >= 40.685) return 0.64;
+  if (lat >= SAIL_SOUTH_LIMIT_LAT) return 0.76;
+  return 0.84;
+}
+function harborCurrentAt(curvePoints, atMs, lat) {
+  var entranceKt = currentVelocityAt(curvePoints, atMs);
+  return (entranceKt == null || !isFinite(entranceKt)) ? 0 : entranceKt * harborCurrentFactor(lat);
 }
 function pointOfSail(windFromDeg, courseBearingDeg) {
   if (windFromDeg == null || !isFinite(windFromDeg)) return { type: 'reach', factor: 0.72, angle: null };
@@ -2548,9 +2568,9 @@ function nearestLandmark(lat) {
   return best;
 }
 
-// Integrates latitude in fixed steps from startMs to endMs. Each step samples current +
-// wind at its midpoint, applies the harbor polar and point-of-sail penalty, then advances distance =
-// SOG(kt) * step(h) converted to degrees latitude at 60 nm/degree. Pure: curvePoints and
+// Integrates along-river latitude and lateral cross-track distance in fixed steps. Each step
+// samples current + wind at its midpoint, applies the harbor polar and point-of-sail penalty,
+// then resolves the sailed heading into VMG and lateral motion. Pure: curvePoints and
 // `wind` ({dirSeries, speedSeries}, both expandSeries-shaped) are passed in, never read
 // from `state`.
 // `motor` (optional): when true, this leg runs under power at `boatSpeedKt` (which the
@@ -2574,11 +2594,12 @@ function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, windDir
   // playback) shows "--" for Current/SOG until the user hits play, even though a real
   // reading exists at that instant.
   var s0 = sample(startMs, startLat, false);
-  var c0 = currentVelocityAt(curvePoints, startMs);
+  var c0 = harborCurrentAt(curvePoints, startMs, startLat);
+  var sourceC0 = currentVelocityAt(curvePoints, startMs);
   var sog0 = sogAt(headingSign, s0.vmg, c0);
   previousCourseType = s0.courseType;
   var path = [{
-    ms: startMs, lat: startLat, crossNm: crossNm, sog: sog0, c: c0,
+    ms: startMs, lat: startLat, crossNm: crossNm, sog: sog0, c: c0, sourceC: sourceC0,
     courseType: s0.courseType, side: s0.side, vmg: s0.vmg, lateralKt: s0.lateralKt,
     throughWaterKt: s0.throughWaterKt, headingDeg: s0.headingDeg, maneuver: null, mode: s0.mode
   }];
@@ -2617,16 +2638,15 @@ function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, windDir
     }
     previousCourseType = probe.courseType;
     var s = probe;
-    var c = currentVelocityAt(curvePoints, midT);
+    var sourceC = currentVelocityAt(curvePoints, midT);
+    var c = harborCurrentAt(curvePoints, midT, lat);
     var sog = sogAt(headingSign, s.vmg, c);
     var distNm = sog * (dt / 3600000);
     lat += distNm / NM_PER_DEG_LAT;
     crossNm += s.lateralKt * (dt / 3600000);
-    // Club boundary: never past Robbins Reef — hold at the line instead of continuing S.
-    if (lat < SAIL_SOUTH_LIMIT_LAT) lat = SAIL_SOUTH_LIMIT_LAT;
     t += dt;
     path.push({
-      ms: t, lat: lat, crossNm: crossNm, sog: sog, c: c,
+      ms: t, lat: lat, crossNm: crossNm, sog: sog, c: c, sourceC: sourceC,
       courseType: s.courseType, side: s.side, vmg: s.vmg, lateralKt: s.lateralKt,
       throughWaterKt: s.throughWaterKt, headingDeg: s.headingDeg, maneuver: maneuver, mode: s.mode
     });
@@ -2643,7 +2663,6 @@ function simulateRoundTrip(departureMs, returnMs, turnMs, startLat, headingSign,
   var midLat = outPath.length ? outPath[outPath.length - 1].lat : startLat;
   var midCrossNm = outPath.length ? outPath[outPath.length - 1].crossNm : 0;
   var inPath = simulateLeg(turnMs, returnMs, midLat, -headingSign, curvePoints, windDirSeries, windSpeedSeries, boatSpeedKt, stepMs, false, midCrossNm, 0);
-  if (inPath.length) inPath[inPath.length - 1].crossNm = 0;
   return { outPath: outPath, inPath: inPath, finalLat: inPath.length ? inPath[inPath.length - 1].lat : midLat };
 }
 
@@ -2708,8 +2727,8 @@ function findTurnAroundMs(departureMs, returnMs, startLat, headingSign, curvePoi
 // required inputs are missing so the card can fall through to its normal empty/error state.
 // motorFirstLeg/motorSpeedKt (optional): see simulateRoundTrip — re-solves the turn-around
 // for the motor-affected outbound leg rather than reusing the all-sail turn point.
-// Item 1c: open-water area name for a schematic (1-D lat-only) position, used when the
-// furthest point reached isn't close enough to a named landmark to call it out directly.
+// Open-water area name based on along-river latitude, used when the furthest point reached
+// isn't close enough to a named landmark to call it out directly.
 function sailAreaWordForLat(lat) {
   if (lat >= 40.703) return 'Hudson off Manhattan';
   if (lat >= 40.61) return 'mid Upper Bay';
@@ -2729,66 +2748,62 @@ function furthestPointLabel(maxDistLat, maxDistNm) {
   return round1(maxDistNm) + ' nm ' + dir + ' · ' + sailAreaWordForLat(maxDistLat);
 }
 
-function buildHoldingPattern(startMs, endMs, limitLat, curvePoints, stepMs, startCrossNm) {
-  var path = [], t = startMs, i = 0;
-  var baseCrossNm = isFinite(startCrossNm) ? startCrossNm : 0;
-  while (t <= endMs) {
-    var phase = i % 4;
-    var offsetNm = phase === 0 ? 0 : (phase === 2 ? 0.10 : 0.05);
-    var lat = limitLat + offsetNm / NM_PER_DEG_LAT; // always stay north of the boundary
-    var holdCrossNm = baseCrossNm + (phase === 1 ? -0.08 : (phase === 3 ? 0.08 : 0));
-    path.push({
-      ms: t, lat: lat, crossNm: holdCrossNm, sog: 0, c: currentVelocityAt(curvePoints, t), vmg: 0.8,
-      lateralKt: 0, throughWaterKt: 0.8, headingDeg: phase < 2 ? 270 : 90,
-      courseType: 'tack', side: phase < 2 ? -1 : 1,
-      maneuver: (phase === 0 && i > 0) ? 'tack' : null, mode: 'hold'
+// Truncate an integrated leg at its first crossing of a latitude. The crossing point is
+// linearly interpolated between minute samples so a turnaround or mooring event happens at
+// the boundary itself, not up to one integration step late.
+function pathUntilLatitude(path, targetLat, headingSign) {
+  if (!path || !path.length) return { path: [], hit: null };
+  var kept = [Object.assign({}, path[0])];
+  for (var i = 1; i < path.length; i++) {
+    var a = path[i - 1], b = path[i];
+    // The leg must approach from the origin side. Starting exactly on the target and moving
+    // away is not an arrival (the failed-turn diagnostic begins that way).
+    var crossed = headingSign < 0
+      ? (a.lat > targetLat && b.lat <= targetLat)
+      : (a.lat < targetLat && b.lat >= targetLat);
+    if (!crossed) { kept.push(Object.assign({}, b)); continue; }
+    var frac = b.lat === a.lat ? 0 : clamp((targetLat - a.lat) / (b.lat - a.lat), 0, 1);
+    var hit = Object.assign({}, b, {
+      ms: a.ms + (b.ms - a.ms) * frac,
+      lat: targetLat,
+      crossNm: a.crossNm + (b.crossNm - a.crossNm) * frac,
+      sog: a.sog + (b.sog - a.sog) * frac,
+      c: a.c + (b.c - a.c) * frac,
+      sourceC: a.sourceC + (b.sourceC - a.sourceC) * frac,
+      vmg: a.vmg + (b.vmg - a.vmg) * frac,
+      lateralKt: a.lateralKt + (b.lateralKt - a.lateralKt) * frac,
+      throughWaterKt: a.throughWaterKt + (b.throughWaterKt - a.throughWaterKt) * frac,
+      maneuver: null
     });
-    if (t === endMs) break;
-    t = Math.min(endMs, t + stepMs);
-    i++;
+    kept.push(hit);
+    return { path: kept, hit: hit };
   }
-  if (path.length) {
-    path[path.length - 1].lat = limitLat;
-    path[path.length - 1].side = 0;
-    path[path.length - 1].crossNm = baseCrossNm;
-  }
-  return path;
+  return { path: kept, hit: null };
 }
 
-// If the planned southbound leg reaches the club boundary before the normal solved turn,
-// stay north of it in a visible holding pattern. Solve when to leave that pattern so the
-// northbound leg still ends at Pier 25 at ETA. This replaces the old visual failure mode of
-// a marker pinned motionless to the limit.
+// A southbound boat that reaches the club boundary turns immediately. It never parks at
+// Robbins Reef to consume the remaining window. The return leg ends at the first Pier 25
+// crossing; arriving early means mooring early, which is honest and operationally useful.
 function applySouthLimitPlan(rt, returnMs, startLat, curvePoints, windDirSeries, windSpeedSeries, boatKt, stepMs) {
-  var hitIdx = -1;
-  for (var i = 0; i < rt.outPath.length; i++) {
-    if (rt.outPath[i].lat <= SAIL_SOUTH_LIMIT_LAT) { hitIdx = i; break; }
-  }
-  if (hitIdx < 0) return null;
+  var outbound = pathUntilLatitude(rt.outPath, SAIL_SOUTH_LIMIT_LAT, -1);
+  if (!outbound.hit) return null;
 
-  var hit = Object.assign({}, rt.outPath[hitIdx], { lat: SAIL_SOUTH_LIMIT_LAT });
-  var lo = hit.ms, hi = returnMs;
-  function finalError(startMs) {
-    var leg = simulateLeg(startMs, returnMs, SAIL_SOUTH_LIMIT_LAT, 1, curvePoints, windDirSeries, windSpeedSeries, boatKt, stepMs, false, hit.crossNm, 0);
-    return leg[leg.length - 1].lat - startLat;
+  var hit = outbound.hit;
+  var fullInbound = simulateLeg(hit.ms, returnMs, hit.lat, 1, curvePoints, windDirSeries, windSpeedSeries, boatKt, stepMs, false, hit.crossNm, 0);
+  var home = pathUntilLatitude(fullInbound, startLat, 1);
+  var inPath = home.hit ? home.path : fullInbound;
+  if (home.hit) {
+    home.hit.lat = startLat;
+    home.hit.crossNm = 0;
   }
-  var fLo = finalError(lo), fHi = finalError(hi);
-  var leaveMs = lo;
-  if ((fLo > 0) !== (fHi > 0)) {
-    for (var j = 0; j < 36; j++) {
-      var mid = (lo + hi) / 2;
-      var fMid = finalError(mid);
-      if (Math.abs(fMid * NM_PER_DEG_LAT) < 0.03) { lo = hi = mid; break; }
-      if ((fMid > 0) === (fHi > 0)) { hi = mid; fHi = fMid; } else { lo = mid; fLo = fMid; }
-    }
-    leaveMs = (lo + hi) / 2;
-  }
-
-  var outPath = rt.outPath.slice(0, hitIdx).concat([hit]);
-  var holdPath = buildHoldingPattern(hit.ms, leaveMs, SAIL_SOUTH_LIMIT_LAT, curvePoints, stepMs, hit.crossNm);
-  var inPath = simulateLeg(leaveMs, returnMs, SAIL_SOUTH_LIMIT_LAT, 1, curvePoints, windDirSeries, windSpeedSeries, boatKt, stepMs, false, hit.crossNm, 0);
-  if (inPath.length) inPath[inPath.length - 1].crossNm = 0;
-  return { outPath: outPath, holdPath: holdPath, inPath: inPath, boundaryArrivalMs: hit.ms, turnMs: leaveMs };
+  return {
+    outPath: outbound.path,
+    inPath: inPath,
+    boundaryArrivalMs: hit.ms,
+    turnMs: hit.ms,
+    arrivalMs: home.hit ? home.hit.ms : returnMs,
+    converged: !!home.hit
+  };
 }
 
 function computeSailSim(departureMs, returnMs, curvePoints, windDirSeries, windSpeedSeries, boatSpeedKt, directionRec, motorFirstLeg, motorSpeedKt) {
@@ -2800,29 +2815,43 @@ function computeSailSim(departureMs, returnMs, curvePoints, windDirSeries, windS
   var motorKt = (motorSpeedKt != null && motorSpeedKt > 0) ? motorSpeedKt : DEFAULT_MOTOR_SPEED_KT;
   var useMotor = !!motorFirstLeg;
   var dirSeries = windDirSeries || [], speedSeries = windSpeedSeries || [];
-  // Solve against an arrival target before the window ends, while retaining the conservative
-  // harbor polar and the visible holding pattern at the Robbins Reef boundary.
+  // Solve against an arrival target before the window ends while retaining the conservative
+  // harbor polar. A boundary crossing is handled as an immediate turn, never a hold.
   var arriveByMs = Math.max(departureMs + 60000, returnMs - SAIL_RETURN_MARGIN_MS);
   var turn = findTurnAroundMs(departureMs, arriveByMs, PIER25.lat, headingSign, curvePoints, dirSeries, speedSeries, boatKt, SAIL_STEP_MS, useMotor, motorKt);
   var rt = simulateRoundTrip(departureMs, arriveByMs, turn.turnMs, PIER25.lat, headingSign, curvePoints, dirSeries, speedSeries, boatKt, SAIL_STEP_MS, useMotor, motorKt);
   var limited = headingSign < 0 ? applySouthLimitPlan(rt, arriveByMs, PIER25.lat, curvePoints, dirSeries, speedSeries, boatKt, SAIL_STEP_MS) : null;
+  var normalHome = (!limited && turn.converged) ? pathUntilLatitude(rt.inPath, PIER25.lat, -headingSign) : null;
+  if (normalHome && normalHome.hit) {
+    normalHome.hit.lat = PIER25.lat;
+    normalHome.hit.crossNm = 0;
+    rt.inPath = normalHome.path;
+  } else if (!limited && turn.converged && rt.inPath.length) {
+    // A solver endpoint inside the explicit home tolerance may not mathematically cross the
+    // exact latitude. Snap only that accepted final sample to the mooring, never an en-route
+    // sample, so the rendered wake still ends at Pier 25.
+    rt.inPath[rt.inPath.length - 1].lat = PIER25.lat;
+    rt.inPath[rt.inPath.length - 1].crossNm = 0;
+  }
   var effectiveTurnMs = limited ? limited.turnMs : turn.turnMs;
   var path = limited
-    ? limited.outPath.concat(limited.holdPath.slice(1), limited.inPath.slice(1))
+    ? limited.outPath.concat(limited.inPath.slice(1))
     : rt.outPath.concat(rt.inPath.slice(1));
+  var actualArrivalMs = limited ? limited.arrivalMs : (normalHome && normalHome.hit ? normalHome.hit.ms : arriveByMs);
   var arrivalPoint = path.length ? path[path.length - 1] : null;
   var finalHomeErrNm = arrivalPoint ? (arrivalPoint.lat - PIER25.lat) * NM_PER_DEG_LAT : Infinity;
   var hasRealReturnLeg = arriveByMs - effectiveTurnMs >= SAIL_MIN_RETURN_LEG_MS;
-  var roundTripConverged = turn.converged && hasRealReturnLeg && Math.abs(finalHomeErrNm) <= SAIL_HOME_TOLERANCE_NM;
+  var roundTripConverged = (limited ? limited.converged : turn.converged) && hasRealReturnLeg && Math.abs(finalHomeErrNm) <= SAIL_HOME_TOLERANCE_NM;
   var turnReason = turn.reason || null;
   if (!roundTripConverged && !turnReason) turnReason = hasRealReturnLeg ? 'missed_mooring' : 'return_leg_too_short';
   // Moored tail: hold position from arrival to the window end so playback/scrubber still
   // cover the whole window and the margin is visible as the boat sitting at the mooring.
-  if (returnMs > arriveByMs && path.length) {
+  if (returnMs > actualArrivalMs && path.length) {
     var arrivedLat = path[path.length - 1].lat;
     var tailMode = roundTripConverged ? 'moored' : 'overdue';
     path.push({
-      ms: returnMs, lat: arrivedLat, crossNm: 0, sog: 0, c: currentVelocityAt(curvePoints, returnMs),
+      ms: returnMs, lat: arrivedLat, crossNm: 0, sog: 0, c: harborCurrentAt(curvePoints, returnMs, arrivedLat),
+      sourceC: currentVelocityAt(curvePoints, returnMs),
       courseType: tailMode, side: 0, vmg: 0, lateralKt: 0, throughWaterKt: 0,
       headingDeg: SAIL_COURSE_BEARING_N, maneuver: null, mode: tailMode
     });
@@ -2839,7 +2868,7 @@ function computeSailSim(departureMs, returnMs, curvePoints, windDirSeries, windS
     headingSign: headingSign, boatSpeedKt: boatKt, motorSpeedKt: motorKt, motorFirstLeg: useMotor,
     turnMs: effectiveTurnMs, boundaryArrivalMs: limited ? limited.boundaryArrivalMs : null,
     converged: roundTripConverged, turnErrNm: finalHomeErrNm, turnReason: turnReason,
-    departureMs: departureMs, returnMs: returnMs, arriveByMs: arriveByMs, path: path,
+    departureMs: departureMs, returnMs: returnMs, arriveByMs: arriveByMs, arrivalMs: actualArrivalMs, path: path,
     furthestLandmark: furthest.name, furthestDistNm: maxDistNm,
     furthestLabel: furthestPointLabel(maxDistLat, maxDistNm), maxDistLat: maxDistLat
   };
@@ -3603,27 +3632,23 @@ function latToY(lat, padTop, innerH, latMin, latMax) {
   return padTop + clamp(t, 0, 1) * innerH;
 }
 
-// Item 1b: the strip's visible lat domain — SAIL_LAT_MIN/MAX by default, extended outward
-// (never clamped inward) to cover a track that runs further than that, rounding out to
-// whichever landmark sits at-or-beyond the exceeding edge so the new boundary still lines up
-// with a labeled reference point. Falls back to the track's own extent if no landmark reaches
-// that far (e.g. a track exceeding even the Narrows) — the boat must NEVER be clamped
-// invisibly off-scale, so the domain always grows to fit it one way or another.
+// Zoom to the trip rather than always showing the whole GWB-to-Narrows river. A small minimum
+// span preserves orientation for short sails; padding keeps the turn and mooring off the
+// edges. The actual path always determines the domain, so it is never visually clamped.
 function sailStripLatBounds(sim) {
-  var latMin = SAIL_LAT_MIN, latMax = SAIL_LAT_MAX;
-  if (!sim || !sim.path || !sim.path.length) return { latMin: latMin, latMax: latMax };
+  if (!sim || !sim.path || !sim.path.length) return { latMin: SAIL_LAT_MIN, latMax: SAIL_LAT_MAX };
   var trackMin = Infinity, trackMax = -Infinity;
   sim.path.forEach(function (p) {
     if (p.lat < trackMin) trackMin = p.lat;
     if (p.lat > trackMax) trackMax = p.lat;
   });
-  if (trackMin < latMin) {
-    var southOf = SAIL_LANDMARKS.filter(function (lm) { return lm.lat <= trackMin; }).map(function (lm) { return lm.lat; });
-    latMin = southOf.length ? Math.max.apply(null, southOf) : trackMin;
-  }
-  if (trackMax > latMax) {
-    var northOf = SAIL_LANDMARKS.filter(function (lm) { return lm.lat >= trackMax; }).map(function (lm) { return lm.lat; });
-    latMax = northOf.length ? Math.min.apply(null, northOf) : trackMax;
+  var padDeg = 0.35 / NM_PER_DEG_LAT;
+  var latMin = trackMin - padDeg, latMax = trackMax + padDeg;
+  var minSpanDeg = 3 / NM_PER_DEG_LAT;
+  if (latMax - latMin < minSpanDeg) {
+    var mid = (latMin + latMax) / 2;
+    latMin = mid - minSpanDeg / 2;
+    latMax = mid + minSpanDeg / 2;
   }
   return { latMin: latMin, latMax: latMax };
 }
@@ -3688,23 +3713,23 @@ function setupSailSimControls(sim) {
 
   if (sim.converged === false) {
     $('sailSimWarning').textContent = 'No feasible round trip reaches Pier 25 by ' + fmtTime(sim.arriveByMs) +
-      ' with the ' + Math.round(SAIL_RETURN_MARGIN_MS / 60000) + '-minute mooring buffer. The simulator will not invent a late turn. Shorten the sail or shift departure.';
+      ' with the ' + Math.round(SAIL_RETURN_MARGIN_MS / 60000) + '-minute reserve. Shorten the sail or shift departure.';
     showEl($('sailSimWarning'));
   } else {
     hideEl($('sailSimWarning'));
   }
 }
 
-var SAIL_STRIP_LABEL_FONT = 11;
+var SAIL_STRIP_LABEL_FONT = 13;
 var SAIL_LANDMARK_LABEL_MIN_GAP = 12;
 
 function renderSailSimSvg(sim, atMs) {
-  var W = 360, H = 460, padTop = 18, padBottom = 18;
+  var W = 360, H = 270, padTop = 14, padBottom = 14;
   var innerH = H - padTop - padBottom;
-  var chX0 = 72, chX1 = 220, chCenter = (chX0 + chX1) / 2;
+  var chX0 = 56, chX1 = 190, chCenter = (chX0 + chX1) / 2;
   var bounds = sailStripLatBounds(sim);
   function y(la) { return latToY(la, padTop, innerH, bounds.latMin, bounds.latMax); }
-  function x(crossNm) { return chCenter + clamp(crossNm || 0, -0.55, 0.55) * 118; }
+  function x(crossNm) { return chCenter + clamp(crossNm || 0, -0.50, 0.50) * 110; }
 
   var lat = sailValueAt(sim.path, atMs, 'lat');
   var crossNm = sailValueAt(sim.path, atMs, 'crossNm');
@@ -3749,12 +3774,6 @@ function renderSailSimSvg(sim, atMs) {
       color + '" font-weight="' + (it.isHome ? '700' : '400') + '">' + escapeHtml(it.text) + '</text>';
   });
 
-  if (SAIL_SOUTH_LIMIT_LAT >= bounds.latMin && SAIL_SOUTH_LIMIT_LAT <= bounds.latMax) {
-    var limitY = y(SAIL_SOUTH_LIMIT_LAT);
-    svg += '<line x1="' + chX0 + '" y1="' + limitY.toFixed(1) + '" x2="' + chX1 + '" y2="' + limitY.toFixed(1) +
-      '" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="3,2"/>';
-  }
-
   // A failed solve has no actionable turn. Keep its diagnostic path, but do not draw the
   // fallback instant as though it were a valid maneuver.
   if (sim.converged !== false) {
@@ -3764,9 +3783,9 @@ function renderSailSimSvg(sim, atMs) {
       ' ' + (chX0 - 1) + ',' + (turnY + 4).toFixed(1) + '" fill="var(--violet)"/>';
   }
 
-  // Current arrows: 2-3 fixed positions along the strip, length proportional to |c(t)|.
+  // Current arrows: two fixed positions along the strip, length proportional to |c(t)|.
   var curKt = sailValueAt(sim.path, atMs, 'c');
-  [0.22, 0.5, 0.78].forEach(function (frac) {
+  [0.30, 0.70].forEach(function (frac) {
     var ay = padTop + frac * innerH;
     var mag = curKt == null ? 0 : clamp(Math.abs(curKt) / 2.5, 0, 1);
     var halfLen = 6 + mag * 16;
@@ -3822,9 +3841,8 @@ function renderSailSimSvg(sim, atMs) {
   wakeRuns.forEach(function (run) {
     if (!run.pts.length) return;
     var d = run.pts.map(function (p, i) { return (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1); }).join(' ');
-    var dash = run.mode === 'motor' ? ' stroke-dasharray="4,3"' : (run.mode === 'hold' ? ' stroke-dasharray="2,2"' : '');
-    var runColor = run.mode === 'hold' ? 'var(--violet)' : 'var(--accent)';
-    svg += '<path d="' + d + '" fill="none" stroke="' + runColor + '" stroke-width="1.5" stroke-opacity="0.65"' + dash + '/>';
+    var dash = run.mode === 'motor' ? ' stroke-dasharray="4,3"' : '';
+    svg += '<path d="' + d + '" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-opacity="0.65"' + dash + '/>';
   });
   maneuverMarks.forEach(function (m) {
     svg += '<circle cx="' + m.x.toFixed(1) + '" cy="' + m.y.toFixed(1) + '" r="4" fill="var(--bg-card)" stroke="var(--accent)" stroke-width="1"/>' +
@@ -3875,16 +3893,16 @@ function renderSailSimReadouts(sim, atMs) {
       (isFinite(sim.turnErrNm) ? ' · miss ' + round1(Math.abs(sim.turnErrNm)) + ' nm' : '');
   } else {
     furthestLabel = sim.furthestLabel + (sim.boundaryArrivalMs != null
-      ? ' · limit ' + fmtTime(sim.boundaryArrivalMs) + ' · head home ' + fmtTime(sim.turnMs)
+      ? ' · club limit, turned immediately ' + fmtTime(sim.turnMs)
       : ' · turn ' + fmtTime(sim.turnMs)) +
-      (sim.arriveByMs != null && sim.arriveByMs < sim.returnMs ? ' · moored ' + fmtTime(sim.arriveByMs) : '');
+      (sim.arrivalMs != null && sim.arrivalMs < sim.returnMs ? ' · moored ' + fmtTime(sim.arrivalMs) : '');
   }
   var step = sailStepAt(sim.path, atMs);
   var modeLabel = (step && step.mode) ? step.mode.toUpperCase() : (sim.motorFirstLeg ? 'MOTOR' : 'SAIL');
   var courseLabel = '--';
   if (step) {
     if (step.mode === 'motor') courseLabel = 'Under power';
-    else if (step.mode === 'hold') courseLabel = 'Holding · short tacks';
+    else if (step.mode === 'moored') courseLabel = 'Moored at Pier 25';
     else if (step.mode === 'overdue') courseLabel = 'Return target missed';
     else if (step.courseType === 'tack') courseLabel = 'Beating · ' + (step.side < 0 ? 'port' : 'starboard') + ' tack';
     else if (step.courseType === 'jibe') courseLabel = 'Broad reach · ' + (step.side < 0 ? 'port' : 'starboard') + ' jibe';
@@ -3903,7 +3921,7 @@ function renderSailSimReadouts(sim, atMs) {
   var maneuverParts = [];
   if (plannedTacks) maneuverParts.push(tackCount + '/' + plannedTacks + ' tacks');
   if (plannedJibes) maneuverParts.push(jibeCount + '/' + plannedJibes + ' jibes');
-  var maneuverLabel = maneuverParts.length ? maneuverParts.join(' · ') : 'None required · direct course';
+  var maneuverLabel = maneuverParts.length ? maneuverParts.join(' · ') : 'Direct reach, no tack/jibe required';
 
   // Item 1d: compact 2-column label/value grid — the last row (furthest/turn) runs long, so
   // it spans both columns instead of wrapping awkwardly in a half-width cell.
@@ -3914,7 +3932,7 @@ function renderSailSimReadouts(sim, atMs) {
     ['Sailed heading', headingLabel],
     ['Sailing VMG', vmgLabel],
     ['Maneuvers', maneuverLabel],
-    ['Current', curLabel],
+    ['Current (local est.)', curLabel],
     ['SOG', sogLabel],
     ['Distance', distLabel],
     ['Furthest / turn', furthestLabel, true]
@@ -8265,8 +8283,8 @@ var LAYOUT_ASSIGNMENTS = {
   },
   wide: {
     root: ['monitorChangedBanner', 'verdictCard'],
-    colA: ['planCard', 'directionCard', 'timelineCard', 'sailSimCard'],
-    colB: ['windCard', 'radarCard', 'weatherCard'],
+    colA: ['planCard', 'directionCard', 'timelineCard'],
+    colB: ['windCard', 'sailSimCard', 'radarCard', 'weatherCard'],
     colC: ['observedCard', 'sunTwilightCard', 'advisoriesCard', 'marineTextCard']
   }
 };
