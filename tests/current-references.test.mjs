@@ -81,10 +81,10 @@ assert.deepEqual(segmented.map(group => group.length), [2, 1], 'gaps over 15 min
 assert.equal(measuredCurrentValueAt(segmented.flat(), t0 + 18 * 60000, MEASURED_CURRENT_GAP_MS), null, 'scrubbing never interpolates across a measurement gap');
 assert.equal(measuredCurrentValueAt(segmented[0], t0 + 3 * 60000, MEASURED_CURRENT_GAP_MS), 0.9);
 
-assert.ok(html.includes('data-current-station="hudson">Hudson prediction'));
+assert.ok(html.includes('data-current-station="hudson">Hudson'));
 assert.ok(html.includes('data-current-station="kvk">Kill Van Kull'));
 assert.ok(html.includes('data-current-station="newark">Newark Bay'));
-assert.ok(html.includes('data-current-station="narrows">The Narrows'));
+assert.ok(html.includes('data-current-station="narrows">Narrows'));
 assert.ok(html.includes("lsSetJSON('obsCurrentStation', station)"), 'current reference choice must persist');
 assert.ok(html.includes("var STATION_CURRENT = 'NYH1927'"), 'planning must remain on the Hudson prediction station');
 assert.ok(!html.includes('observed-reference-note'), 'Observed Now must not repeat a visible provenance paragraph');
