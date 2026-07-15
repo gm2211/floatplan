@@ -497,6 +497,10 @@ th { color: var(--ink-dim); font-weight: 600; }
   width: 257px !important;
   height: 257px !important;
 }
+.radar-map .leaflet-control-attribution {
+  max-width: calc(100% - 4px); padding: 0 2px; font-size: 8px; line-height: 1.1;
+  text-align: right; white-space: normal; overflow-wrap: anywhere;
+}
 .timeline-sensor-map-section { margin-top: 10px; }
 .timeline-sensor-map-heading {
   margin-bottom: 5px; color: var(--ink-dim); font-size: 9px; font-weight: 700;
@@ -6379,7 +6383,7 @@ function addCurrentSensorBaseLayer() {
   if (!currentSensorMapState.map) return;
   if (currentSensorMapState.baseLayer) currentSensorMapState.map.removeLayer(currentSensorMapState.baseLayer);
   currentSensorMapState.baseLayer = L.tileLayer(cartoBaseTileUrl(), {
-    attribution: '&copy; OpenStreetMap contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
     className: 'timeline-sensor-base-tiles', maxZoom: 18
   }).addTo(currentSensorMapState.map);
   currentSensorMapState.baseLayer.bringToBack();
@@ -6520,7 +6524,7 @@ function addBaseTileLayer() {
   if (!radarState.map) return;
   if (radarState.baseLayer) radarState.map.removeLayer(radarState.baseLayer);
   radarState.baseLayer = L.tileLayer(cartoBaseTileUrl(), {
-    attribution: '&copy; OpenStreetMap contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
     className: 'radar-base-tiles',
     maxZoom: 18
   }).addTo(radarState.map);

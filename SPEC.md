@@ -173,7 +173,8 @@ Logic over current predictions within the window:
   - JS: `https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js` integrity `sha512-puJW3E/qXDqYp9IfhAI54BJEaWIfloJ7JWs7OeD5i6ruC9JZL1gERT1wjtwXFlh7CjE7ZJ+/vcRZRkIYIb6p4g==`
   - CSS: `https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css` integrity `sha512-Zcn6bjR/8RZbLEpLIeOwNtzREBAJnUKESxces60Mpoj+2okopSAcSUIUOseddDm0cxnGQzxIR7vJgsLZbdLE3w==`
   - Both with `crossorigin="anonymous"` (CORS verified for Origin: null). If `window.L` undefined after load → radar card error state, rest of app unaffected.
-- Base tiles (key-less, CORS ok): CARTO `https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png` and `dark_all` variant, switch with theme. Attribution: `&copy; OpenStreetMap contributors &copy; <a href="https://carto.com/attributions">CARTO</a>`.
+- Base tiles (key-less, CORS ok): CARTO `https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png` and `dark_all` variant, switch with theme. Attribution links to both `https://www.openstreetmap.org/copyright` and `https://carto.com/attributions`.
+- Keep the radar attribution control compact (8 px type with zero vertical padding), but preserve every Leaflet, base-map, and radar-source credit and link. At narrow widths it may wrap rather than hide, truncate, or overflow horizontally.
 - RainViewer: `https://api.rainviewer.com/public/weather-maps.json` → `{host:"https://tilecache.rainviewer.com", radar:{past:[{time,path}],nowcast:[...]}}`.
   - Tile layer URL per frame: `` `${host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png` `` (color 2 = Universal Blue). Animate `past.concat(nowcast)`; **nowcast can be EMPTY — handle 0 future frames.** `time` is unix seconds UTC → frame timestamp label in NY time; mark nowcast frames "forecast".
   - Frame paths expire: refetch weather-maps.json on each monitor tick / manual refresh (≥5 min apart), rebuild layers. Preload only adjacent frame; opacity ~0.7.
