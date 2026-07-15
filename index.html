@@ -4215,9 +4215,6 @@ function renderSailSimReadouts(sim, atMs) {
   var jibeCount = completedManeuvers.filter(function (p) { return p.maneuver === 'jibe'; }).length;
   var plannedTacks = plannedManeuvers.filter(function (p) { return p.maneuver === 'tack'; }).length;
   var plannedJibes = plannedManeuvers.filter(function (p) { return p.maneuver === 'jibe'; }).length;
-  var maneuverParts = [];
-  if (plannedTacks) maneuverParts.push(tackCount + '/' + plannedTacks + ' tacks');
-  if (plannedJibes) maneuverParts.push(jibeCount + '/' + plannedJibes + ' jibes');
   var strategyHeadings = step && Array.isArray(step.strategyHeadings) ? step.strategyHeadings : [];
   var strategyHeadingLabel = strategyHeadings.length > 1
     ? strategyHeadings.map(function (deg) { return Math.round(normalizeBearing(deg)) + '°'; }).join(' / ')
@@ -4227,8 +4224,10 @@ function renderSailSimReadouts(sim, atMs) {
   else if (step.mode === 'motor') strategyLabel = 'Under power';
   else if (step.mode === 'moored' || step.mode === 'overdue') strategyLabel = '--';
   else if (step.courseType === 'infeasible') strategyLabel = 'No positive-progress sailing course';
-  else if (maneuverParts.length) {
-    strategyLabel = maneuverParts.join(' · ') + (strategyHeadingLabel ? ' · ' + strategyHeadingLabel : '');
+  else if (step.courseType === 'tack') {
+    strategyLabel = tackCount + '/' + plannedTacks + ' tacks' + (strategyHeadingLabel ? ' · ' + strategyHeadingLabel : '');
+  } else if (step.courseType === 'jibe') {
+    strategyLabel = jibeCount + '/' + plannedJibes + ' jibes' + (strategyHeadingLabel ? ' · ' + strategyHeadingLabel : '');
   } else if (step.strategyReason === 'wind-unavailable') {
     strategyLabel = 'Direct course · wind direction unavailable';
   } else {
