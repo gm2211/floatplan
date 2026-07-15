@@ -513,6 +513,8 @@ th { color: var(--ink-dim); font-weight: 600; }
 .storm-key-tornado { --storm-key: #e03131; }
 .storm-key-severe { --storm-key: #f08c00; }
 .storm-key-marine { --storm-key: #d6336c; }
+.storm-key-cell { --storm-key: var(--ink); }
+.storm-key-cell::before { height: 2px; box-shadow: 5px 0 0 -0.5px var(--bg-card); }
 .storm-key-track::before { height: 0; background: none; border-top: 2px dashed var(--ink-dim); }
 .radar-storm-status { flex: 1 1 100%; line-height: 1.4; }
 .radar-storm-status[data-tone="warn"] { color: var(--orange); }
@@ -1156,14 +1158,15 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     <div class="radar-map" id="radarMap"></div>
     <div class="radar-layer-status" id="radarLayerStatus" role="status" aria-live="polite">Loading radar imagery&hellip;</div>
     <div class="radar-storm-toolbar">
-      <label class="radar-storm-toggle"><input type="checkbox" id="radarStormToggle" checked> NWS storm warnings &amp; tracks</label>
+      <label class="radar-storm-toggle"><input type="checkbox" id="radarStormToggle" checked> Radar storm cells, warnings &amp; tracks</label>
       <span class="radar-storm-legend" id="radarStormLegend">
+        <span class="storm-key storm-key-cell">Radar cell forecast</span>
         <span class="storm-key storm-key-tornado">Tornado</span>
         <span class="storm-key storm-key-severe">Severe storm</span>
         <span class="storm-key storm-key-marine">Marine</span>
-        <span class="storm-key storm-key-track">Official motion projection</span>
+        <span class="storm-key storm-key-track">Warning motion</span>
       </span>
-      <span class="radar-storm-status" id="radarStormStatus" role="status" aria-live="polite">Checking active NWS storm warnings&hellip;</span>
+      <span class="radar-storm-status" id="radarStormStatus" role="status" aria-live="polite">Checking radar storm cells and active NWS warnings&hellip;</span>
     </div>
     <div class="radar-controls" id="radarControls">
       <button class="btn-secondary" id="radarPlayBtn">&#9654;</button>
@@ -1173,7 +1176,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     <div class="radar-forecast-caption hidden" id="radarForecastCaption">Past radar frames, plus short-term nowcast when available.</div>
     <div class="radar-fallback hidden" id="radarFallback"></div>
     <div class="card-error hidden" id="radarError"></div>
-    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a href="https://mesonet.agron.iastate.edu/GIS/radmap.php" target="_blank" rel="noopener noreferrer">NWS NEXRAD via Iowa Environmental Mesonet</a><a href="https://www.rainviewer.com/weather-radar-map-live.html" target="_blank" rel="noopener noreferrer">RainViewer loop</a><a href="https://radar.weather.gov/station/KOKX/standard" target="_blank" rel="noopener noreferrer">NWS KOKX radar</a><a href="https://api.weather.gov/alerts/active?area=NY%2CNJ%2CCT%2CPA%2CAN&amp;event=Tornado%20Warning%2CSevere%20Thunderstorm%20Warning%2CSpecial%20Marine%20Warning" target="_blank" rel="noopener noreferrer">NWS regional storm warnings</a></div></details>
+    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a href="https://mesonet.agron.iastate.edu/GIS/radmap.php" target="_blank" rel="noopener noreferrer">NWS NEXRAD via Iowa Environmental Mesonet</a><a href="https://mesonet.agron.iastate.edu/geojson/nexrad_attr.py" target="_blank" rel="noopener noreferrer">NEXRAD storm cells and motion</a><a href="https://www.rainviewer.com/weather-radar-map-live.html" target="_blank" rel="noopener noreferrer">RainViewer loop</a><a href="https://radar.weather.gov/station/KOKX/standard" target="_blank" rel="noopener noreferrer">NWS KOKX radar</a><a href="https://api.weather.gov/alerts/active?area=NY%2CNJ%2CCT%2CPA%2CMA%2CRI%2CVT%2CNH%2CME%2COH%2CWV%2CMD%2CDE%2CVA%2CDC%2CAN&amp;event=Tornado%20Warning%2CSevere%20Thunderstorm%20Warning%2CSpecial%20Marine%20Warning" target="_blank" rel="noopener noreferrer">NWS Northeast storm warnings</a></div></details>
   </section>
 
   <section class="card" id="advisoriesCard">
@@ -1349,7 +1352,8 @@ var WINDMODELS_URL = 'https://api.open-meteo.com/v1/forecast?latitude=40.7203&lo
   '&timezone=America%2FNew_York&past_days=1&forecast_days=3&models=gfs_seamless,ecmwf_ifs025,icon_seamless';
 var ALERTS_POINT_URL = 'https://api.weather.gov/alerts/active?point=40.7203,-74.0135';
 var ALERTS_ZONE_URL = 'https://api.weather.gov/alerts/active?zone=' + ZONE_MARINE;
-var ALERTS_STORM_REGION_URL = 'https://api.weather.gov/alerts/active?area=NY,NJ,CT,PA,AN&event=Tornado%20Warning,Severe%20Thunderstorm%20Warning,Special%20Marine%20Warning';
+var ALERTS_STORM_REGION_URL = 'https://api.weather.gov/alerts/active?area=NY,NJ,CT,PA,MA,RI,VT,NH,ME,OH,WV,MD,DE,VA,DC,AN&event=Tornado%20Warning,Severe%20Thunderstorm%20Warning,Special%20Marine%20Warning';
+var IEM_STORM_ATTR_URL = 'https://mesonet.agron.iastate.edu/geojson/nexrad_attr.py';
 // IEM time-lagged NEXRAD composite (RadarScope-style): current + 10 five-minute-lagged
 // tile layers, oldest -> newest. Confirmed standard XYZ (non-TMS) tiling; z12 x=1205
 // y=1539 (NYC) returns real land/coast data, not ocean.
@@ -1365,7 +1369,9 @@ var RAINVIEWER_URL = 'https://api.rainviewer.com/public/weather-maps.json';
 // is zoomed closer, rather than treating those placeholder tiles as valid radar imagery.
 var RAINVIEWER_MAX_NATIVE_ZOOM = 7;
 var STORM_WARNING_RE = /^(Tornado Warning|Severe Thunderstorm Warning|Special Marine Warning)$/i;
-var NYC_RADAR_DOMAIN = { south: 39.4, west: -76.0, north: 42.2, east: -71.6 };
+// Covers the Northeast view users commonly zoom to while keeping the national SCIT feed
+// from filling the map with irrelevant cells. Individual scans are still freshness-checked.
+var NORTHEAST_STORM_DOMAIN = { south: 37.0, west: -82.5, north: 47.5, east: -65.0 };
 var PIER25 = { lat: 40.7203, lon: -74.0135 };
 var DEFAULT_RADAR_ZOOM = 10;
 var KT_PER_MPH = 0.868976;
@@ -1977,6 +1983,16 @@ function fetchStormAlerts() {
     return res.json();
   }).then(function (data) {
     return (data.features || []).filter(stormAlertInDomain);
+  });
+}
+
+function fetchStormCells() {
+  return fetchWithRetry(IEM_STORM_ATTR_URL).then(function (res) {
+    if (!res.ok) throw new Error('NEXRAD storm attributes HTTP ' + res.status);
+    return res.json();
+  }).then(function (data) {
+    if (!data || !Array.isArray(data.features)) throw new Error('NEXRAD storm attributes returned invalid GeoJSON');
+    return data.features;
   });
 }
 
@@ -5922,10 +5938,10 @@ function renderMarineText(text) {
 /* ============================== Radar / Leaflet ============================== */
 
 var radarState = {
-  map: null, baseLayer: null, currentLayer: null, warningLayer: null, stormTrackLayer: null, frames: [], index: 0,
+  map: null, baseLayer: null, currentLayer: null, warningLayer: null, stormCellLayer: null, frames: [], index: 0,
   playing: false, playTimer: null, lastFetchMs: 0, mode: 'live', pierMarker: null,
-  layerGeneration: 0, stormOverlayEnabled: true, stormFeedAvailable: null,
-  stormAlerts: [], stormTrackBounds: null
+  layerGeneration: 0, stormOverlayEnabled: true, stormFeedAvailable: null, stormCellFeedAvailable: null,
+  stormAlerts: [], stormCells: [], stormTrackBounds: null
 };
 
 function setRadarLayerStatus(message, tone) {
@@ -5981,6 +5997,9 @@ function initLeafletMap() {
     addBaseTileLayer();
     radarState.pierMarker = L.marker([PIER25.lat, PIER25.lon]).addTo(radarState.map).bindPopup('Pier 25 Mooring, Manhattan');
     makeRecenterControl().addTo(radarState.map);
+    radarState.map.on('moveend', function () {
+      renderStormOverlays(state.stormAlertsRaw || [], state.stormCellsRaw || []);
+    });
     return true;
   } catch (e) {
     $('radarMap').innerHTML = '';
@@ -6179,10 +6198,10 @@ function showRadarFallbackGif() {
   showEl(container);
 }
 
-/* ============================== Storm warning overlay ============================== */
-// NWS CAP supplies the warning polygon and, for some convective warnings, a structured
-// eventMotionDescription. We only project that official vector; radar pixels are never
-// interpreted or extrapolated here.
+/* ============================== Storm cell + warning overlay ============================== */
+// NWS CAP supplies warning polygons and occasional warning motion. Independently, the
+// IEM NEXRAD storm-attributes feed exposes radar-identified SCIT cell centroids and their
+// official motion estimates. Reflectivity pixels themselves are never interpreted here.
 
 function warningColorForEvent(event) {
   event = event || '';
@@ -6216,7 +6235,101 @@ function stormAlertInDomain(alert) {
   var p = (alert && alert.properties) || {};
   var expiresMs = new Date(p.expires || '').getTime();
   var isActive = !isFinite(expiresMs) || expiresMs > Date.now();
-  return isActive && STORM_WARNING_RE.test(p.event || '') && boundsIntersect(geometryBounds(alert.geometry), NYC_RADAR_DOMAIN);
+  return isActive && STORM_WARNING_RE.test(p.event || '') && boundsIntersect(geometryBounds(alert.geometry), NORTHEAST_STORM_DOMAIN);
+}
+
+function pointInDomain(lat, lon, domain) {
+  return isFinite(lat) && isFinite(lon) && domain && lat >= domain.south && lat <= domain.north && lon >= domain.west && lon <= domain.east;
+}
+
+function stormNumericOrNull(value) {
+  if (value == null || String(value).trim() === '') return null;
+  var numeric = Number(value);
+  return isFinite(numeric) ? numeric : null;
+}
+
+// IEM documents DRCT as the direction the storm is moving FROM (for example, west means
+// west-to-east travel), matching the NWS STI convention. Reverse it for a map bearing.
+function parseIemStormCell(feature, nowMs) {
+  var coordinates = feature && feature.geometry && feature.geometry.type === 'Point' && feature.geometry.coordinates;
+  var p = (feature && feature.properties) || {};
+  if (!coordinates || coordinates.length < 2) return null;
+  var lon = Number(coordinates[0]), lat = Number(coordinates[1]);
+  var validMs = new Date(p.valid || '').getTime();
+  var fromDeg = stormNumericOrNull(p.drct), speedKt = stormNumericOrNull(p.sknt);
+  var tvs = String(p.tvs || '').trim(), meso = String(p.meso || '').trim();
+  var referenceMs = isFinite(nowMs) ? nowMs : Date.now();
+  if (!pointInDomain(lat, lon, NORTHEAST_STORM_DOMAIN) || !isFinite(validMs)) return null;
+  if (validMs < referenceMs - 30 * 60000 || validMs > referenceMs + 5 * 60000) return null;
+  if (!isFinite(fromDeg) || fromDeg < 0 || fromDeg > 359 || !(speedKt >= 5)) return null;
+  return {
+    id: String(p.storm_id || '').trim() || '--',
+    radar: String(p.nexrad || '').trim() || 'NEXRAD',
+    lat: lat, lon: lon, validMs: validMs,
+    fromDeg: fromDeg, bearingDeg: (fromDeg + 180) % 360, speedKt: speedKt,
+    maxDbz: stormNumericOrNull(p.max_dbz),
+    topKft: stormNumericOrNull(p.top),
+    vil: stormNumericOrNull(p.vil),
+    hailProbability: stormNumericOrNull(p.poh),
+    severeHailProbability: stormNumericOrNull(p.posh),
+    hailSizeIn: stormNumericOrNull(p.max_size),
+    tvs: /^(NONE|0)$/i.test(tvs) ? '' : tvs,
+    meso: /^(NONE|0)$/i.test(meso) ? '' : meso
+  };
+}
+
+function stormCellDistanceNm(a, b) {
+  var radiusNm = 3440.065;
+  var lat1 = a.lat * Math.PI / 180, lat2 = b.lat * Math.PI / 180;
+  var dLat = lat2 - lat1, dLon = (b.lon - a.lon) * Math.PI / 180;
+  var h = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  h = Math.min(1, Math.max(0, h));
+  return radiusNm * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+function bearingDifferenceDeg(a, b) {
+  var difference = Math.abs(a - b) % 360;
+  return difference > 180 ? 360 - difference : difference;
+}
+
+// Neighboring radars often identify the same physical centroid under different IDs. Keep
+// distinct cells from one radar, but collapse cross-radar centroids within 2 nm, preferring
+// the stronger/newer observation. The cap keeps permanent time labels usable on busy days.
+function dedupeRadarStormCells(cells, maxCount) {
+  var sorted = (cells || []).slice().sort(function (a, b) {
+    var timeDiff = b.validMs - a.validMs;
+    if (timeDiff) return timeDiff;
+    var tvsDiff = Number(!!b.tvs) - Number(!!a.tvs);
+    if (tvsDiff) return tvsDiff;
+    var mesoDiff = Number(!!b.meso) - Number(!!a.meso);
+    if (mesoDiff) return mesoDiff;
+    var dbzDiff = (b.maxDbz == null ? -Infinity : b.maxDbz) - (a.maxDbz == null ? -Infinity : a.maxDbz);
+    if (dbzDiff) return dbzDiff;
+    var vilDiff = (b.vil == null ? -Infinity : b.vil) - (a.vil == null ? -Infinity : a.vil);
+    if (vilDiff) return vilDiff;
+    return 0;
+  });
+  var kept = [];
+  sorted.forEach(function (cell) {
+    var duplicate = kept.some(function (other) {
+      return cell.radar !== other.radar &&
+        Math.abs(cell.validMs - other.validMs) <= 10 * 60000 &&
+        bearingDifferenceDeg(cell.bearingDeg, other.bearingDeg) <= 45 &&
+        Math.abs(cell.speedKt - other.speedKt) <= 20 &&
+        stormCellDistanceNm(cell, other) <= 2;
+    });
+    if (!duplicate && (maxCount == null || kept.length < maxCount)) kept.push(cell);
+  });
+  return kept;
+}
+
+function selectRadarStormCells(cells, visibleDomain, maxCount) {
+  var visible = [], elsewhere = [];
+  (cells || []).forEach(function (cell) {
+    (pointInDomain(cell.lat, cell.lon, visibleDomain) ? visible : elsewhere).push(cell);
+  });
+  elsewhere.sort(function (a, b) { return stormCellDistanceNm(a, PIER25) - stormCellDistanceNm(b, PIER25); });
+  return visible.concat(elsewhere).slice(0, maxCount || 24);
 }
 
 // Format documented by NWS CAP: timestamp...storm...DDDDEG...SSKT...lat,lon [...].
@@ -6247,6 +6360,25 @@ function destinationPoint(lat, lon, bearingDeg, distanceNm) {
   var lat2 = Math.asin(Math.sin(lat1) * Math.cos(angular) + Math.cos(lat1) * Math.sin(angular) * Math.cos(bearing));
   var lon2 = lon1 + Math.atan2(Math.sin(bearing) * Math.sin(angular) * Math.cos(lat1), Math.cos(angular) - Math.sin(lat1) * Math.sin(lat2));
   return [lat2 * 180 / Math.PI, ((lon2 * 180 / Math.PI + 540) % 360) - 180];
+}
+
+function buildRadarCellProjection(cell) {
+  if (!cell) return null;
+  var times = [0, 15, 30, 45, 60].map(function (minutes) { return cell.validMs + minutes * 60000; });
+  return {
+    cell: cell,
+    times: times,
+    track: times.map(function (timeMs) {
+      return destinationPoint(cell.lat, cell.lon, cell.bearingDeg, cell.speedKt * ((timeMs - cell.validMs) / 3600000));
+    })
+  };
+}
+
+function buildStormTrackTick(point, bearingDeg, halfWidthNm) {
+  return [
+    destinationPoint(point[0], point[1], (bearingDeg + 270) % 360, halfWidthNm || 0.7),
+    destinationPoint(point[0], point[1], (bearingDeg + 90) % 360, halfWidthNm || 0.7)
+  ];
 }
 
 function buildStormProjection(alert) {
@@ -6287,63 +6419,114 @@ function stormPopupHtml(alert, projection) {
   return html + '<br><a href="' + escapeHtml(sourceUrl) + '" target="_blank" rel="noopener noreferrer">Open original NWS warning</a>';
 }
 
+function radarCellPopupHtml(cell) {
+  var sourceUrl = IEM_STORM_ATTR_URL + '?valid=' + encodeURIComponent(new Date(cell.validMs).toISOString());
+  var html = '<strong>Radar cell ' + escapeHtml(cell.id) + '</strong> · ' + escapeHtml(cell.radar);
+  html += '<br>Scan: ' + escapeHtml(fmtTime(cell.validMs));
+  html += '<br>Moving from ' + cell.fromDeg + '° (' + escapeHtml(degToCompass(cell.fromDeg)) + ') at ' + cell.speedKt + ' kt';
+  if (cell.maxDbz != null) html += '<br>Maximum reflectivity: ' + cell.maxDbz + ' dBZ';
+  if (cell.topKft != null) html += '<br>Storm top: ' + cell.topKft + ' kft';
+  if (cell.hailProbability != null) html += '<br>Hail probability: ' + cell.hailProbability + '%';
+  if (cell.hailSizeIn != null && cell.hailSizeIn > 0) html += ' · up to ' + cell.hailSizeIn + ' in';
+  if (cell.tvs || cell.meso) html += '<br>' + (cell.tvs ? 'TVS: ' + escapeHtml(cell.tvs) : '') + (cell.tvs && cell.meso ? ' · ' : '') + (cell.meso ? 'Meso: ' + escapeHtml(cell.meso) : '');
+  html += '<br><small>One-hour linear SCIT projection from the radar-reported direction and speed. Cells can change course, split, or dissipate.</small>';
+  return html + '<br><a href="' + escapeHtml(sourceUrl) + '" target="_blank" rel="noopener noreferrer">Open original NEXRAD attributes</a>';
+}
+
 function clearStormTrackLayer() {
-  if (radarState.map && radarState.stormTrackLayer) radarState.map.removeLayer(radarState.stormTrackLayer);
-  radarState.stormTrackLayer = null;
+  if (radarState.map && radarState.warningLayer) radarState.map.removeLayer(radarState.warningLayer);
+  if (radarState.map && radarState.stormCellLayer) radarState.map.removeLayer(radarState.stormCellLayer);
   radarState.warningLayer = null;
+  radarState.stormCellLayer = null;
   radarState.stormTrackBounds = null;
 }
 
-function renderWarningPolygons(alerts) {
+function renderStormOverlays(alerts, cells) {
   if (!radarState.map) return;
   clearStormTrackLayer();
   radarState.stormAlerts = (alerts || []).filter(stormAlertInDomain);
+  radarState.stormCells = dedupeRadarStormCells(
+    (cells || []).map(function (feature) { return parseIemStormCell(feature, Date.now()); }).filter(Boolean)
+  );
+  var mapBounds = radarState.map.getBounds();
+  var visibleDomain = { south: mapBounds.getSouth(), west: mapBounds.getWest(), north: mapBounds.getNorth(), east: mapBounds.getEast() };
+  var displayedStormCells = selectRadarStormCells(radarState.stormCells, visibleDomain, 24);
   var status = $('radarStormStatus');
   if (!radarState.stormOverlayEnabled) {
-    if (status) status.textContent = 'Storm warning overlay is off.';
+    if (status) status.textContent = 'Storm cell and warning overlay is off.';
     return;
   }
-  if (radarState.stormFeedAvailable === false && !radarState.stormAlerts.length) {
-    if (status) { status.textContent = 'Regional NWS storm warning feed is unavailable.'; status.setAttribute('data-tone', 'warn'); }
-    return;
-  }
-  if (!radarState.stormAlerts.length) {
-    if (status) { status.textContent = radarState.stormFeedAvailable == null ? 'Checking active NWS storm warnings…' : 'No active tornado, severe thunderstorm, or special marine warnings in the NYC radar area.'; status.removeAttribute('data-tone'); }
-    return;
-  }
-  var group = L.layerGroup(), trackCount = 0, allBounds = [];
+  var warningGroup = L.layerGroup(), cellGroup = L.layerGroup(), warningMotionCount = 0, allBounds = [];
   radarState.stormAlerts.forEach(function (feature) {
     var color = warningColorForEvent(feature.properties && feature.properties.event);
     var projection = buildStormProjection(feature);
     var popup = stormPopupHtml(feature, projection);
-    var polygonLayer = L.geoJSON(feature, { style: { color: color, weight: 2.5, fillColor: color, fillOpacity: 0.12 } }).bindPopup(popup).addTo(group);
+    var polygonLayer = L.geoJSON(feature, { style: { color: color, weight: 2.5, fillColor: color, fillOpacity: 0.12 } }).bindPopup(popup).addTo(warningGroup);
     var polygonBounds = polygonLayer.getBounds();
     if (polygonBounds.isValid()) {
       allBounds.push(polygonBounds.getSouthWest(), polygonBounds.getNorthEast());
     }
     if (projection) {
-      trackCount += 1;
+      warningMotionCount += 1;
       projection.tracks.forEach(function (track, trackIndex) {
-        L.polyline(track, { color: color, weight: 2, opacity: 0.9, dashArray: '6 6' }).bindPopup(popup).addTo(group);
+        L.polyline(track, { color: color, weight: 2, opacity: 0.9, dashArray: '6 6' }).bindPopup(popup).addTo(warningGroup);
         track.forEach(function (point, pointIndex) {
           allBounds.push(point);
           if (trackIndex === 0 && pointIndex > 0) {
             L.circleMarker(point, { radius: 3, color: color, weight: 1.5, fillColor: color, fillOpacity: 0.9 })
-              .bindTooltip(fmtTime(projection.times[pointIndex]), { permanent: true, direction: 'right', className: 'storm-time-label' }).addTo(group);
+              .bindTooltip(fmtTime(projection.times[pointIndex]), { permanent: true, direction: 'right', className: 'storm-time-label' }).addTo(warningGroup);
           }
         });
       });
     }
   });
-  radarState.stormTrackLayer = group.addTo(radarState.map);
-  radarState.warningLayer = radarState.stormTrackLayer;
+
+  displayedStormCells.forEach(function (cell) {
+    var projection = buildRadarCellProjection(cell);
+    var popup = radarCellPopupHtml(cell);
+    var cellTrackColor = resolvedTheme() === 'dark' ? '#f8fafc' : '#084c61';
+    L.polyline(projection.track, { color: cellTrackColor, weight: 2.4, opacity: 0.96 })
+      .bindPopup(popup).addTo(cellGroup);
+    L.circleMarker(projection.track[0], {
+      radius: 5, color: cellTrackColor, weight: 2, fillColor: resolvedTheme() === 'dark' ? '#0b1622' : '#ffffff', fillOpacity: 0.9
+    }).bindTooltip('Cell ' + cell.id + ' · ' + cell.radar, { direction: 'top' }).bindPopup(popup).addTo(cellGroup);
+    projection.track.forEach(function (point, pointIndex) {
+      allBounds.push(point);
+      if (pointIndex === 0) return;
+      L.polyline(buildStormTrackTick(point, cell.bearingDeg, 0.7), { color: cellTrackColor, weight: 2, opacity: 0.96 })
+        .bindPopup(popup).addTo(cellGroup);
+      L.circleMarker(point, { radius: 1.8, color: cellTrackColor, weight: 1, fillColor: cellTrackColor, fillOpacity: 1 })
+        .bindTooltip(fmtTime(projection.times[pointIndex]), { permanent: true, direction: 'right', className: 'storm-time-label' }).addTo(cellGroup);
+    });
+  });
+
+  if (radarState.stormAlerts.length) radarState.warningLayer = warningGroup.addTo(radarState.map);
+  if (displayedStormCells.length) radarState.stormCellLayer = cellGroup.addTo(radarState.map);
   if (allBounds.length) radarState.stormTrackBounds = L.latLngBounds(allBounds);
   if (status) {
+    var hasStorms = radarState.stormAlerts.length || radarState.stormCells.length;
+    var feedsLoading = radarState.stormFeedAvailable == null || radarState.stormCellFeedAvailable == null;
+    if (!hasStorms) {
+      if (feedsLoading) status.textContent = 'Checking radar storm cells and active NWS warnings…';
+      else if (radarState.stormFeedAvailable === false && radarState.stormCellFeedAvailable === false) status.textContent = 'Storm cell and regional warning feeds are unavailable.';
+      else status.textContent = 'No radar-tracked storm cells or active NWS warnings in the Northeast radar area.';
+      if (radarState.stormFeedAvailable === false || radarState.stormCellFeedAvailable === false) status.setAttribute('data-tone', 'warn');
+      else status.removeAttribute('data-tone');
+      return;
+    }
     var outside = radarState.stormTrackBounds && !radarState.map.getBounds().intersects(radarState.stormTrackBounds);
-    status.innerHTML = radarState.stormAlerts.length + ' active NWS storm warning' + (radarState.stormAlerts.length === 1 ? '' : 's') +
-      '; ' + trackCount + ' with official motion.' + (outside ? ' <button type="button" class="radar-track-view" id="radarTrackViewBtn">View storms</button>' : '');
-    if (radarState.stormFeedAvailable === false) {
-      status.insertAdjacentText('afterbegin', 'NWS refresh unavailable; showing cached warnings. ');
+    var counts = [];
+    if (radarState.stormCells.length) {
+      var hiddenCellCount = radarState.stormCells.length - displayedStormCells.length;
+      counts.push(displayedStormCells.length + ' radar cell track' + (displayedStormCells.length === 1 ? '' : 's') + ' shown' + (hiddenCellCount ? ' (' + hiddenCellCount + ' not shown)' : ''));
+    }
+    if (radarState.stormAlerts.length) counts.push(radarState.stormAlerts.length + ' active NWS warning' + (radarState.stormAlerts.length === 1 ? '' : 's') + (warningMotionCount ? ' (' + warningMotionCount + ' with motion)' : ''));
+    status.innerHTML = counts.join(' · ') + (outside ? ' <button type="button" class="radar-track-view" id="radarTrackViewBtn">View storms</button>' : '');
+    if (radarState.stormFeedAvailable === false || radarState.stormCellFeedAvailable === false) {
+      var unavailable = [];
+      if (radarState.stormCellFeedAvailable === false) unavailable.push('cell');
+      if (radarState.stormFeedAvailable === false) unavailable.push('warning');
+      status.insertAdjacentText('afterbegin', unavailable.join(' and ') + ' refresh unavailable; showing last-known data. ');
       status.setAttribute('data-tone', 'warn');
     } else {
       status.removeAttribute('data-tone');
@@ -6358,7 +6541,7 @@ function setStormOverlayEnabled(enabled) {
   lsSetJSON('radarStormOverlay', radarState.stormOverlayEnabled);
   var toggle = $('radarStormToggle');
   if (toggle) toggle.checked = radarState.stormOverlayEnabled;
-  renderWarningPolygons(state.stormAlertsRaw || []);
+  renderStormOverlays(state.stormAlertsRaw || [], state.stormCellsRaw || []);
 }
 
 /* ============================== Card error / toast helpers ============================== */
@@ -6390,7 +6573,7 @@ var state = {
   settings: null,
   currentsSlackRaw: null, currentsCurveRaw: null, tidesRaw: null,
   levelPredictedRaw: null, levelObservedRaw: null,
-  gridpointRaw: null, hourlyRaw: null, alertsRaw: null, stormAlertsRaw: null, marineTextRaw: null,
+  gridpointRaw: null, hourlyRaw: null, alertsRaw: null, stormAlertsRaw: null, stormCellsRaw: null, marineTextRaw: null,
   observedRaw: null, windModelsRaw: null, windModelSeries: null, windModel: 'nws',
   obsWindStation: 'robbinsReef', obsWindKjrbRaw: null, obsWindWeatherflowRaw: null,
   obsCurrentStation: 'hudson', kvkCurrentRaw: null, newarkCurrentRaw: null, narrowsCurrentRaw: null,
@@ -6632,11 +6815,26 @@ function loadStormAlerts() {
     radarState.stormFeedAvailable = true;
   }).then(function () {
     radarState.stormFeedAvailable = true;
-    renderWarningPolygons(state.stormAlertsRaw || []);
+    renderStormOverlays(state.stormAlertsRaw || [], state.stormCellsRaw || []);
     return true;
   }).catch(function () {
     radarState.stormFeedAvailable = false;
-    renderWarningPolygons(state.stormAlertsRaw || []);
+    renderStormOverlays(state.stormAlertsRaw || [], state.stormCellsRaw || []);
+    return false;
+  });
+}
+function loadStormCells() {
+  radarState.stormCellFeedAvailable = null;
+  return loadSource('stormCellsV1', fetchStormCells, 'radarCard', function (data) {
+    state.stormCellsRaw = data;
+    radarState.stormCellFeedAvailable = true;
+  }).then(function () {
+    radarState.stormCellFeedAvailable = true;
+    renderStormOverlays(state.stormAlertsRaw || [], state.stormCellsRaw || []);
+    return true;
+  }).catch(function () {
+    radarState.stormCellFeedAvailable = false;
+    renderStormOverlays(state.stormAlertsRaw || [], state.stormCellsRaw || []);
     return false;
   });
 }
@@ -6741,7 +6939,7 @@ function recomputeWindowDependentUI() {
   renderWindCard(state.hourlyRaw, departureMs, returnMs, limits);
   renderWeatherCard(state.hourlyRaw, state.gridSeries, departureMs, returnMs, limits);
   renderAdvisories(state.alertsRaw, departureMs, returnMs);
-  renderWarningPolygons(state.stormAlertsRaw);
+  renderStormOverlays(state.stormAlertsRaw, state.stormCellsRaw);
   renderObsWindRow(maxSustainedKt, maxGustKt, limits);
   renderObsCurrentRow();
   renderObservedMore(state.observedRaw, limits);
@@ -6758,7 +6956,7 @@ function recomputeWindowDependentUI() {
 function loadAll() {
   return Promise.all([
     loadCurrentsSlack(), loadCurrentsCurve(), loadWater(), loadGridpoint(),
-    loadHourly(), loadAlerts(), loadStormAlerts(), loadMarineText(), loadRadar(true), loadObserved(),
+    loadHourly(), loadAlerts(), loadStormAlerts(), loadStormCells(), loadMarineText(), loadRadar(true), loadObserved(),
     loadObservedKjrb(), loadKvkCurrent(), loadNewarkCurrent(), loadNarrowsCurrent(), loadWillyWall()
   ]).then(function (results) {
     return results.some(function (ok) { return ok === true; });
@@ -7891,6 +8089,7 @@ function applyTheme() {
   document.documentElement.setAttribute('data-theme', resolved);
   syncThemeColorMeta(resolved);
   addBaseTileLayer();
+  if (radarState.map) renderStormOverlays(state.stormAlertsRaw || [], state.stormCellsRaw || []);
   if (state.lastDirectionRec) drawCompassArrow(state.lastDirectionRec);
 }
 
