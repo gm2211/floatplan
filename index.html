@@ -560,6 +560,53 @@ pre#marineTextContent { white-space: pre-wrap; font-family: inherit; font-size: 
 .observed-warn { font-size: 11px; background: var(--red-bg); color: var(--red); border-radius: 999px; padding: 2px 8px; }
 .observed-age { font-size: 11px; color: var(--ink-dim); }
 
+/* The selected wind station always uses the same four-slot layout. Keeping the
+   label, reading, warning and timestamp as separate grid items prevents each
+   source's optional fields from inventing a different flex-wrap pattern. */
+.observed-primary { container-type: inline-size; }
+.observed-wind-row {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-areas:
+    "station reading"
+    ". meta";
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 4px;
+  padding: 4px 0 7px;
+  border-bottom: 1px dashed var(--border);
+  font-size: 14px;
+}
+.observed-wind-station {
+  grid-area: station;
+  align-self: start;
+  min-width: 0;
+  white-space: nowrap;
+}
+.observed-wind-reading {
+  grid-area: reading;
+  justify-self: end;
+  white-space: nowrap;
+}
+.observed-wind-meta {
+  grid-area: meta;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+@container (max-width: 435px) {
+  .observed-wind-row {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "station" "reading" "meta";
+    row-gap: 5px;
+  }
+  .observed-wind-reading,
+  .observed-wind-meta { justify-self: start; justify-content: flex-start; }
+}
+
 .observed-source-kicker {
   margin: 0 0 5px; color: var(--ink-dim); font-size: 10px; font-weight: 700;
   letter-spacing: 0.08em; text-transform: uppercase;
@@ -849,7 +896,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <button type="button" class="chip station-unavailable" data-station="weatherflow" id="obsStationWeatherflowChip">Willy Wall</button>
     </div>
     <div class="observed-primary" id="observedPrimary">
-      <div class="observed-row" id="obsWindRow"></div>
+      <div class="observed-wind-row" id="obsWindRow"></div>
       <div class="observed-row" id="obsCurrentRow"></div>
     </div>
     <div class="observed-companion-source"><span>Temperature, water level &amp; pressure</span><a href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">The Battery (NOAA)</a></div>
@@ -3755,16 +3802,17 @@ function updateWillyWallChipState(available) {
 function renderObsWindRow(maxSustainedKt, maxGustKt, limits) {
   var el = $('obsWindRow');
   if (!el) return;
+  el.className = 'observed-wind-row';
   limits = limits || (state.settings ? state.settings.limits : DEFAULT_LIMITS);
   var station = state.obsWindStation || 'robbinsReef';
   var label = OBS_WIND_STATION_LABELS[station] || station;
   var w = observedWindDataForStation(station);
 
   if (!w) {
-    el.innerHTML = '<span>Wind &middot; ' + escapeHtml(label) + '</span>' +
+    el.innerHTML = '<span class="observed-wind-station">Wind &middot; ' + escapeHtml(label) + '</span>' +
       (station === 'weatherflow'
-        ? '<a href="' + WILLY_WALL_SOURCE_URL + '" target="_blank" rel="noopener noreferrer">Unavailable &middot; check source</a>'
-        : '<span>&mdash;</span>');
+        ? '<a class="observed-wind-reading" href="' + WILLY_WALL_SOURCE_URL + '" target="_blank" rel="noopener noreferrer">Unavailable &middot; check source</a>'
+        : '<span class="observed-wind-reading">&mdash;</span>');
     return;
   }
 
@@ -3778,11 +3826,11 @@ function renderObsWindRow(maxSustainedKt, maxGustKt, limits) {
     (maxGustKt != null && w.gustKt != null && w.gustKt > maxGustKt);
   var ageText = w.ms != null ? ('as of ' + fmtTime(w.ms) + ageSuffix(w.ms)) : '';
   el.innerHTML =
-    '<span>Wind &middot; ' + escapeHtml(label) + '</span>' +
-    '<span class="observed-value">' +
-    '<span class="observed-pill ' + cls + '">' + escapeHtml(windText) + '</span>' +
-    (aboveForecast ? '<span class="observed-warn">observed above forecast</span>' : '') +
-    (ageText ? '<span class="observed-age">' + escapeHtml(ageText) + '</span>' : '') +
+    '<span class="observed-wind-station">Wind &middot; ' + escapeHtml(label) + '</span>' +
+    '<span class="observed-pill observed-wind-reading ' + cls + '">' + escapeHtml(windText) + '</span>' +
+    '<span class="observed-wind-meta">' +
+      (aboveForecast ? '<span class="observed-warn">observed above forecast</span>' : '') +
+      (ageText ? '<span class="observed-age">' + escapeHtml(ageText) + '</span>' : '') +
     '</span>';
 }
 
