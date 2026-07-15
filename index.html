@@ -7625,6 +7625,20 @@ function setupResponsiveLayout() {
   });
 }
 
+// Desktop layout is a safety invariant, not an enhancement. Run this independently of the
+// data-loading pipeline so a later widget error can never leave every card in root block flow.
+function enforceDesktopLayoutInvariant() {
+  if (window.innerWidth < 700) return;
+  var row = $('columnsRow');
+  var hasCards = ['colA', 'colB', 'colC'].some(function (id) {
+    var col = $(id);
+    return col && col.children.length > 0;
+  });
+  if (!row || row.classList.contains('hidden') || !hasCards) {
+    applyLayout(computeBreakpointName(window.innerWidth));
+  }
+}
+
 /* ============================== Mobile tab shell (iOS-style, narrow only) ============================== */
 // At the `narrow` breakpoint the 13-card scroll column becomes five iOS-style tabs behind a
 // fixed bottom tab bar. Cards keep their DOM position/order from LAYOUT_ASSIGNMENTS.narrow —
@@ -7697,6 +7711,12 @@ function initMobileTabs() {
 /* ============================== Init ============================== */
 
 function init() {
+  // Establish the responsive shell before wiring any widget. If any unrelated component
+  // fails during initialization, wide screens still retain their multi-column dashboard.
+  setupResponsiveLayout();
+  setTimeout(enforceDesktopLayoutInvariant, 0);
+  window.addEventListener('load', enforceDesktopLayoutInvariant);
+
   state.settings = loadSettings();
   applyTheme();
   if (window.matchMedia) {
@@ -7858,25 +7878,6 @@ function init() {
     });
   });
 
-  // Radar live/forecast mode (item 17): default 'live' (NEXRAD), persisted like the wind
-  // model chips above. Switching modes swaps the frame list and forces a fresh health-check
-  // (setRadarMode -> loadRadarData(true)); it does not touch the base map layer, marker,
-  // recenter control, or warning-polygon overlay, which stay mode-agnostic.
-  // Timeline card mode: 'current' (default — speed is what drives the float plan from a
-  // mooring; level is anchoring info) or 'both' for the dual-axis view.
-  state.timelineMode = lsGetJSON('timelineMode', 'current');
-  if (state.timelineMode !== 'current' && state.timelineMode !== 'both') state.timelineMode = 'current';
-  updateTimelineModeChipActive();
-  document.querySelectorAll('#timelineModeRow .chip').forEach(function (chip) {
-    chip.addEventListener('click', function () {
-      if (chip.dataset.mode === state.timelineMode) return;
-      state.timelineMode = chip.dataset.mode;
-      lsSetJSON('timelineMode', state.timelineMode);
-      updateTimelineModeChipActive();
-      rerenderTimelineCard();
-    });
-  });
-
   radarState.mode = lsGetJSON('radarMode', 'live');
   updateRadarModeChipActive();
   if (radarState.mode === 'forecast') showEl($('radarForecastCaption')); else hideEl($('radarForecastCaption'));
@@ -7886,7 +7887,6 @@ function init() {
 
   initLeafletMap();
   initMobileTabs();
-  setupResponsiveLayout();
 
   // Render any cached data immediately, then kick off live fetches for everything
   // (loadAll() includes the NEXRAD radar healthcheck/frame rebuild).
