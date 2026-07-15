@@ -181,7 +181,7 @@ Logic over current predictions within the window:
 - Keep the radar attribution control compact (8 px type with zero vertical padding), but preserve every Leaflet, base-map, and radar-source credit and link. At narrow widths it may wrap rather than hide, truncate, or overflow horizontally.
 - RainViewer: `https://api.rainviewer.com/public/weather-maps.json` → `{host:"https://tilecache.rainviewer.com", radar:{past:[{time,path}],nowcast:[...]}}`.
   - Tile layer URL per frame: `` `${host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png` `` (color 2 = Universal Blue). Animate `past.concat(nowcast)`; **nowcast can be EMPTY — handle 0 future frames.** `time` is unix seconds UTC → frame timestamp label in NY time; mark nowcast frames "forecast".
-  - Frame paths expire: refetch weather-maps.json on each monitor tick / manual refresh (≥5 min apart), rebuild layers. Preload only adjacent frame; opacity ~0.7.
+  - Frame paths expire: refetch weather-maps.json on each monitor tick / manual refresh (≥5 min apart), rebuild layers. Preload only adjacent frame. Both RainViewer and live NEXRAD layers use a compact, locally persisted opacity control (30–90%, default 62%) so the basemap remains visible beneath storms; frame and mode changes retain the selected opacity.
 - Fallback if RainViewer JSON fails: `<img src="https://radar.weather.gov/ridge/standard/KOKX_loop.gif">` (no CORS — img only, don't fetch; don't reload more often than 2 min).
 
 ### Cross-cutting (from audit)

@@ -546,6 +546,12 @@ th { color: var(--ink-dim); font-weight: 600; }
 }
 .radar-storm-toggle { display: inline-flex; align-items: center; gap: 7px; color: var(--ink); cursor: pointer; }
 .radar-storm-toggle input { margin: 0; }
+.radar-opacity-control {
+  display: inline-flex; flex: 0 1 158px; align-items: center; gap: 6px; margin-left: auto;
+  max-width: 100%; white-space: nowrap;
+}
+.radar-opacity-control input[type="range"] { flex: 1 1 72px; min-width: 52px; width: 72px; }
+.radar-opacity-control output { min-width: 29px; text-align: right; font-variant-numeric: tabular-nums; }
 .radar-storm-legend { color: var(--ink-dim); }
 .radar-storm-legend.hidden { display: none; }
 .radar-storm-legend[open] { flex: 1 1 100%; }
@@ -1326,6 +1332,11 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
         <summary>Overlay key</summary>
         <div class="radar-storm-legend-items" id="radarStormLegendItems"></div>
       </details>
+      <label class="radar-opacity-control" for="radarOpacitySlider">
+        <span>Radar</span>
+        <input type="range" id="radarOpacitySlider" min="30" max="90" step="1" value="62" aria-label="Radar opacity">
+        <output id="radarOpacityValue" for="radarOpacitySlider">62%</output>
+      </label>
       <span class="radar-storm-status hidden" id="radarStormStatus" role="status" aria-live="polite"></span>
     </div>
     <div class="radar-controls" id="radarControls">
@@ -1549,6 +1560,7 @@ var DEFAULT_LIMITS = { reefLow: 15, reefHigh: 18, noGoSustained: 20, noGoGust: 2
 var DEFAULT_BOAT_SPEED_KT = 5;
 var DEFAULT_MOTOR_SPEED_KT = 6;
 var DEFAULT_CUSTOM_DURATION_HOURS = 4;
+var DEFAULT_RADAR_OPACITY = 0.62;
 var DEFAULT_SETTINGS = {
   theme: 'dark', monitorInterval: 10, limits: DEFAULT_LIMITS,
   boatSpeedKt: DEFAULT_BOAT_SPEED_KT, motorSpeedKt: DEFAULT_MOTOR_SPEED_KT
@@ -6884,9 +6896,38 @@ function refreshCurrentSensorMapLayout() {
 var radarState = {
   map: null, baseLayer: null, currentLayer: null, warningLayer: null, stormCellLayer: null, frames: [], index: 0,
   playing: false, playTimer: null, lastFetchMs: 0, mode: 'live', pierMarker: null,
+  opacity: DEFAULT_RADAR_OPACITY,
   layerGeneration: 0, stormOverlayEnabled: true, stormFeedAvailable: null, stormCellFeedAvailable: null,
   stormAlerts: [], stormCells: [], stormTrackBounds: null
 };
+
+function normalizeRadarOpacity(value) {
+  if (value == null || typeof value === 'boolean') return DEFAULT_RADAR_OPACITY;
+  var numeric = Number(value);
+  if (!isFinite(numeric)) return DEFAULT_RADAR_OPACITY;
+  return clamp(numeric, 0.30, 0.90);
+}
+
+function setRadarOpacity(value, persist) {
+  var opacity = normalizeRadarOpacity(value);
+  var percent = Math.round(opacity * 100);
+  radarState.opacity = opacity;
+  var slider = $('radarOpacitySlider');
+  var output = $('radarOpacityValue');
+  if (slider) {
+    slider.value = String(percent);
+    slider.setAttribute('aria-valuetext', percent + ' percent');
+  }
+  if (output) {
+    output.value = percent + '%';
+    output.textContent = percent + '%';
+  }
+  if (radarState.currentLayer && typeof radarState.currentLayer.setOpacity === 'function') {
+    radarState.currentLayer.setOpacity(opacity);
+  }
+  if (persist) lsSetJSON('radarOpacity', opacity);
+  return opacity;
+}
 
 function setRadarLayerStatus(message, tone) {
   var el = $('radarLayerStatus');
@@ -7047,7 +7088,7 @@ function showRadarFrame(idx) {
   var failedTiles = 0;
   setRadarLayerStatus('');
   var layer = L.tileLayer(f.url, {
-    opacity: 0.72,
+    opacity: radarState.opacity,
     maxNativeZoom: isForecast ? RAINVIEWER_MAX_NATIVE_ZOOM : 12,
     maxZoom: 15,
     zIndex: 5,
@@ -9834,6 +9875,12 @@ function init() {
 
   $('radarPlayBtn').addEventListener('click', toggleRadarPlay);
   $('radarSlider').addEventListener('input', function (e) { showRadarFrame(parseInt(e.target.value, 10)); });
+  $('radarOpacitySlider').addEventListener('input', function (e) {
+    setRadarOpacity(parseInt(e.target.value, 10) / 100, false);
+  });
+  $('radarOpacitySlider').addEventListener('change', function (e) {
+    setRadarOpacity(parseInt(e.target.value, 10) / 100, true);
+  });
 
   $('sailSimPlayBtn').addEventListener('click', toggleSailSimPlay);
   $('sailSimSpeedBtn').addEventListener('click', toggleSailSimSpeed);
@@ -9882,6 +9929,7 @@ function init() {
   });
 
   radarState.mode = lsGetJSON('radarMode', 'live');
+  setRadarOpacity(lsGetJSON('radarOpacity', DEFAULT_RADAR_OPACITY), false);
   radarState.stormOverlayEnabled = lsGetJSON('radarStormOverlay', true) !== false;
   $('radarStormToggle').checked = radarState.stormOverlayEnabled;
   $('radarStormToggle').addEventListener('change', function (e) {
