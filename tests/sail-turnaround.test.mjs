@@ -8,7 +8,7 @@ const physics = html.slice(html.indexOf(startMarker), html.indexOf(endMarker));
 
 globalThis.clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 globalThis.round1 = v => Math.round(v * 10) / 10;
-globalThis.PIER25 = { lat: 40.7203 };
+globalThis.PIER25 = { lat: 40.7203, lon: -74.0135 };
 globalThis.DEFAULT_BOAT_SPEED_KT = 5;
 globalThis.DEFAULT_MOTOR_SPEED_KT = 6;
 globalThis.valueAtMs = (series, atMs) => {
@@ -56,6 +56,8 @@ assert.ok(validTrip.outPath.length > 1);
 assert.ok(validTrip.inPath.length > 1);
 assert.ok(arrivalTargetMs - validTurn.turnMs >= SAIL_MIN_RETURN_LEG_MS);
 assert.ok(Math.abs((validTrip.finalLat - PIER25.lat) * NM_PER_DEG_LAT) <= SAIL_HOME_TOLERANCE_NM);
+assert.ok(Math.hypot((validTrip.finalLat - PIER25.lat) * NM_PER_DEG_LAT, validTrip.finalCrossNm) <= SAIL_HOME_TOLERANCE_NM,
+  'turn solver convergence must include lateral mooring error');
 
 // A west wind is a direct reach on the Hudson axis. The simulator must not invent tacks or
 // jibes merely to make the picture interesting, and its conservative three-hour range
