@@ -11,7 +11,7 @@
 (function () {
   try {
     var s = JSON.parse(localStorage.getItem('fp25.settings') || '{}');
-    var t = s.theme || 'auto';
+    var t = s.theme || 'light';
     var resolved = t === 'auto'
       ? (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
       : t;
@@ -27,6 +27,7 @@
 </script>
 <style>
 :root, [data-theme="light"] {
+  --control-height: 42px;
   --bg: #f3f0e8;
   --bg-card: #ffffff;
   --ink: #14202b;
@@ -136,6 +137,9 @@ input[type="datetime-local"], input[type="number"], input[type="text"], input[ty
   background: var(--bg); color: var(--ink); border: 1px solid var(--border); border-radius: 8px;
   padding: 8px 10px; font-size: 14px; font-family: inherit;
 }
+input[type="datetime-local"], input[type="number"], input[type="text"], input[type="tel"], select {
+  height: var(--control-height); min-height: var(--control-height); line-height: 1.2;
+}
 textarea { width: 100%; resize: vertical; min-height: 50px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
 .form-grid .full { grid-column: 1 / -1; }
@@ -145,6 +149,9 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
    <input> is ~180px, wider than a mobile grid column). */
 .form-grid > div { min-width: 0; }
 .form-grid input, .form-grid textarea, .form-grid select { width: 100%; }
+.computed-field { padding: 7px 0 10px; }
+.computed-field-label { display: block; font-size: 12px; color: var(--ink-dim); margin-bottom: 5px; }
+.computed-field-value { display: block; color: var(--ink); font-size: 15px; font-weight: 620; line-height: 1.4; }
 
 .chip-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .chip {
@@ -173,6 +180,47 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .toggle-row { display: flex; align-items: center; gap: 6px; font-size: 14px; margin-left: auto; }
 .monitor-status { font-size: 12px; color: var(--ink-dim); margin-top: 8px; }
 
+.share-plan-toggle { margin-top: 13px; border-top: 1px solid var(--border); padding-top: 12px; }
+.share-plan-body { margin-top: 8px; }
+.share-plan-intro { margin: 0 0 12px; max-width: 66ch; }
+.share-plan-section { padding: 10px 0; border-top: 1px dashed var(--border); }
+.share-plan-section:first-of-type { border-top: 0; padding-top: 0; }
+.share-plan-section-title { margin-bottom: 6px; color: var(--ink); font-size: 13px; font-weight: 700; }
+.plan-code-field {
+  display: block; width: 100%; min-height: 62px; margin-top: 8px; resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px;
+  line-height: 1.45; overflow-wrap: anywhere;
+}
+.plan-code-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
+.plan-code-error { margin-top: 7px; color: var(--red); font-size: 12px; }
+.plan-code-preview { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.plan-code-preview-title { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 7px; }
+.plan-code-preview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 14px; }
+.plan-code-preview-item { font-size: 12px; }
+.plan-code-preview-item span { display: block; color: var(--ink-dim); font-size: 10px; }
+.plan-code-privacy { margin: 8px 0 0; color: var(--ink-dim); font-size: 10.5px; }
+.shared-plan-comparison { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--border); }
+.shared-plan-comparison-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.shared-plan-comparison-head strong { font-size: 13px; }
+.comparison-state {
+  border-radius: 999px; padding: 3px 8px; font-size: 10px; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.comparison-state.stable { background: var(--green-bg); color: var(--green); }
+.comparison-state.changed { background: var(--yellow-bg); color: var(--yellow); }
+.comparison-state.worse { background: var(--red-bg); color: var(--red); }
+.comparison-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.comparison-list li {
+  display: flex; justify-content: space-between; gap: 12px; padding: 5px 0;
+  border-bottom: 1px dashed var(--border); font-size: 12px;
+}
+.comparison-list li:last-child { border-bottom: 0; }
+.comparison-list .compare-label { color: var(--ink-dim); }
+.comparison-list .compare-value { text-align: right; }
+@media (max-width: 440px) {
+  .plan-code-preview-grid { grid-template-columns: 1fr; }
+}
+
 .stale-chip {
   display: inline-block; font-size: 11px; background: var(--yellow-bg); color: var(--yellow);
   border-radius: 999px; padding: 2px 8px; margin-bottom: 6px;
@@ -188,6 +236,15 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 }
 .twilight-note.warn { background: var(--yellow-bg); color: var(--yellow); }
 .twilight-note.severe { background: var(--red-bg); color: var(--red); font-weight: 600; }
+.twilight-row { min-height: 42px; }
+.twilight-event { display: inline-flex; align-items: center; gap: 9px; min-width: 0; }
+.twilight-icon {
+  width: 20px; height: 20px; flex: 0 0 20px; color: var(--accent);
+  stroke: currentColor; fill: none; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round;
+}
+.twilight-icon.dusk { color: var(--ink-dim); }
+.twilight-values { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.twilight-relative { display: block; margin-top: 1px; color: var(--ink-dim); font-size: 10.5px; }
 
 .direction-body { display: flex; gap: 14px; align-items: center; }
 .direction-text { flex: 1; }
@@ -208,11 +265,26 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .chart-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--ink-dim); margin-top: 8px; }
 .chart-legend .swatch { display: inline-block; width: 16px; height: 3px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
 .chart-legend .swatch-current { background: linear-gradient(90deg, var(--flood) 50%, var(--ebb) 50%); }
+.chart-legend .swatch-measured-current { background: var(--violet); border-radius: 50%; width: 8px; height: 8px; }
 .chart-legend .swatch-pred { background: var(--navy); }
 .chart-legend .swatch-obs { background: var(--violet); }
+.timeline-mode-row { margin-bottom: 10px; }
 .chart-legend .swatch-sustained { background: var(--accent); }
 .chart-legend .swatch-gust { background: var(--ink-dim); opacity: 0.8; }
 .chart-footnote { font-size: 10.5px; color: var(--ink-dim); margin-top: 4px; }
+.source-links {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px;
+  margin-top: 12px; padding-top: 9px; border-top: 1px solid var(--border);
+  color: var(--ink-dim); font-size: 11px; line-height: 1.45;
+}
+.source-links::before {
+  content: "Sources"; color: var(--ink-dim); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+.source-links a { color: var(--accent); text-underline-offset: 2px; }
+.source-links a:hover { text-decoration-thickness: 2px; }
+.source-links .computed-source { color: var(--ink-dim); }
+.advisory-source { display: inline-block; margin-top: 5px; color: var(--accent); font-size: 11px; }
 .chart-scrub-readout {
   position: absolute; z-index: 5; background: var(--bg-card); border: 1px solid var(--border);
   border-radius: 8px; padding: 6px 9px; font-size: 11px; line-height: 1.5; box-shadow: var(--shadow);
@@ -273,14 +345,6 @@ th { color: var(--ink-dim); font-weight: 600; }
 .cell-yellow { background: var(--yellow-bg); color: var(--yellow); }
 .cell-red { background: var(--red-bg); color: var(--red); }
 .approx-note { font-size: 11px; color: var(--ink-dim); margin-top: 6px; }
-/* Neutral "gusty" marker (item 1): a gust running well above sustained, shown as a small
-   dotted-underline label with a native title tooltip — deliberately colorless (inherits
-   ink-dim, not yellow/red) so it can never read as a hazard, only as information. */
-.gusty-flag {
-  font-size: 9px; text-transform: uppercase; letter-spacing: 0.3px; color: var(--ink-dim);
-  border-bottom: 1px dotted var(--ink-dim); cursor: help; margin-left: 5px; padding-bottom: 1px;
-  white-space: nowrap;
-}
 /* Hourly wind table restyle (item 5a/b): right-aligned tabular numerics, a rotated arrow
    glyph + text in the Dir column, and a subtle zebra stripe painted on the <td> (not the
    <tr>) so it layers under/around the hazard-color class already on the row without any
@@ -291,27 +355,52 @@ th { color: var(--ink-dim); font-weight: 600; }
 #windTable .wind-dir-cell { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
 .wind-dir-arrow { flex: 0 0 auto; }
 
-.weather-headline { font-size: 15px; font-weight: 650; color: var(--ink); margin: 0 0 4px; }
+.weather-headline { font-size: 17px; line-height: 1.35; font-weight: 680; color: var(--ink); margin: 0 0 5px; }
 .weather-headline .wx-alert { color: var(--red); font-weight: 700; }
-.weather-summary { font-size: 13px; color: var(--ink-dim); margin: 0 0 10px; }
+.weather-summary { font-size: 13px; line-height: 1.45; color: var(--ink-dim); margin: 0 0 16px; }
 .weather-strip {
-  display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; scrollbar-gutter: stable;
-  scroll-snap-type: x proximity;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+  gap: 0; overflow-x: auto; padding: 0 0 4px; margin: 0 -4px;
 }
-.weather-item { flex: 0 0 auto; text-align: center; font-size: 12px; min-width: 52px; scroll-snap-align: start; border-radius: 8px; padding: 2px 0; }
-.weather-item .wi-time { color: var(--ink-dim); }
-.weather-item .wi-temp { font-weight: 600; }
-.weather-item .wi-pop { color: var(--ink-dim); font-size: 11px; }
+.weather-item {
+  position: relative; min-width: 64px; text-align: center; font-size: 12px;
+  padding: 10px 5px 9px; border-top: 2px solid transparent;
+  border-bottom: 1px solid var(--border);
+}
+.weather-item + .weather-item { border-left: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+.weather-item .wi-time { color: var(--ink-dim); font-size: 11px; white-space: nowrap; margin-bottom: 5px; }
+.weather-item .wi-temp { font-size: 16px; line-height: 1.2; font-weight: 680; margin-top: 4px; }
+.weather-item .wi-pop { color: var(--ink-dim); font-size: 11px; min-height: 15px; margin-top: 2px; }
 .weather-item .wi-pop.wi-pop-active { color: var(--flood); font-weight: 600; }
-.weather-item-thunder { background: var(--red-bg); }
-.weather-icon { display: block; margin: 2px auto; color: var(--ink); }
+.weather-item-thunder { background: color-mix(in srgb, var(--red-bg) 65%, transparent); }
+.weather-icon { display: block; margin: 0 auto; color: var(--ink); }
 .weather-icon-thunder { color: var(--red); }
 /* Sail-window highlight (item 6): a translucent accent wash layered via inset box-shadow
    rather than swapping background-color outright, so it never clobbers a semantically
    meaningful background already on the cell (thunder-hour red, wind hazard green/yellow/red
    from windCellClass). color-mix keeps it theme-correct without a dedicated --accent-bg var. */
-.metric-cell.in-window, .weather-item.in-window {
+.metric-cell.in-window {
   box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.weather-item.in-window {
+  border-top-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.weather-item:not(.in-window) { opacity: 0.72; }
+.weather-item.sail-start::before {
+  content: 'SAIL'; position: absolute; top: -16px; left: 4px;
+  color: var(--accent); font-size: 8px; font-weight: 750; letter-spacing: 0.08em;
+}
+.weather-details-toggle {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; padding: 4px 0;
+  border: 0; background: transparent; color: var(--ink-dim); cursor: pointer;
+  font: inherit; font-size: 12px; font-weight: 650;
+}
+.weather-details-toggle:hover, .weather-details-toggle:focus-visible { color: var(--ink); }
+.weather-details-toggle .chev { font-size: 9px; }
+@media (max-width: 520px) {
+  .weather-strip { display: flex; }
+  .weather-item { flex: 0 0 72px; }
 }
 
 .weather-chip-row { margin-top: 10px; }
@@ -341,6 +430,13 @@ th { color: var(--ink-dim); font-weight: 600; }
    A dark, theme-aware inset background makes any such gap invisible instead of a stray
    light line across the map. */
 .radar-map .leaflet-container { background: var(--bg-inset, #0b1622); }
+.radar-map .leaflet-control-recenter button {
+  width: 30px; height: 30px; padding: 0; border: 0; border-radius: 2px;
+  background: var(--card); color: var(--ink); font: 18px/30px system-ui, sans-serif;
+  cursor: pointer;
+}
+.radar-map .leaflet-control-recenter button:hover,
+.radar-map .leaflet-control-recenter button:focus-visible { background: var(--bg-inset); }
 .radar-mode-row { margin-bottom: 8px; }
 .radar-controls { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .radar-controls input[type="range"] { flex: 1; }
@@ -385,6 +481,30 @@ pre#marineTextContent { white-space: pre-wrap; font-family: inherit; font-size: 
 .marine-info-block p { margin: 0; font-size: 12.5px; }
 .marine-tab-row { margin-bottom: 10px; }
 .marine-table td, .marine-table th { white-space: normal; vertical-align: top; }
+.marine-table td:nth-child(2) { padding: 5px 8px; }
+.marine-wind-status {
+  position: relative; min-height: 42px; display: block; line-height: 1.4;
+  padding: 9px 12px 9px 15px; border: 1px solid transparent; border-radius: 10px;
+  overflow: hidden;
+}
+.marine-wind-status::before {
+  content: ''; position: absolute; left: 7px; top: 10px; bottom: 10px; width: 3px;
+  border-radius: 999px; background: currentColor; opacity: 0.72;
+}
+.marine-wind-status:not(.cell-green):not(.cell-yellow):not(.cell-red)::before { display: none; }
+.marine-wind-status .metric-arrow { display: inline-block; margin: 0 6px 0 0; vertical-align: -2px; }
+.marine-wind-status.cell-green {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--green-bg) 92%, transparent), color-mix(in srgb, var(--green-bg) 52%, transparent) 72%, transparent);
+  border-color: color-mix(in srgb, var(--green) 28%, transparent); color: var(--green);
+}
+.marine-wind-status.cell-yellow {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--yellow-bg) 92%, transparent), color-mix(in srgb, var(--yellow-bg) 52%, transparent) 72%, transparent);
+  border-color: color-mix(in srgb, var(--yellow) 28%, transparent); color: var(--yellow);
+}
+.marine-wind-status.cell-red {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--red-bg) 92%, transparent), color-mix(in srgb, var(--red-bg) 52%, transparent) 72%, transparent);
+  border-color: color-mix(in srgb, var(--red) 28%, transparent); color: var(--red);
+}
 .hazard-chip {
   display: inline-block; font-size: 11px; font-weight: 600; border-radius: 999px;
   padding: 2px 8px; margin: 0 4px 2px 0; background: var(--yellow-bg); color: var(--yellow);
@@ -442,9 +562,30 @@ pre#marineTextContent { white-space: pre-wrap; font-family: inherit; font-size: 
 .observed-warn { font-size: 11px; background: var(--red-bg); color: var(--red); border-radius: 999px; padding: 2px 8px; }
 .observed-age { font-size: 11px; color: var(--ink-dim); }
 
+.observed-source-kicker {
+  margin: 0 0 5px; color: var(--ink-dim); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
 .obs-wind-station-row { margin-bottom: 8px; }
 .observed-primary { margin-bottom: 4px; }
+.observed-companion-source {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  margin: 7px 0 3px; color: var(--ink-dim); font-size: 11px;
+}
+.observed-companion-source a { color: var(--accent); text-underline-offset: 2px; white-space: nowrap; }
 .observed-more-note { font-size: 11px; color: var(--ink-dim); margin-top: 6px; }
+.chip.setup-required { border-style: dashed; color: var(--ink-dim); }
+.chip.station-unavailable { border-color: color-mix(in srgb, var(--red) 45%, var(--border)); color: var(--red); }
+.weatherflow-setup {
+  margin: 10px 0 12px; padding: 12px; border: 1px solid var(--border);
+  border-radius: 10px; background: color-mix(in srgb, var(--bg) 72%, transparent);
+}
+.weatherflow-setup strong { display: block; margin-bottom: 3px; }
+.weatherflow-setup p { margin: 0 0 10px; font-size: 12px; line-height: 1.45; color: var(--ink-dim); max-width: 62ch; }
+.weatherflow-setup .form-grid { margin-bottom: 8px; }
+.weatherflow-setup-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.weatherflow-setup-status { margin-right: auto; font-size: 11px; color: var(--ink-dim); }
+.weatherflow-setup-status.error { color: var(--red); }
 
 .toast-container { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 200; display: flex; flex-direction: column; gap: 6px; }
 .toast { background: var(--navy); color: var(--bg-card); padding: 8px 14px; border-radius: 8px; font-size: 13px; box-shadow: var(--shadow); }
@@ -644,7 +785,11 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     </div>
 
     <div class="form-grid">
-      <div class="full"><label for="fpPlannedRoute">Planned course (computed)</label><input type="text" id="fpPlannedRoute" readonly></div>
+      <div class="full computed-field">
+        <span class="computed-field-label">Planned course</span>
+        <output class="computed-field-value" id="fpPlannedRouteDisplay" aria-live="polite"></output>
+        <input type="hidden" id="fpPlannedRoute">
+      </div>
       <div><label for="fpEtd">ETD</label><input type="text" id="fpEtd" readonly></div>
       <div><label for="fpEta">ETA</label><input type="text" id="fpEta" readonly></div>
       <div><label for="fpTurnaround">Turn-around (computed)</label><input type="text" id="fpTurnaround" readonly></div>
@@ -661,6 +806,26 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
         <span>Monitor every <span id="monitorIntervalLabel">10</span> min</span>
       </label>
     </div>
+    <button class="collapsible-header share-plan-toggle" id="sharePlanToggle">Share or check a plan <span class="chev">&#9662;</span></button>
+    <div class="collapsible-body share-plan-body hidden" id="sharePlanBody">
+      <p class="sub share-plan-intro">A Float Code carries the schedule, intended direction, non-sensitive vessel summary, and the conditions seen when it was created. It never includes names, phone numbers, or emergency contacts.</p>
+      <div class="share-plan-section">
+        <div class="share-plan-section-title">Share this plan</div>
+        <button type="button" class="btn-secondary" id="createPlanCodeBtn">Create Float Code</button>
+        <div class="hidden" id="generatedPlanCodeWrap">
+          <textarea class="plan-code-field" id="generatedPlanCode" readonly aria-label="Generated Float Code"></textarea>
+          <div class="plan-code-actions"><button type="button" class="btn-secondary" id="copyPlanCodeBtn">Copy code</button><span class="sub" id="generatedPlanCodeMeta"></span></div>
+        </div>
+      </div>
+      <div class="share-plan-section">
+        <div class="share-plan-section-title">Check another plan</div>
+        <textarea class="plan-code-field" id="incomingPlanCode" placeholder="Paste an FP1 code" aria-label="Float Code to check"></textarea>
+        <div class="plan-code-actions"><button type="button" class="btn-secondary" id="previewPlanCodeBtn">Preview code</button></div>
+        <div class="plan-code-error hidden" id="planCodeError" role="alert"></div>
+        <div class="plan-code-preview hidden" id="planCodePreview"></div>
+      </div>
+      <div class="shared-plan-comparison hidden" id="sharedPlanComparison"></div>
+    </div>
     <div class="monitor-status hidden" id="monitorStatus">
       Last updated <span id="lastUpdated">--:--:--</span> &middot; next refresh in <span id="nextRefreshCountdown">--</span>
     </div>
@@ -676,6 +841,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
         <button class="btn-secondary" id="generatePlanBtn">Regenerate proposal</button>
       </div>
     </div>
+    <div class="source-links"><span class="computed-source">Course recommendation uses</span><a id="srcPlanCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA current predictions</a></div>
   </section>
 
   <section class="card" id="verdictCard">
@@ -684,19 +850,35 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <div class="verdict-sub" id="verdictSub"></div>
     </div>
     <ul class="reason-list" id="verdictReasons"></ul>
+    <div class="source-links"><span class="computed-source">Computed from</span><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS wind</a><a href="https://api.weather.gov/alerts/active?zone=ANZ338" target="_blank" rel="noopener noreferrer">NWS alerts</a><a id="srcVerdictCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA currents</a></div>
   </section>
 
   <section class="card" id="observedCard">
     <h2>Observed Now</h2>
+    <div class="observed-source-kicker">Wind source</div>
     <div class="chip-row obs-wind-station-row" id="obsWindStationRow">
       <button type="button" class="chip active" data-station="robbinsReef">Robbins Reef</button>
       <button type="button" class="chip" data-station="kjrb">Wall St Heliport</button>
-      <button type="button" class="chip chip-dim" data-station="weatherflow" id="obsStationWeatherflowChip">Willy Wall</button>
+      <button type="button" class="chip setup-required" data-station="weatherflow" id="obsStationWeatherflowChip">Willy Wall</button>
+    </div>
+    <div class="weatherflow-setup hidden" id="weatherFlowSetup">
+      <strong>Connect Willy Wall</strong>
+      <p>This optional station uses your WeatherFlow personal API token and station ID. They are stored only in this browser and sent only to WeatherFlow when refreshing observations.</p>
+      <div class="form-grid">
+        <div><label for="weatherFlowSetupToken">API token</label><input type="text" id="weatherFlowSetupToken" autocomplete="off"></div>
+        <div><label for="weatherFlowSetupStationId">Station ID</label><input type="text" id="weatherFlowSetupStationId" inputmode="numeric"></div>
+      </div>
+      <div class="weatherflow-setup-actions">
+        <span class="weatherflow-setup-status" id="weatherFlowSetupStatus"></span>
+        <button type="button" class="btn-ghost" id="weatherFlowSetupCancel">Cancel</button>
+        <button type="button" class="btn-primary" id="weatherFlowSetupConnect">Connect station</button>
+      </div>
     </div>
     <div class="observed-primary" id="observedPrimary">
       <div class="observed-row" id="obsWindRow"></div>
       <div class="observed-row" id="obsCurrentRow"></div>
     </div>
+    <div class="observed-companion-source"><span>Temperature, water level &amp; pressure</span><a href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">The Battery (NOAA)</a></div>
     <div class="card-error hidden" id="observedError"></div>
     <button class="collapsible-header" id="observedMoreToggle">More <span class="chev">&#9662;</span></button>
     <div class="collapsible-body hidden" id="observedMoreBody">
@@ -705,15 +887,29 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <div class="observed-row" id="obsKvkRow"></div>
       <p class="observed-more-note">Kill Van Kull LB 14 &middot; live meter &middot; different water body &mdash; harbor phase check only, not Pier 25 current.</p>
     </div>
+    <div class="source-links"><a id="srcObservedRobbins" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8530973" target="_blank" rel="noopener noreferrer">Robbins Reef NOAA</a><a href="https://api.weather.gov/stations/KJRB/observations/latest" target="_blank" rel="noopener noreferrer">Wall St NWS</a><a id="srcObservedKvk" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n06010" target="_blank" rel="noopener noreferrer">Kill Van Kull NOAA</a><a id="srcObservedBattery" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">The Battery NOAA</a></div>
   </section>
 
   <section class="card" id="sunTwilightCard">
     <h2>Sun &amp; Twilight</h2>
-    <div class="observed-row"><span>Sunrise</span><span id="twilightSunrise">--</span></div>
-    <div class="observed-row"><span>Sunset</span><span id="twilightSunset">--</span></div>
-    <div class="observed-row"><span>Civil dusk &mdash; steer-by-sight ends</span><span id="twilightCivilDusk">--</span></div>
-    <div class="observed-row"><span>Nautical dusk &mdash; true dark</span><span id="twilightNauticalDusk">--</span></div>
+    <div class="observed-row twilight-row">
+      <span class="twilight-event"><svg class="twilight-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18h18M7 18a5 5 0 0 1 10 0M12 3v7M9 6l3-3 3 3"/></svg><span>Sunrise</span></span>
+      <span class="twilight-values"><span id="twilightSunrise">--</span><span class="twilight-relative" id="twilightSunriseRelative"></span></span>
+    </div>
+    <div class="observed-row twilight-row">
+      <span class="twilight-event"><svg class="twilight-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18h18M7 18a5 5 0 0 1 10 0M12 3v7M9 7l3 3 3-3"/></svg><span>Sunset</span></span>
+      <span class="twilight-values"><span id="twilightSunset">--</span><span class="twilight-relative" id="twilightSunsetRelative"></span></span>
+    </div>
+    <div class="observed-row twilight-row">
+      <span class="twilight-event"><svg class="twilight-icon dusk" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h18M7 12a5 5 0 0 0 10 0M5 18h14"/></svg><span>Civil dusk &mdash; steer-by-sight ends</span></span>
+      <span class="twilight-values"><span id="twilightCivilDusk">--</span><span class="twilight-relative" id="twilightCivilDuskRelative"></span></span>
+    </div>
+    <div class="observed-row twilight-row">
+      <span class="twilight-event"><svg class="twilight-icon dusk" viewBox="0 0 24 24" aria-hidden="true"><path d="M16.5 4.5A7.5 7.5 0 1 0 19.5 16 6.3 6.3 0 0 1 16.5 4.5ZM7 5v2M6 6h2"/></svg><span>Nautical dusk &mdash; true dark</span></span>
+      <span class="twilight-values"><span id="twilightNauticalDusk">--</span><span class="twilight-relative" id="twilightNauticalDuskRelative"></span></span>
+    </div>
     <p class="twilight-note hidden" id="twilightNote"></p>
+    <div class="source-links"><span class="computed-source">Calculated locally with</span><a href="https://gml.noaa.gov/grad/solcalc/" target="_blank" rel="noopener noreferrer">NOAA solar method</a></div>
   </section>
 
   <section class="card" id="directionCard">
@@ -729,24 +925,28 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       </div>
     </div>
     <div class="card-error hidden" id="directionError"></div>
+    <div class="source-links"><span class="computed-source">Recommendation computed from</span><a id="srcDirectionCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA current predictions</a></div>
   </section>
 
   <section class="card" id="timelineCard">
     <h2>Current &amp; Water Level</h2>
     <div class="chip-row timeline-mode-row" id="timelineModeRow">
-      <button type="button" class="chip" data-mode="current">Current only</button>
-      <button type="button" class="chip" data-mode="both">Current + level</button>
+      <button type="button" class="chip active" data-mode="current">Current only</button>
+      <button type="button" class="chip" data-mode="combined">Current + water level</button>
     </div>
     <div class="svg-wrap" id="timelineSvgWrap"></div>
     <div class="chart-legend" id="timelineLegend">
-      <span><span class="swatch swatch-current"></span>current</span>
-      <span class="hidden" id="timelineLegendPred"><span class="swatch swatch-pred"></span>predicted level</span>
-      <span class="hidden" id="timelineLegendObs"><span class="swatch swatch-obs"></span>observed level</span>
+      <span><span class="swatch swatch-current"></span>predicted current</span>
+      <span class="hidden" id="timelineLegendMeasuredCurrent"><span class="swatch swatch-measured-current"></span>measured current (harbor phase check)</span>
+      <span class="timeline-water-legend hidden"><span class="swatch swatch-pred"></span>predicted water level</span>
+      <span class="timeline-water-legend hidden" id="timelineLegendObs"><span class="swatch swatch-obs"></span>observed water level</span>
     </div>
-    <div class="chart-footnote hidden" id="timelineObsFootnote">Observed level appears once the window includes elapsed time.</div>
-    <div class="chart-footnote">Current: Hudson River Entrance (NYH1927) &middot; Water level: The Battery (8518750)</div>
+    <div class="chart-footnote" id="timelineCurrentCompare"></div>
+    <div class="chart-footnote hidden" id="timelineObsFootnote">Observed water level appears once the window includes elapsed time.</div>
+    <div class="chart-footnote">Predicted current: Hudson River Entrance (NYH1927) &middot; measured phase check: Kill Van Kull LB 14 &middot; water level: The Battery (8518750)</div>
     <div class="card-error hidden" id="timelineError"></div>
     <div class="card-error hidden" id="waterError"></div>
+    <div class="source-links"><a id="srcTimelineCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">Current prediction</a><a id="srcTimelineKvk" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n06010" target="_blank" rel="noopener noreferrer">Measured phase check</a><a id="srcTimelineLevelPredicted" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Water-level prediction</a><a id="srcTimelineLevelObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Measured water level</a></div>
   </section>
 
   <section class="card" id="sailSimCard">
@@ -769,8 +969,9 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       </div>
       <div class="sailsim-warning hidden" id="sailSimWarning"></div>
     </div>
-    <div class="chart-footnote">Simulated boat track vs. Hudson River current &middot; boat speed scales with forecast wind, degraded by point of sail (tacks upwind, jibes downwind) &middot; never past Robbins Reef (club limit, red line) &middot; turn-around solved to be moored 15 min before window end &middot; planning approximation, not navigation.</div>
+    <div class="chart-footnote">Conservative harbor estimate: forecast wind is reduced for Manhattan wind shadow, then adjusted for point of sail and current. T/J markers show ideal tacks and jibes; the boat returns 15 minutes before the window ends and never sails past Robbins Reef. Planning approximation, not navigation.</div>
     <div class="card-error hidden" id="sailSimError"></div>
+    <div class="source-links"><span class="computed-source">Simulation inputs</span><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS wind</a><a id="srcSailSimCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA currents</a></div>
   </section>
 
   <section class="card" id="windCard">
@@ -804,15 +1005,15 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     </div>
     <div class="card-error hidden" id="windError"></div>
     <div class="card-error hidden" id="windModelsError"></div>
+    <div class="source-links"><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS raw forecast</a><a href="https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly" target="_blank" rel="noopener noreferrer">NWS hourly forecast</a><a href="https://api.open-meteo.com/v1/forecast?latitude=40.7203&amp;longitude=-74.0135&amp;hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m&amp;wind_speed_unit=kn&amp;timezone=America%2FNew_York&amp;forecast_days=3&amp;models=gfs_seamless,ecmwf_ifs025,icon_seamless" target="_blank" rel="noopener noreferrer">Open-Meteo models</a><a id="srcWindObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8530973" target="_blank" rel="noopener noreferrer">Observed wind</a></div>
   </section>
 
   <section class="card" id="weatherCard">
     <h2>Weather</h2>
     <p class="weather-headline" id="weatherHeadline">Loading&hellip;</p>
     <p class="weather-summary" id="weatherSummary"></p>
-    <div class="svg-wrap" id="weatherChartWrap"></div>
     <div class="weather-strip" id="weatherScroller"></div>
-    <button class="collapsible-header" id="weatherDetailsToggle">Details <span class="chev">&#9662;</span></button>
+    <button class="weather-details-toggle" id="weatherDetailsToggle">More weather <span class="chev">&#9662;</span></button>
     <div class="collapsible-body hidden" id="weatherDetailsBody">
       <div class="chip-row weather-chip-row" id="weatherChipRow">
         <button type="button" class="chip" data-chip="humidity">Humidity</button>
@@ -822,13 +1023,14 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <div class="weather-metric-strip" id="weatherMetricStrip"></div>
     </div>
     <div class="card-error hidden" id="weatherError"></div>
+    <div class="source-links"><a href="https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly" target="_blank" rel="noopener noreferrer">NWS hourly forecast</a><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS humidity, precipitation and sky</a></div>
   </section>
 
   <section class="card" id="radarCard">
     <h2>Radar</h2>
     <div class="chip-row radar-mode-row" id="radarModeRow">
       <button type="button" class="chip active" data-mode="live">Live &middot; NEXRAD</button>
-      <button type="button" class="chip" data-mode="forecast">Forecast &middot; HRRR</button>
+      <button type="button" class="chip" data-mode="forecast">Animated &middot; Radar loop</button>
     </div>
     <div class="radar-map" id="radarMap"></div>
     <div class="radar-controls" id="radarControls">
@@ -836,15 +1038,17 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <input type="range" id="radarSlider" min="0" max="0" value="0">
       <span class="radar-frame-label" id="radarFrameLabel">--</span>
     </div>
-    <div class="radar-forecast-caption hidden" id="radarForecastCaption">HRRR model forecast &mdash; run may lag up to ~1h.</div>
+    <div class="radar-forecast-caption hidden" id="radarForecastCaption">Past radar frames, plus short-term nowcast when available.</div>
     <div class="radar-fallback hidden" id="radarFallback"></div>
     <div class="card-error hidden" id="radarError"></div>
+    <div class="source-links"><a href="https://mesonet.agron.iastate.edu/GIS/radmap.php" target="_blank" rel="noopener noreferrer">Iowa State NEXRAD</a><a href="https://www.rainviewer.com/weather-radar-map-live.html" target="_blank" rel="noopener noreferrer">RainViewer loop</a><a href="https://radar.weather.gov/station/KOKX/standard" target="_blank" rel="noopener noreferrer">NWS KOKX radar</a></div>
   </section>
 
   <section class="card" id="advisoriesCard">
     <h2>Advisories</h2>
     <div class="advisories-list" id="advisoriesList"></div>
     <div class="card-error hidden" id="advisoriesError"></div>
+    <div class="source-links"><a href="https://api.weather.gov/alerts/active?point=40.7203,-74.0135" target="_blank" rel="noopener noreferrer">NWS point alerts</a><a href="https://api.weather.gov/alerts/active?zone=ANZ338" target="_blank" rel="noopener noreferrer">NWS NY Harbor alerts</a></div>
   </section>
 
   <section class="card" id="marineTextCard">
@@ -853,7 +1057,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     <div class="collapsible-body" id="marineTextBody">
       <button type="button" class="info-toggle" id="marineInfoToggle">&#9432; What do the row colors mean?</button>
       <div class="marine-info-block hidden" id="marineInfoBlock">
-        <p>Wind cells are colored against your Settings wind limits, by SUSTAINED wind only: green is under the reef band, yellow is inside/above the reef band, red is past your no-go sustained OR gust threshold. A dotted "gusty" flag on a value means the gust is running 8+ kt above sustained &mdash; informational only, it never changes the cell color.</p>
+        <p>Wind cells are colored against your Settings wind limits, by SUSTAINED wind only: green is under the reef band, yellow is inside/above the reef band, red is past your no-go sustained OR gust threshold.</p>
       </div>
       <div class="chip-row marine-tab-row" id="marineTabRow">
         <button type="button" class="chip active" data-tab="summary">Summary</button>
@@ -872,6 +1076,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       </div>
       <div class="card-error hidden" id="marineTextError"></div>
     </div>
+    <div class="source-links"><a href="https://api.weather.gov/products/types/CWF/locations/OKX" target="_blank" rel="noopener noreferrer">NWS coastal forecast products</a><a href="https://marine.weather.gov/MapClick.php?lat=40.70&amp;lon=-74.02" target="_blank" rel="noopener noreferrer">NWS NY Harbor forecast</a></div>
   </section>
 
   <div class="columns-row hidden" id="columnsRow">
@@ -890,9 +1095,9 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     <div class="settings-field">
       <label>Theme</label>
       <select id="themeSelect">
-        <option value="auto">Auto (system)</option>
         <option value="light">Light</option>
         <option value="dark">Dark</option>
+        <option value="auto">Auto (system)</option>
       </select>
     </div>
     <div class="settings-field">
@@ -913,7 +1118,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       </div>
     </div>
     <div class="settings-field">
-      <label for="boatSpeedKt">Boat speed (kt through water)</label>
+      <label for="boatSpeedKt">Best boat speed (kt, upper limit)</label>
       <input type="number" id="boatSpeedKt" step="0.5" min="0.5">
     </div>
     <div class="settings-field">
@@ -984,7 +1189,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
   </button>
 </nav>
 
-<footer class="app-footer">Pier 25 Float Plan &middot; data: NOAA CO-OPS &amp; NWS &middot; not a substitute for judgment</footer>
+<footer class="app-footer">Pier 25 Float Plan &middot; every data card links to its original source &middot; not a substitute for judgment</footer>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" integrity="sha512-puJW3E/qXDqYp9IfhAI54BJEaWIfloJ7JWs7OeD5i6ruC9JZL1gERT1wjtwXFlh7CjE7ZJ+/vcRZRkIYIb6p4g==" crossorigin="anonymous"></script>
 <script>
@@ -1017,16 +1222,9 @@ var IEM_NEXRAD_BASE = 'https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nex
 var IEM_HEALTHCHECK_TILE = { z: 12, x: 1205, y: 1539 };
 var RADAR_LAG_STEPS_MIN = [50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 0]; // oldest -> newest
 var RADAR_FALLBACK_GIF = 'https://radar.weather.gov/ridge/standard/KOKX_loop.gif';
-// HRRR forecast reflectivity (IEM mirror of NCEP's 3km model), hourly out to +18h — same
-// tile.py cache host as NEXRAD but a different product namespace/token scheme. FXXXX is a
-// zero-padded forecast-minute offset (fxxxxToken), trailing "-0" selects the latest model run.
-var IEM_HRRR_BASE = 'https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/hrrr::REFD-';
-var HRRR_HEALTHCHECK_TILE = { z: 7, x: 37, y: 48 }; // NYC tile at z7 (same 900913 slippy grid)
-var HRRR_OFFSET_STEPS_MIN = (function () {
-  var steps = [];
-  for (var i = 0; i <= 18; i++) steps.push(i * 60); // 0, 60, ..., 1080 — now -> +18h hourly
-  return steps;
-})();
+// RainViewer supplies transparent radar nowcast tiles. Unlike the former HRRR tile source,
+// these preserve the basemap and do not draw opaque tile-sized black squares or grid seams.
+var RAINVIEWER_URL = 'https://api.rainviewer.com/public/weather-maps.json';
 var WARNING_ALERT_RE = /warning/i;
 var PIER25 = { lat: 40.7203, lon: -74.0135 };
 var DEFAULT_RADAR_ZOOM = 10;
@@ -1038,7 +1236,7 @@ var DEFAULT_BOAT_SPEED_KT = 5;
 var DEFAULT_MOTOR_SPEED_KT = 6;
 var DEFAULT_CUSTOM_DURATION_HOURS = 4;
 var DEFAULT_SETTINGS = {
-  theme: 'auto', monitorInterval: 10, limits: DEFAULT_LIMITS,
+  theme: 'light', monitorInterval: 10, limits: DEFAULT_LIMITS,
   boatSpeedKt: DEFAULT_BOAT_SPEED_KT, motorSpeedKt: DEFAULT_MOTOR_SPEED_KT,
   weatherFlowToken: '', weatherFlowStationId: ''
 };
@@ -1282,6 +1480,26 @@ function buildLevelObservedUrl(departureMs) {
   return 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter' +
     '?product=water_level&station=' + STATION_TIDE + '&begin_date=' + begin +
     '&range=96&datum=MLLW&units=english&time_zone=gmt&format=json&application=floatplan';
+}
+
+// Keep verification links synchronized with the selected sail date. NOAA requests are
+// date-bound, so these open the same raw products the cards use instead of generic pages.
+function setSourceHref(id, url) {
+  var el = $(id);
+  if (el && url) el.href = url;
+}
+function refreshSourceLinks(departureMs) {
+  var slackUrl = buildCurrentsUrl(departureMs, 'MAX_SLACK');
+  ['srcPlanCurrents', 'srcVerdictCurrents', 'srcDirectionCurrents', 'srcSailSimCurrents'].forEach(function (id) {
+    setSourceHref(id, slackUrl);
+  });
+  setSourceHref('srcTimelineCurrents', buildCurrentsUrl(departureMs, '30'));
+  setSourceHref('srcTimelineKvk', buildKvkCurrentUrl());
+  setSourceHref('srcTimelineLevelPredicted', buildLevelPredictedUrl(departureMs));
+  setSourceHref('srcTimelineLevelObserved', buildLevelObservedUrl(departureMs));
+  setSourceHref('srcObservedRobbins', buildCoopsObsUrl(STATION_WIND_ROBBINS_REEF, 'wind'));
+  setSourceHref('srcObservedKvk', buildKvkCurrentUrl());
+  setSourceHref('srcWindObserved', buildCoopsObsUrl(STATION_WIND_ROBBINS_REEF, 'wind'));
 }
 
 // "Observed now" card: live CO-OPS readings (not predictions). date=latest returns the
@@ -1616,17 +1834,16 @@ function fetchNexradHealthcheck(bucketMs) {
   });
 }
 
-// Health-check a single known-good HRRR forecast tile (F0060 = +1h, the same latest run
-// every frame in the list uses) before building the full 19-frame stack. A 200 response —
-// even a ~334B fully-transparent PNG for a no-precip area — is a pass; IEM sometimes serves
-// error text as a 200 image/png on malformed paths, but a *correctly-built* path returning
-// 200 is trustworthy, so this deliberately does not pixel-inspect the body.
-function fetchHrrrHealthcheck(bucketMs) {
-  var t = HRRR_HEALTHCHECK_TILE;
-  var url = IEM_HRRR_BASE + fxxxxToken(60) + '-0/' + t.z + '/' + t.x + '/' + t.y + '.png?_=' + bucketMs;
-  return fetchWithRetry(url).then(function (res) {
-    if (!res.ok) throw new Error('IEM HRRR: HTTP ' + res.status);
-    return true;
+function fetchRainViewerFrames() {
+  return fetchWithRetry(RAINVIEWER_URL).then(function (res) {
+    if (!res.ok) throw new Error('RainViewer: HTTP ' + res.status);
+    return res.json();
+  }).then(function (data) {
+    var past = data && data.radar && Array.isArray(data.radar.past) ? data.radar.past : [];
+    var nowcast = data && data.radar && Array.isArray(data.radar.nowcast) ? data.radar.nowcast : [];
+    var frames = past.concat(nowcast);
+    if (!data || !data.host || !frames.length) throw new Error('No radar frames available');
+    return { host: data.host, frames: frames };
   });
 }
 
@@ -1705,25 +1922,12 @@ function parseWindSpeedDisplay(str) {
 // REEF (yellow) is driven by SUSTAINED wind only — a gust spike on an otherwise light day
 // must never tint the cell (the reported bug: 14 kt sustained read as REEF because gusts
 // touched 20). Gust only ever escalates a cell to RED, and only past noGoGust; there is no
-// gust-driven yellow anymore. See windIsGusty/gustyFlagHtml for the separate NEUTRAL
-// "gusty" marker callers can render alongside a value — informational only, never a color.
+// gust-driven yellow anymore.
 function windCellClass(sustained, gust, limits) {
   if ((sustained != null && sustained > limits.noGoSustained) || (gust != null && gust > limits.noGoGust)) return 'cell-red';
   if (sustained != null && sustained >= limits.reefLow) return 'cell-yellow';
   return 'cell-green';
 }
-// Neutral, non-hazard signal: a gust running well above sustained is worth flagging but must
-// never move a color or the verdict level (see windCellClass/computeVerdict) — callers render
-// this as a small dotted-underline marker with a native tooltip, never yellow/red.
-var GUSTY_GAP_KT = 7;
-var GUSTY_TITLE = 'gusts 8+ kt over sustained';
-function windIsGusty(sustained, gust) {
-  return sustained != null && gust != null && (gust - sustained) > GUSTY_GAP_KT;
-}
-function gustyFlagHtml() {
-  return '<span class="gusty-flag" title="' + GUSTY_TITLE + '">gusty</span>';
-}
-
 /* ============================== Currents parsing ============================== */
 
 function buildCurvePoints(cpRows) {
@@ -1808,9 +2012,7 @@ var THUNDER_RE = /thunder|t-?storm/i;
 //  - Sustained >= reefLow (15) up to and including the no-go boundary is YELLOW/REEF.
 //  - Gust NEVER drives REEF/yellow by itself — only NOGO/red, past noGoGust (per-user
 //    correction: a 14 kt sustained day reading "GO — REEF EXPECTED" purely because a gust
-//    touched 20 was the wrong mental model). A gust well above sustained still surfaces as
-//    a NEUTRAL "gusty" marker elsewhere (windIsGusty/gustyFlagHtml) — informational only,
-//    never contributing a reason or a level here.
+//    touched 20 was the wrong mental model).
 function computeVerdict(input) {
   var maxSustainedKt = input.maxSustainedKt, maxGustKt = input.maxGustKt;
   var thunderHourLabels = input.thunderHourLabels || [];
@@ -1838,9 +2040,7 @@ function computeVerdict(input) {
       windLevel = 'NOGO';
       reasons.push('Gusts to ' + round1(maxGustKt) + ' kt at window peak (> ' + limits.noGoGust + ' kt limit)');
     }
-    // Sub-noGoGust gusts never push windLevel to REEF/yellow — see boundary-policy comment
-    // above. A large gust-over-sustained gap still surfaces via the neutral gusty marker on
-    // the wind value displays themselves (windIsGusty), not through a verdict reason.
+    // Sub-noGoGust gusts never push windLevel to REEF/yellow — see boundary-policy comment above.
   } else {
     reasons.push('Gust data unavailable — verdict based on sustained wind only');
   }
@@ -1999,6 +2199,7 @@ var SAIL_LANDMARKS = [
   { name: 'Red Hook', lat: 40.674 },
   { name: 'Governors Island', lat: 40.690 },
   { name: 'Statue of Liberty', lat: 40.689 },
+  { name: 'Robbins Reef', lat: 40.657 },
   { name: 'Ellis Island', lat: 40.699 },
   { name: 'The Battery', lat: 40.703 },
   { name: 'Pier 25', lat: 40.7203 },
@@ -2013,18 +2214,7 @@ var SAIL_LANDMARKS = [
 var SAIL_LAT_MIN = 40.60, SAIL_LAT_MAX = 40.86;
 var SAIL_COURSE_BEARING_N = 11, SAIL_COURSE_BEARING_S = 183;
 var SAIL_BEATING_THRESHOLD_DEG = 50;
-var SAIL_BEATING_VMG_FACTOR = 0.65;
-// Point-of-sail efficiency beyond beating (user report: straight-line hull-speed reaching
-// put the boat past the Narrows in a 3h window — "dissociated from reality"): running
-// nearly dead-downwind needs jibing legs; even a reach never holds a perfect rhumb line
-// through harbor traffic.
 var SAIL_RUNNING_THRESHOLD_DEG = 150;
-var SAIL_RUNNING_VMG_FACTOR = 0.85;
-var SAIL_REACHING_VMG_FACTOR = 0.9;
-// Club boundary: sailing south of Robbins Reef Light is not allowed. The simulated boat
-// holds at this line (mills about) instead of continuing — and the turn-around solver
-// therefore never plans distance beyond it.
-var SAIL_SOUTH_LIMIT_LAT = 40.6577;
 var SAIL_STEP_MS = 5 * 60000;
 var SAIL_TURN_TOL_MIN = 2;
 var NM_PER_DEG_LAT = 60;
@@ -2050,6 +2240,9 @@ var SAIL_LANDMARK_PROXIMITY_NM = 0.8;
 // multi-hour sail window it made playback take many real MINUTES to finish, which read as
 // "the boat isn't moving" even though atMs was, in fact, still advancing every frame.
 var SAIL_PLAYBACK_TARGET_S = 14;
+var SAIL_TACK_INTERVAL_MS = 20 * 60000;
+var SAIL_JIBE_INTERVAL_MS = 30 * 60000;
+var SAIL_SOUTH_LIMIT_LAT = 40.657;
 
 // Nearest-value fallback over an expandSeries()-shaped array: tries the exact valueAtMs()
 // lookup first (atMs inside some [startMs,endMs)), then falls back to whichever interval's
@@ -2083,17 +2276,43 @@ function isBeating(windFromDeg, courseBearingDeg, thresholdDeg) {
   return angularDistance(windFromDeg, courseBearingDeg) < (thresholdDeg == null ? SAIL_BEATING_THRESHOLD_DEG : thresholdDeg);
 }
 
-function vmgFor(boatSpeedKt, beating) { return beating ? boatSpeedKt * SAIL_BEATING_VMG_FACTOR : boatSpeedKt; }
-
-// VMG factor by point of sail: beating = tacking legs (0.65 of through-water speed made
-// good along the course), running nearly dead-downwind = jibing legs (0.85), everything
-// else = a reach at 0.9. Unknown wind direction gets the reaching factor.
-function pointOfSailVmgFactor(windFromDeg, courseBearingDeg) {
-  if (windFromDeg == null || !isFinite(windFromDeg)) return SAIL_REACHING_VMG_FACTOR;
-  var a = angularDistance(windFromDeg, courseBearingDeg);
-  if (a < SAIL_BEATING_THRESHOLD_DEG) return SAIL_BEATING_VMG_FACTOR;
-  if (a > SAIL_RUNNING_THRESHOLD_DEG) return SAIL_RUNNING_VMG_FACTOR;
-  return SAIL_REACHING_VMG_FACTOR;
+// Conservative day-sail calibration for the Pier 25 fleet. The speed setting is a ceiling,
+// not a promise: light air cannot produce hull speed, and the Manhattan waterfront commonly
+// delivers only a fraction of the airport/gridpoint wind between buildings and piers.
+function windPowerFactor(windKt) {
+  if (windKt == null || !isFinite(windKt)) return 0.62;
+  if (windKt <= 3) return 0.15;
+  if (windKt >= 16) return 0.92;
+  return 0.15 + (windKt - 3) / 13 * 0.77;
+}
+function harborWindFactor(lat) {
+  if (lat >= 40.700 && lat <= 40.790) return 0.58; // Manhattan building/pier wind shadow
+  if (lat > 40.790) return 0.68;
+  if (lat >= 40.685) return 0.72; // Battery, Ellis/Liberty Island turbulence
+  return 0.80; // more open Upper Bay
+}
+function pointOfSail(windFromDeg, courseBearingDeg) {
+  if (windFromDeg == null || !isFinite(windFromDeg)) return { type: 'reach', factor: 0.72, angle: null };
+  var angle = angularDistance(windFromDeg, courseBearingDeg);
+  if (angle < SAIL_BEATING_THRESHOLD_DEG) return { type: 'tack', factor: 0.48, angle: angle };
+  if (angle > SAIL_RUNNING_THRESHOLD_DEG) return { type: 'jibe', factor: 0.60, angle: angle };
+  // Best progress is on a beam/broad reach; close reaches and deep reaches lose VMG.
+  var reachFactor = angle <= 95
+    ? 0.70 + (angle - SAIL_BEATING_THRESHOLD_DEG) / 45 * 0.18
+    : 0.88 - (angle - 95) / (SAIL_RUNNING_THRESHOLD_DEG - 95) * 0.16;
+  return { type: 'reach', factor: clamp(reachFactor, 0.70, 0.88), angle: angle };
+}
+function maneuverSide(type, atMs, legStartMs) {
+  if (type !== 'tack' && type !== 'jibe') return 0;
+  var interval = type === 'tack' ? SAIL_TACK_INTERVAL_MS : SAIL_JIBE_INTERVAL_MS;
+  return Math.floor((atMs - legStartMs) / interval) % 2 === 0 ? -1 : 1;
+}
+function sailingSample(atMs, legStartMs, lat, headingSign, windDirSeries, windSpeedSeries, maxBoatKt) {
+  var windDir = nearestSeriesValue(windDirSeries, atMs);
+  var windKt = nearestSeriesValue(windSpeedSeries, atMs);
+  var pos = pointOfSail(windDir, courseBearingForHeading(headingSign));
+  var vmg = maxBoatKt * windPowerFactor(windKt) * harborWindFactor(lat) * pos.factor;
+  return { vmg: vmg, courseType: pos.type, side: maneuverSide(pos.type, atMs, legStartMs), windKt: windKt, mode: 'sail' };
 }
 
 // SOG convention matches current: signed kt, north-positive.
@@ -2109,41 +2328,33 @@ function nearestLandmark(lat) {
 }
 
 // Integrates latitude in fixed steps from startMs to endMs. Each step samples current +
-// wind at its midpoint, scales through-water speed by predicted wind strength
-// (windLimitedBoatSpeed), applies the beating (tacking) VMG penalty — the model for the
-// extra distance sailed through the water when the leg is upwind — and advances distance =
+// wind at its midpoint, applies the harbor polar and point-of-sail penalty, then advances distance =
 // SOG(kt) * step(h) converted to degrees latitude at 60 nm/degree. Pure: curvePoints and
 // `wind` ({dirSeries, speedSeries}, both expandSeries-shaped) are passed in, never read
 // from `state`.
 // `motor` (optional): when true, this leg runs under power at `boatSpeedKt` (which the
-// caller passes as the motor speed in that case) with no beating penalty, no wind-speed
-// scaling, and a straight track — used for the pre-motor "motor first leg" sail-sim toggle.
-// Each path point carries `mode` ('motor'/'sail') so the renderer can draw a visually
-// distinct dashed wake.
-function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, wind, boatSpeedKt, stepMs, motor) {
-  var courseBearing = courseBearingForHeading(headingSign);
-  function sample(atMs) {
-    if (motor) return { vmg: boatSpeedKt, beating: false, mode: 'motor' };
-    var windDir = nearestSeriesValue(wind.dirSeries, atMs);
-    var windKt = nearestSeriesValue(wind.speedSeries, atMs);
-    var effBoatKt = windLimitedBoatSpeed(boatSpeedKt, windKt);
-    var beating = isBeating(windDir, courseBearing, SAIL_BEATING_THRESHOLD_DEG);
-    return { vmg: effBoatKt * pointOfSailVmgFactor(windDir, courseBearing), beating: beating, mode: 'sail' };
+// caller passes as the motor speed in that case) with no sailing penalty and a straight
+// track — used for the pre-motor "motor first leg" sail-sim toggle. Each path point carries
+// `mode` ('motor'/'sail') so the renderer can draw a visually distinct dashed wake.
+function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, windDirSeries, windSpeedSeries, boatSpeedKt, stepMs, motor) {
+  function sample(atMs, lat) {
+    if (motor) return { vmg: boatSpeedKt, courseType: 'motor', side: 0, mode: 'motor' };
+    return sailingSample(atMs, startMs, lat, headingSign, windDirSeries, windSpeedSeries, boatSpeedKt);
   }
-  // The leg's first point carries the *instantaneous* sog/c/beating at startMs (not null) —
+  // The leg's first point carries the instantaneous SOG/current/course state at startMs —
   // otherwise the sail-sim card's very first frame (rendered at departureMs, before any
   // playback) shows "--" for Current/SOG until the user hits play, even though a real
   // reading exists at that instant.
-  var s0 = sample(startMs);
+  var s0 = sample(startMs, startLat);
   var c0 = currentVelocityAt(curvePoints, startMs);
   var sog0 = sogAt(headingSign, s0.vmg, c0);
-  var path = [{ ms: startMs, lat: startLat, sog: sog0, c: c0, beating: s0.beating, mode: s0.mode }];
+  var path = [{ ms: startMs, lat: startLat, sog: sog0, c: c0, courseType: s0.courseType, side: s0.side, vmg: s0.vmg, mode: s0.mode }];
   if (endMs <= startMs) return path;
   var lat = startLat, t = startMs;
   while (t < endMs) {
     var dt = Math.min(stepMs, endMs - t);
     var midT = t + dt / 2;
-    var s = sample(midT);
+    var s = sample(midT, lat);
     var c = currentVelocityAt(curvePoints, midT);
     var sog = sogAt(headingSign, s.vmg, c);
     var distNm = sog * (dt / 3600000);
@@ -2151,7 +2362,7 @@ function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, wind, b
     // Club boundary: never past Robbins Reef — hold at the line instead of continuing S.
     if (lat < SAIL_SOUTH_LIMIT_LAT) lat = SAIL_SOUTH_LIMIT_LAT;
     t += dt;
-    path.push({ ms: t, lat: lat, sog: sog, c: c, beating: s.beating, mode: s.mode });
+    path.push({ ms: t, lat: lat, sog: sog, c: c, courseType: s.courseType, side: s.side, vmg: s.vmg, mode: s.mode });
   }
   return path;
 }
@@ -2159,11 +2370,11 @@ function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, wind, b
 // motorFirstLeg/motorSpeedKt (optional): when motorFirstLeg is true, the outbound leg is
 // simulated under power at motorSpeedKt instead of sailing at boatSpeedKt; the inbound leg
 // always sails. Omitting these args reproduces the original all-sail round trip.
-function simulateRoundTrip(departureMs, returnMs, turnMs, startLat, headingSign, curvePoints, wind, boatSpeedKt, stepMs, motorFirstLeg, motorSpeedKt) {
+function simulateRoundTrip(departureMs, returnMs, turnMs, startLat, headingSign, curvePoints, windDirSeries, windSpeedSeries, boatSpeedKt, stepMs, motorFirstLeg, motorSpeedKt) {
   var outSpeedKt = motorFirstLeg ? motorSpeedKt : boatSpeedKt;
-  var outPath = simulateLeg(departureMs, turnMs, startLat, headingSign, curvePoints, wind, outSpeedKt, stepMs, !!motorFirstLeg);
+  var outPath = simulateLeg(departureMs, turnMs, startLat, headingSign, curvePoints, windDirSeries, windSpeedSeries, outSpeedKt, stepMs, !!motorFirstLeg);
   var midLat = outPath.length ? outPath[outPath.length - 1].lat : startLat;
-  var inPath = simulateLeg(turnMs, returnMs, midLat, -headingSign, curvePoints, wind, boatSpeedKt, stepMs, false);
+  var inPath = simulateLeg(turnMs, returnMs, midLat, -headingSign, curvePoints, windDirSeries, windSpeedSeries, boatSpeedKt, stepMs, false);
   return { outPath: outPath, inPath: inPath, finalLat: inPath.length ? inPath[inPath.length - 1].lat : midLat };
 }
 
@@ -2174,9 +2385,9 @@ function simulateRoundTrip(departureMs, returnMs, turnMs, startLat, headingSign,
 // motor or sail) so a standard bracket-and-bisect applies. When the domain endpoints don't
 // bracket a root (current too strong to ever get home in time), clamps to whichever endpoint
 // is closer and reports converged:false so the caller can surface a warning.
-function findTurnAroundMs(departureMs, returnMs, startLat, headingSign, curvePoints, wind, boatSpeedKt, stepMs, motorFirstLeg, motorSpeedKt) {
+function findTurnAroundMs(departureMs, returnMs, startLat, headingSign, curvePoints, windDirSeries, windSpeedSeries, boatSpeedKt, stepMs, motorFirstLeg, motorSpeedKt) {
   function errNm(turnMs) {
-    var rt = simulateRoundTrip(departureMs, returnMs, turnMs, startLat, headingSign, curvePoints, wind, boatSpeedKt, stepMs, motorFirstLeg, motorSpeedKt);
+    var rt = simulateRoundTrip(departureMs, returnMs, turnMs, startLat, headingSign, curvePoints, windDirSeries, windSpeedSeries, boatSpeedKt, stepMs, motorFirstLeg, motorSpeedKt);
     return (rt.finalLat - startLat) * NM_PER_DEG_LAT;
   }
   function errTimeMin(errNmVal) { return boatSpeedKt > 0 ? Math.abs(errNmVal) / boatSpeedKt * 60 : Infinity; }
@@ -2227,7 +2438,63 @@ function furthestPointLabel(maxDistLat, maxDistNm) {
   return round1(maxDistNm) + ' nm ' + dir + ' · ' + sailAreaWordForLat(maxDistLat);
 }
 
-function computeSailSim(departureMs, returnMs, curvePoints, wind, boatSpeedKt, directionRec, motorFirstLeg, motorSpeedKt) {
+function buildHoldingPattern(startMs, endMs, limitLat, curvePoints, stepMs) {
+  var path = [], t = startMs, i = 0;
+  while (t <= endMs) {
+    var phase = i % 4;
+    var offsetNm = phase === 0 ? 0 : (phase === 2 ? 0.10 : 0.05);
+    var lat = limitLat + offsetNm / NM_PER_DEG_LAT; // always stay north of the boundary
+    path.push({
+      ms: t, lat: lat, sog: 0, c: currentVelocityAt(curvePoints, t), vmg: 0.8,
+      courseType: 'tack', side: phase < 2 ? -1 : 1, mode: 'hold'
+    });
+    if (t === endMs) break;
+    t = Math.min(endMs, t + stepMs);
+    i++;
+  }
+  if (path.length) {
+    path[path.length - 1].lat = limitLat;
+    path[path.length - 1].side = 0;
+  }
+  return path;
+}
+
+// If the planned southbound leg reaches the club boundary before the normal solved turn,
+// stay north of it in a visible holding pattern. Solve when to leave that pattern so the
+// northbound leg still ends at Pier 25 at ETA. This replaces the old visual failure mode of
+// a marker pinned motionless to the limit.
+function applySouthLimitPlan(rt, returnMs, startLat, curvePoints, windDirSeries, windSpeedSeries, boatKt, stepMs) {
+  var hitIdx = -1;
+  for (var i = 0; i < rt.outPath.length; i++) {
+    if (rt.outPath[i].lat <= SAIL_SOUTH_LIMIT_LAT) { hitIdx = i; break; }
+  }
+  if (hitIdx < 0) return null;
+
+  var hit = Object.assign({}, rt.outPath[hitIdx], { lat: SAIL_SOUTH_LIMIT_LAT });
+  var lo = hit.ms, hi = returnMs;
+  function finalError(startMs) {
+    var leg = simulateLeg(startMs, returnMs, SAIL_SOUTH_LIMIT_LAT, 1, curvePoints, windDirSeries, windSpeedSeries, boatKt, stepMs, false);
+    return leg[leg.length - 1].lat - startLat;
+  }
+  var fLo = finalError(lo), fHi = finalError(hi);
+  var leaveMs = lo;
+  if ((fLo > 0) !== (fHi > 0)) {
+    for (var j = 0; j < 36; j++) {
+      var mid = (lo + hi) / 2;
+      var fMid = finalError(mid);
+      if (Math.abs(fMid * NM_PER_DEG_LAT) < 0.03) { lo = hi = mid; break; }
+      if ((fMid > 0) === (fHi > 0)) { hi = mid; fHi = fMid; } else { lo = mid; fLo = fMid; }
+    }
+    leaveMs = (lo + hi) / 2;
+  }
+
+  var outPath = rt.outPath.slice(0, hitIdx).concat([hit]);
+  var holdPath = buildHoldingPattern(hit.ms, leaveMs, SAIL_SOUTH_LIMIT_LAT, curvePoints, stepMs);
+  var inPath = simulateLeg(leaveMs, returnMs, SAIL_SOUTH_LIMIT_LAT, 1, curvePoints, windDirSeries, windSpeedSeries, boatKt, stepMs, false);
+  return { outPath: outPath, holdPath: holdPath, inPath: inPath, boundaryArrivalMs: hit.ms, turnMs: leaveMs };
+}
+
+function computeSailSim(departureMs, returnMs, curvePoints, windDirSeries, windSpeedSeries, boatSpeedKt, directionRec, motorFirstLeg, motorSpeedKt) {
   if (departureMs == null || returnMs == null || returnMs <= departureMs) return null;
   if (!curvePoints || !curvePoints.length) return null;
   if (!directionRec) return null;
@@ -2235,22 +2502,22 @@ function computeSailSim(departureMs, returnMs, curvePoints, wind, boatSpeedKt, d
   var boatKt = (boatSpeedKt != null && boatSpeedKt > 0) ? boatSpeedKt : DEFAULT_BOAT_SPEED_KT;
   var motorKt = (motorSpeedKt != null && motorSpeedKt > 0) ? motorSpeedKt : DEFAULT_MOTOR_SPEED_KT;
   var useMotor = !!motorFirstLeg;
-  var windObj = {
-    dirSeries: (wind && wind.dirSeries) || [],
-    speedSeries: (wind && wind.speedSeries) || []
-  };
-  // Solve the turn against an arrival target SAIL_RETURN_MARGIN_MS before the window ends
-  // (not the window end itself): given predicted wind (speed-scaled boat speed + tacking
-  // penalty) and current, the boat should be moored with the safety margin to spare.
+  var dirSeries = windDirSeries || [], speedSeries = windSpeedSeries || [];
+  // Solve against an arrival target before the window ends, while retaining the conservative
+  // harbor polar and the visible holding pattern at the Robbins Reef boundary.
   var arriveByMs = Math.max(departureMs + 60000, returnMs - SAIL_RETURN_MARGIN_MS);
-  var turn = findTurnAroundMs(departureMs, arriveByMs, PIER25.lat, headingSign, curvePoints, windObj, boatKt, SAIL_STEP_MS, useMotor, motorKt);
-  var rt = simulateRoundTrip(departureMs, arriveByMs, turn.turnMs, PIER25.lat, headingSign, curvePoints, windObj, boatKt, SAIL_STEP_MS, useMotor, motorKt);
-  var path = rt.outPath.concat(rt.inPath.slice(1));
+  var turn = findTurnAroundMs(departureMs, arriveByMs, PIER25.lat, headingSign, curvePoints, dirSeries, speedSeries, boatKt, SAIL_STEP_MS, useMotor, motorKt);
+  var rt = simulateRoundTrip(departureMs, arriveByMs, turn.turnMs, PIER25.lat, headingSign, curvePoints, dirSeries, speedSeries, boatKt, SAIL_STEP_MS, useMotor, motorKt);
+  var limited = headingSign < 0 ? applySouthLimitPlan(rt, arriveByMs, PIER25.lat, curvePoints, dirSeries, speedSeries, boatKt, SAIL_STEP_MS) : null;
+  var effectiveTurnMs = limited ? limited.turnMs : turn.turnMs;
+  var path = limited
+    ? limited.outPath.concat(limited.holdPath.slice(1), limited.inPath.slice(1))
+    : rt.outPath.concat(rt.inPath.slice(1));
   // Moored tail: hold position from arrival to the window end so playback/scrubber still
   // cover the whole window and the margin is visible as the boat sitting at the mooring.
   if (returnMs > arriveByMs && path.length) {
     var arrivedLat = path[path.length - 1].lat;
-    path.push({ ms: returnMs, lat: arrivedLat, sog: 0, c: currentVelocityAt(curvePoints, returnMs), beating: false, mode: 'sail' });
+    path.push({ ms: returnMs, lat: arrivedLat, sog: 0, c: currentVelocityAt(curvePoints, returnMs), courseType: 'moored', side: 0, vmg: 0, mode: 'moored' });
   }
 
   var maxDistNm = 0, maxDistLat = PIER25.lat;
@@ -2262,7 +2529,8 @@ function computeSailSim(departureMs, returnMs, curvePoints, wind, boatSpeedKt, d
 
   return {
     headingSign: headingSign, boatSpeedKt: boatKt, motorSpeedKt: motorKt, motorFirstLeg: useMotor,
-    turnMs: turn.turnMs, converged: turn.converged, turnErrNm: turn.errNm,
+    turnMs: effectiveTurnMs, boundaryArrivalMs: limited ? limited.boundaryArrivalMs : null,
+    converged: turn.converged, turnErrNm: turn.errNm,
     departureMs: departureMs, returnMs: returnMs, arriveByMs: arriveByMs, path: path,
     furthestLandmark: furthest.name, furthestDistNm: maxDistNm,
     furthestLabel: furthestPointLabel(maxDistLat, maxDistNm), maxDistLat: maxDistLat
@@ -2287,7 +2555,7 @@ function sailValueAt(path, atMs, field) {
   }
   return last[field];
 }
-// Step-wise (non-interpolated) lookup for discrete fields (the beating flag) — returns the
+// Step-wise (non-interpolated) lookup for discrete course/maneuver fields — returns the
 // path record produced by the step covering atMs.
 function sailStepAt(path, atMs) {
   if (!path || path.length < 2) return (path && path[0]) || null;
@@ -2301,7 +2569,7 @@ function sailStepAt(path, atMs) {
 /* ============================== Pre-motor advice ============================== */
 // Heuristic: recommend motoring the first leg (instead of beating into an adverse current
 // on a light-wind day) when either (a) the wind is too light to make real progress against
-// the current, or (b) the boat's beating-aware VMG net of the adverse current is too low
+// the current, or (b) the harbor-calibrated sailing VMG net of the adverse current is too low
 // over the first half of the outbound leg. Pure function — every input is a primitive or
 // plain array passed in by the caller (recomputeWindowDependentUI reads `state`/`settings`
 // and hands over the extracted numbers), so this is directly smoke-testable.
@@ -2334,22 +2602,18 @@ function computePreMotorAdvice(ctx) {
   // Positive = current running against the recommended heading (opposing progress).
   var opposingDep = Math.max(0, -(headingSign * curDep));
 
-  var courseBearing = courseBearingForHeading(headingSign);
-  var beating = isBeating(ctx.windFromDegAtDeparture, courseBearing, SAIL_BEATING_THRESHOLD_DEG);
   var boatSpeedKt = (ctx.boatSpeedKt != null && ctx.boatSpeedKt > 0) ? ctx.boatSpeedKt : DEFAULT_BOAT_SPEED_KT;
-  // Same wind-limited, point-of-sail-degraded speed model the sail sim integrates with —
-  // the advice and the simulated track must not disagree about first-leg VMG.
-  var vmg = windLimitedBoatSpeed(boatSpeedKt, ctx.windSustainedAtDepartureKt) *
-    pointOfSailVmgFactor(ctx.windFromDegAtDeparture, courseBearing);
+  var windKt = (ctx.windSustainedAtDepartureKt != null && isFinite(ctx.windSustainedAtDepartureKt))
+    ? ctx.windSustainedAtDepartureKt : null;
+  var pos = pointOfSail(ctx.windFromDegAtDeparture, courseBearingForHeading(headingSign));
+  var vmg = boatSpeedKt * windPowerFactor(windKt) * harborWindFactor(PIER25.lat) * pos.factor;
   var curMid = ctx.currentAtMidWindowKt;
   var avgFirstHalfCurrent = (curMid != null && isFinite(curMid)) ? (curDep + curMid) / 2 : curDep;
   var opposingFirstHalf = Math.max(0, -(headingSign * avgFirstHalfCurrent));
   var netVmgKt = vmg - opposingFirstHalf;
 
-  var windKt = (ctx.windSustainedAtDepartureKt != null && isFinite(ctx.windSustainedAtDepartureKt))
-    ? ctx.windSustainedAtDepartureKt : null;
   var windRule = windKt != null && windKt < PRE_MOTOR_WIND_THRESHOLD_KT && opposingDep >= PRE_MOTOR_ADVERSE_CURRENT_KT;
-  var vmgRule = netVmgKt < PRE_MOTOR_MIN_NET_VMG_KT;
+  var vmgRule = opposingFirstHalf >= PRE_MOTOR_ADVERSE_CURRENT_KT && netVmgKt < PRE_MOTOR_MIN_NET_VMG_KT;
 
   if (!windRule && !vmgRule) return null;
 
@@ -2510,10 +2774,10 @@ function drawCompassArrow(rec) {
   svg.innerHTML =
     '<circle cx="38" cy="40" r="28" fill="none" stroke="' + ink + '" stroke-opacity="0.25" stroke-width="2"/>' +
     '<text x="38" y="9" text-anchor="middle" font-size="9" fill="' + inkDim + '">N</text>' +
-    '<text x="38" y="75" text-anchor="middle" font-size="9" fill="' + inkDim + '">S</text>' +
+    '<text x="38" y="78" text-anchor="middle" font-size="9" fill="' + inkDim + '">S</text>' +
     '<g transform="rotate(' + boatRotate + ' 38 40)">' +
-    '<line x1="38" y1="56" x2="38" y2="20" stroke="' + accent + '" stroke-width="6" stroke-linecap="round"/>' +
-    '<polygon points="38,9 29,26 47,26" fill="' + accent + '"/>' +
+    '<line x1="38" y1="53" x2="38" y2="27" stroke="' + accent + '" stroke-width="6" stroke-linecap="round"/>' +
+    '<polygon points="38,15 29,29 47,29" fill="' + accent + '"/>' +
     '</g>' +
     '<text x="38" y="92" text-anchor="middle" font-size="8" fill="' + accent + '">boat &middot; head ' + heading + '</text>' +
     chevrons +
@@ -2736,6 +3000,7 @@ function buildSailWindowTicks(departureMs, turnMs, returnMs, xFn) {
 
 function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, levelObservedPoints, hiloEvents, departureMs, returnMs, nowMs) {
   var wrapEl = $('timelineSvgWrap');
+  var showWater = state.timelineMode === 'combined';
   // Chart pixel width comes from the live container at render time (falling back to the old
   // fixed 680 only if the wrap can't be measured yet) so a font-size of N viewBox units maps
   // to ~N real CSS px regardless of viewport — see the identical pattern in renderWeatherChart.
@@ -2753,11 +3018,6 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   function x(ms) { return padL + (ms - domStart) / (domEnd - domStart) * (W - padL - padR); }
   function xToMs(px) { return domStart + (px - padL) / (W - padL - padR) * (domEnd - domStart); }
 
-  // 'current' (default) hides the water-level series entirely — for a mooring sail the
-  // level curves/H-L markers are anchoring info that crowded the tooltip and chart (user
-  // feedback); 'both' restores the dual-axis view. Toggled by the card's chip row.
-  var showLevel = (state.timelineMode || 'current') === 'both';
-
   var ptsInDomain = curvePoints.filter(function (p) { return p.ms >= domStart && p.ms <= domEnd; });
   var maxAbs = 1;
   ptsInDomain.forEach(function (p) { maxAbs = Math.max(maxAbs, Math.abs(p.v)); });
@@ -2765,8 +3025,8 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
 
   function yCur(v) { return padT + (H - padT - padB) / 2 - (v / maxAbs) * ((H - padT - padB) / 2); }
 
-  var predInDomain = (levelPredictedPoints || []).filter(function (p) { return p.ms >= domStart && p.ms <= domEnd; });
-  var obsInDomain = (levelObservedPoints || []).filter(function (p) { return p.ms >= domStart && p.ms <= domEnd && p.ms <= nowMs; });
+  var predInDomain = showWater ? (levelPredictedPoints || []).filter(function (p) { return p.ms >= domStart && p.ms <= domEnd; }) : [];
+  var obsInDomain = showWater ? (levelObservedPoints || []).filter(function (p) { return p.ms >= domStart && p.ms <= domEnd && p.ms <= nowMs; }) : [];
   var levelVals = predInDomain.concat(obsInDomain).map(function (p) { return p.v; });
   var levelMin = levelVals.length ? Math.min.apply(null, levelVals) : 0;
   var levelMax = levelVals.length ? Math.max.apply(null, levelVals) : 6;
@@ -2807,6 +3067,21 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
     return '<path d="' + s.d.trim() + '" fill="none" stroke="var(--' + s.color + ')" stroke-width="2.5"/>';
   }).join('');
 
+  // NYH1927 is predictions-only. Plot the nearest live current meter as a single purple
+  // phase-check point, with its different-water-body provenance stated in the legend and
+  // footnote. Direction is "toward" bearing, so its north component gives the signed value.
+  var measuredCurrentHtml = '';
+  var kvk = state.kvkCurrentRaw;
+  var measuredSignedKt = null;
+  if (kvk && kvk.ms != null && kvk.speedKt != null && kvk.dirDeg != null) {
+    measuredSignedKt = kvk.speedKt * Math.cos(kvk.dirDeg * Math.PI / 180);
+    if (kvk.ms >= domStart && kvk.ms <= domEnd) {
+      var mx = x(kvk.ms), my = yCur(measuredSignedKt);
+      measuredCurrentHtml = '<line x1="' + mx.toFixed(1) + '" y1="' + zeroY.toFixed(1) + '" x2="' + mx.toFixed(1) + '" y2="' + my.toFixed(1) + '" stroke="' + levelObsColor + '" stroke-width="1" stroke-dasharray="2,2" stroke-opacity="0.55"/>' +
+        '<circle cx="' + mx.toFixed(1) + '" cy="' + my.toFixed(1) + '" r="4" fill="' + levelObsColor + '" stroke="var(--bg-card)" stroke-width="1.5"/>';
+    }
+  }
+
   function levelPathD(points) {
     var d = '';
     points.forEach(function (p, i) {
@@ -2817,8 +3092,8 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   // Item 2a: both level lines are solid now (the dash on predicted read as "uncertain" to
   // users and was confusable with the window-tick guide dashes) — thin muted blue for
   // predicted, a touch thicker purple for observed, current stays the thick/dominant curve.
-  var predPath = (showLevel && predInDomain.length) ? '<path d="' + levelPathD(predInDomain) + '" fill="none" stroke="' + levelPredColor + '" stroke-width="1.5"/>' : '';
-  var obsPath = (showLevel && obsInDomain.length) ? '<path d="' + levelPathD(obsInDomain) + '" fill="none" stroke="' + levelObsColor + '" stroke-width="2"/>' : '';
+  var predPath = (showWater && predInDomain.length) ? '<path d="' + levelPathD(predInDomain) + '" fill="none" stroke="' + levelPredColor + '" stroke-width="1.5"/>' : '';
+  var obsPath = (showWater && obsInDomain.length) ? '<path d="' + levelPathD(obsInDomain) + '" fill="none" stroke="' + levelObsColor + '" stroke-width="2"/>' : '';
 
   var winX1 = x(clamp(departureMs, domStart, domEnd));
   var winX2 = x(clamp(returnMs, domStart, domEnd));
@@ -2868,7 +3143,7 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   // they never sit on the level curve or collide with each other when highs/lows are close.
   var botBandBaseY = H - padB - 6;
   var botBandRowDy = 10;
-  var hiloLabelItems = (showLevel ? (hiloEvents || []) : []).filter(function (e) { return e.ms >= domStart && e.ms <= domEnd; }).map(function (e) {
+  var hiloLabelItems = (showWater ? (hiloEvents || []) : []).filter(function (e) { return e.ms >= domStart && e.ms <= domEnd; }).map(function (e) {
     return { x: x(e.ms), markerY: yLvl(e.v), text: (e.type === 'H' ? 'H ' : 'L ') + fmtTime(e.ms) + ' · ' + e.v.toFixed(1) + ' ft' };
   });
   layoutBandLabels(hiloLabelItems, botBandRowDy);
@@ -2901,8 +3176,8 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   // Item 2c: small unit hints in the top corners — "kt" over the current curve's side, "ft"
   // over the level curves' side (level side only when the level series are shown at all).
   var unitLabels =
-    '<text x="' + padL + '" y="' + (padT - 4) + '" font-size="9" text-anchor="start" fill="' + inkDim + '" opacity="0.75">kt</text>' +
-    (showLevel ? '<text x="' + (W - padR).toFixed(1) + '" y="' + (padT - 4) + '" font-size="9" text-anchor="end" fill="' + inkDim + '" opacity="0.75">ft</text>' : '');
+    '<text x="' + (padL - 4) + '" y="' + (padT - 4) + '" font-size="9" text-anchor="end" fill="' + inkDim + '" opacity="0.75">kt</text>' +
+    (showWater ? '<text x="' + (W - padR).toFixed(1) + '" y="' + (padT - 4) + '" font-size="9" text-anchor="end" fill="' + inkDim + '" opacity="0.75">ft</text>' : '');
   // Numeric ticks for both y-scales (axes were otherwise unlabeled — values only surfaced
   // via scrubbing): current kt in the left margin mirrored around the slack line, water
   // level ft in the right margin.
@@ -2912,7 +3187,7 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
       '<text x="' + (padL - 4) + '" y="' + (yCur(cv) + 3).toFixed(1) + '" font-size="8.5" text-anchor="end" fill="' + inkDim + '" opacity="0.8">' + cv + '</text>' +
       '<text x="' + (padL - 4) + '" y="' + (yCur(-cv) + 3).toFixed(1) + '" font-size="8.5" text-anchor="end" fill="' + inkDim + '" opacity="0.8">-' + cv + '</text>';
   }
-  if (showLevel) {
+  if (showWater) {
     var lvlTickStep = Math.max(1, Math.round((levelMax - levelMin) / 3));
     for (var lv = Math.ceil(levelMin); lv <= Math.floor(levelMax); lv += lvlTickStep) {
       unitLabels += '<text x="' + (W - padR + 4).toFixed(1) + '" y="' + (yLvl(lv) + 3).toFixed(1) + '" font-size="8.5" text-anchor="start" fill="' + inkDim + '" opacity="0.8">' + lv + '</text>';
@@ -2926,7 +3201,7 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
     '<line x1="' + padL + '" y1="' + zeroY.toFixed(1) + '" x2="' + (W - padR).toFixed(1) + '" y2="' + zeroY.toFixed(1) + '" stroke="' + inkDim + '" stroke-width="1"/>' +
     '<text x="' + (padL - 4) + '" y="' + (zeroY - 3).toFixed(1) + '" font-size="9" text-anchor="end" fill="' + inkDim + '">slack</text>' +
     predPath + obsPath +
-    pathsHtml +
+    pathsHtml + measuredCurrentHtml +
     nowLine + markers + hiloMarkers + windowTickLabels + axisTicks + unitLabels +
     '</svg>';
 
@@ -2937,22 +3212,32 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   // p.ms <= nowMs, so an empty array here means the whole window is still in the future.
   // Both level legend entries (and the obs footnote) disappear entirely in current-only mode.
   var hasObs = obsInDomain.length > 0;
-  var legendPredEl = $('timelineLegendPred'), legendObsEl = $('timelineLegendObs'), obsFootnoteEl = $('timelineObsFootnote');
-  if (legendPredEl) legendPredEl.classList.toggle('hidden', !showLevel);
-  if (legendObsEl) legendObsEl.classList.toggle('hidden', !hasObs || !showLevel);
-  if (obsFootnoteEl) obsFootnoteEl.classList.toggle('hidden', hasObs || !showLevel);
+  var legendObsEl = $('timelineLegendObs'), obsFootnoteEl = $('timelineObsFootnote');
+  document.querySelectorAll('.timeline-water-legend').forEach(function (el) {
+    el.classList.toggle('hidden', !showWater || (el.id === 'timelineLegendObs' && !hasObs));
+  });
+  if (obsFootnoteEl) obsFootnoteEl.classList.toggle('hidden', !showWater || hasObs);
+  var measuredLegend = $('timelineLegendMeasuredCurrent');
+  if (measuredLegend) measuredLegend.classList.toggle('hidden', measuredSignedKt == null);
+  var compareEl = $('timelineCurrentCompare');
+  if (compareEl) {
+    if (measuredSignedKt == null || !kvk) {
+      compareEl.textContent = 'Measured current unavailable; the curve is harmonic prediction only.';
+    } else {
+      var predictedAtMeasure = currentVelocityAt(curvePoints, kvk.ms);
+      var measuredPhase = measuredSignedKt >= 0 ? 'north-flowing' : 'south-flowing';
+      var predictedPhase = predictedAtMeasure == null ? 'unavailable' : ((predictedAtMeasure >= 0 ? 'north-flowing ' : 'south-flowing ') + round1(Math.abs(predictedAtMeasure)) + ' kt');
+      compareEl.textContent = 'Measured phase check: Kill Van Kull ' + measuredPhase + ' ' + round1(Math.abs(measuredSignedKt)) + ' kt at ' + fmtTime(kvk.ms) + '; Hudson prediction then: ' + predictedPhase + '.';
+    }
+  }
 
   var svgEl = wrapEl.querySelector('svg');
   if (svgEl) {
     attachChartScrub(svgEl, xToMs, function (ms) {
       var vCur = currentVelocityAt(curvePoints, ms);
-      // Level lines only join the tooltip in current+level mode, labeled as "Level" so
-      // they can't be misread as current values (user feedback: the ft lines read like the
-      // main content when it's the kt line that drives the float plan).
-      var vPred = showLevel ? levelValueAt(levelPredictedPoints, ms) : null;
-      // Observed only exists in the past — don't let levelValueAt clamp-extend it into the
-      // future, which would pin a stale dot ahead of the last real sample.
-      var vObs = (showLevel && ms <= nowMs) ? levelValueAt(levelObservedPoints, ms) : null;
+      var vPred = showWater ? levelValueAt(levelPredictedPoints, ms) : null;
+      // Observations stop at now; never extend the last measured value into the future.
+      var vObs = (showWater && ms <= nowMs) ? levelValueAt(levelObservedPoints, ms) : null;
       if (vCur == null && vPred == null && vObs == null) return null;
       var curState = classifyCurrent(vCur);
       var phaseWord = curState === 'unknown' ? '' : (curState.charAt(0).toUpperCase() + curState.slice(1));
@@ -2974,21 +3259,16 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   }
 }
 
-/* ============================== Timeline card mode (current vs current+level) ========= */
-
-function updateTimelineModeChipActive() {
-  var row = $('timelineModeRow');
-  if (!row) return;
-  row.querySelectorAll('.chip').forEach(function (chip) {
-    chip.classList.toggle('active', chip.dataset.mode === (state.timelineMode || 'current'));
+function setTimelineMode(mode, persist) {
+  state.timelineMode = mode === 'combined' ? 'combined' : 'current';
+  document.querySelectorAll('#timelineModeRow .chip').forEach(function (chip) {
+    chip.classList.toggle('active', chip.dataset.mode === state.timelineMode);
   });
-}
-// Re-renders just the timeline chart from state — the mode chips shouldn't pay for a full
-// recomputeWindowDependentUI pass (mirrors rerenderWindCard for the wind model chips).
-function rerenderTimelineCard() {
-  if (!state.departureMs || !state.settings) return;
-  renderTimelineSvg(state.curvePoints || [], state.slackEvents || [], state.levelPredictedPoints,
-    state.levelObservedPoints, state.hiloEvents, state.departureMs, getReturnMs(), Date.now());
+  if (persist) lsSetJSON('timelineMode', state.timelineMode);
+  if (state.departureMs != null && state.curvePoints) {
+    renderTimelineSvg(state.curvePoints, state.slackEvents, state.levelPredictedPoints, state.levelObservedPoints,
+      state.hiloEvents, state.departureMs, getReturnMs(), Date.now());
+  }
 }
 
 /* ============================== Sail simulator rendering ============================== */
@@ -3156,6 +3436,12 @@ function renderSailSimSvg(sim, atMs) {
       color + '" font-weight="' + (it.isHome ? '700' : '400') + '">' + escapeHtml(it.text) + '</text>';
   });
 
+  if (SAIL_SOUTH_LIMIT_LAT >= bounds.latMin && SAIL_SOUTH_LIMIT_LAT <= bounds.latMax) {
+    var limitY = y(SAIL_SOUTH_LIMIT_LAT);
+    svg += '<line x1="' + chX0 + '" y1="' + limitY.toFixed(1) + '" x2="' + chX1 + '" y2="' + limitY.toFixed(1) +
+      '" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="3,2"/>';
+  }
+
   // Turn-around marker: fixed on the strip once computed, independent of playback position.
   var turnLat = sailValueAt(sim.path, sim.turnMs, 'lat');
   var turnY = y(turnLat);
@@ -3180,16 +3466,40 @@ function renderSailSimSvg(sim, atMs) {
       ' ' + (ax + 4).toFixed(1) + ',' + tipY.toFixed(1) + '" fill="' + color + '"/>';
   });
 
-  // Wake: traces the actual traveled path up to atMs; zigzags across the channel only
-  // during steps flagged `beating`, straight centerline otherwise. Motor-mode steps (the
-  // "Motor first leg" toggle) never beat — straight track — and are drawn as a separate
-  // dashed run so the motor leg reads visually distinct from the sailed portion.
-  var wakePts = [], toggle = 1;
+  // Wake: tack and jibe sides are computed by the sailing model, not invented by the
+  // renderer. This makes the ideal maneuver pattern readable even when north/south VMG is
+  // slow; reaches remain on the centerline and motor legs use a dashed wake.
+  var plannedPts = [], plannedMarks = [], previousPlanned = null;
+  sim.path.forEach(function (p) {
+    var px = chCenter;
+    if (p.courseType === 'tack') px = chCenter + p.side * 9;
+    else if (p.courseType === 'jibe') px = chCenter + p.side * 6;
+    if (previousPlanned && p.courseType === previousPlanned.courseType && p.side && p.side !== previousPlanned.side) {
+      plannedMarks.push({ x: px, y: y(p.lat), label: p.courseType === 'tack' ? 'T' : 'J' });
+    }
+    plannedPts.push({ x: px, y: y(p.lat) });
+    previousPlanned = p;
+  });
+  if (plannedPts.length) {
+    var plannedD = plannedPts.map(function (p, i) { return (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1); }).join(' ');
+    svg += '<path d="' + plannedD + '" fill="none" stroke="var(--accent)" stroke-width="1" stroke-opacity="0.22" stroke-dasharray="2,3"/>';
+  }
+  plannedMarks.forEach(function (m) {
+    svg += '<circle cx="' + m.x.toFixed(1) + '" cy="' + m.y.toFixed(1) + '" r="3.5" fill="var(--bg-card)" fill-opacity="0.8" stroke="var(--accent)" stroke-opacity="0.45"/>' +
+      '<text x="' + m.x.toFixed(1) + '" y="' + (m.y + 2.2).toFixed(1) + '" font-size="5.5" font-weight="750" text-anchor="middle" fill="var(--accent)" fill-opacity="0.65">' + m.label + '</text>';
+  });
+
+  var wakePts = [], maneuverMarks = [], previousStep = null;
   sim.path.forEach(function (p) {
     if (p.ms > atMs) return;
     var xOff = chCenter;
-    if (p.beating) { xOff = chCenter + toggle * 7; toggle = -toggle; }
-    wakePts.push({ x: xOff, y: y(p.lat), mode: p.mode === 'motor' ? 'motor' : 'sail' });
+    if (p.courseType === 'tack') xOff = chCenter + p.side * 9;
+    else if (p.courseType === 'jibe') xOff = chCenter + p.side * 6;
+    if (previousStep && p.courseType === previousStep.courseType && p.side && p.side !== previousStep.side) {
+      maneuverMarks.push({ x: xOff, y: y(p.lat), label: p.courseType === 'tack' ? 'T' : 'J' });
+    }
+    wakePts.push({ x: xOff, y: y(p.lat), mode: p.mode || 'sail' });
+    previousStep = p;
   });
   var wakeRuns = [];
   wakePts.forEach(function (pt) {
@@ -3206,14 +3516,21 @@ function renderSailSimSvg(sim, atMs) {
   wakeRuns.forEach(function (run) {
     if (!run.pts.length) return;
     var d = run.pts.map(function (p, i) { return (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1); }).join(' ');
-    var dash = run.mode === 'motor' ? ' stroke-dasharray="4,3"' : '';
-    svg += '<path d="' + d + '" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-opacity="0.55"' + dash + '/>';
+    var dash = run.mode === 'motor' ? ' stroke-dasharray="4,3"' : (run.mode === 'hold' ? ' stroke-dasharray="2,2"' : '');
+    var runColor = run.mode === 'hold' ? 'var(--violet)' : 'var(--accent)';
+    svg += '<path d="' + d + '" fill="none" stroke="' + runColor + '" stroke-width="1.5" stroke-opacity="0.65"' + dash + '/>';
+  });
+  maneuverMarks.forEach(function (m) {
+    svg += '<circle cx="' + m.x.toFixed(1) + '" cy="' + m.y.toFixed(1) + '" r="4" fill="var(--bg-card)" stroke="var(--accent)" stroke-width="1"/>' +
+      '<text x="' + m.x.toFixed(1) + '" y="' + (m.y + 2.4).toFixed(1) + '" font-size="6" font-weight="750" text-anchor="middle" fill="var(--accent)">' + m.label + '</text>';
   });
 
   // Boat marker.
   if (lat != null) {
     var boatDeg = headingNow > 0 ? 0 : 180;
-    svg += '<g transform="translate(' + chCenter + ',' + y(lat).toFixed(1) + ') rotate(' + boatDeg + ')">' +
+    if (step && step.mode === 'hold') boatDeg = step.side < 0 ? 180 : 0;
+    var boatX = step && step.side ? chCenter + step.side * (step.courseType === 'tack' ? 9 : 6) : chCenter;
+    svg += '<g transform="translate(' + boatX + ',' + y(lat).toFixed(1) + ') rotate(' + boatDeg + ')">' +
       '<polygon points="0,-8 -5,6 5,6" fill="var(--accent)"/></g>';
   }
 
@@ -3247,18 +3564,29 @@ function renderSailSimReadouts(sim, atMs) {
   var distNm = lat == null ? null : (lat - PIER25.lat) * NM_PER_DEG_LAT;
   var distLabel = distNm == null ? '--' : (round1(Math.abs(distNm)) + ' nm ' + (distNm >= 0 ? 'N' : 'S') + ' of Pier 25');
   // Item 1c: furthestLabel is already the landmark-or-area phrase computed in computeSailSim.
-  // arriveByMs: the solver's arrival target (returnMs - SAIL_RETURN_MARGIN_MS) — show it so
-  // the "why is the boat parked for the last 15 min" question answers itself.
-  var furthestLabel = sim.furthestLabel + ' · turn ' + fmtTime(sim.turnMs) +
+  var furthestLabel = sim.furthestLabel + (sim.boundaryArrivalMs != null
+    ? ' · limit ' + fmtTime(sim.boundaryArrivalMs) + ' · head home ' + fmtTime(sim.turnMs)
+    : ' · turn ' + fmtTime(sim.turnMs)) +
     (sim.arriveByMs != null && sim.arriveByMs < sim.returnMs ? ' · moored ' + fmtTime(sim.arriveByMs) : '');
   var step = sailStepAt(sim.path, atMs);
   var modeLabel = (step && step.mode) ? step.mode.toUpperCase() : (sim.motorFirstLeg ? 'MOTOR' : 'SAIL');
+  var courseLabel = '--';
+  if (step) {
+    if (step.mode === 'motor') courseLabel = 'Under power';
+    else if (step.mode === 'hold') courseLabel = 'Holding · short tacks';
+    else if (step.courseType === 'tack') courseLabel = 'Tacking · ' + (step.side < 0 ? 'port' : 'starboard');
+    else if (step.courseType === 'jibe') courseLabel = 'Jibing · ' + (step.side < 0 ? 'port' : 'starboard');
+    else courseLabel = 'Reaching';
+  }
+  var vmgLabel = step && step.vmg != null ? round1(step.vmg) + ' kt' : '--';
 
   // Item 1d: compact 2-column label/value grid — the last row (furthest/turn) runs long, so
   // it spans both columns instead of wrapping awkwardly in a half-width cell.
   var rows = [
     ['Clock', fmtTime(atMs)],
     ['Mode', modeLabel],
+    ['Course', courseLabel],
+    ['Sailing VMG', vmgLabel],
     ['Current', curLabel],
     ['SOG', sogLabel],
     ['Distance', distLabel],
@@ -3287,6 +3615,8 @@ function sailSimPathsEqual(pathA, pathB) {
   for (var i = 0; i < pathA.length; i++) {
     if (pathA[i].ms !== pathB[i].ms) return false;
     if (Math.abs((pathA[i].lat || 0) - (pathB[i].lat || 0)) > 1e-9) return false;
+    if (pathA[i].courseType !== pathB[i].courseType || pathA[i].side !== pathB[i].side || pathA[i].mode !== pathB[i].mode) return false;
+    if (Math.abs((pathA[i].vmg || 0) - (pathB[i].vmg || 0)) > 1e-6) return false;
   }
   return true;
 }
@@ -3306,11 +3636,9 @@ function computeAndRenderSailSim() {
   }
   var boatSpeedKt = (state.settings && state.settings.boatSpeedKt) || DEFAULT_BOAT_SPEED_KT;
   var motorSpeedKt = (state.settings && state.settings.motorSpeedKt) || DEFAULT_MOTOR_SPEED_KT;
-  var wind = {
-    dirSeries: (state.gridSeries && state.gridSeries.windDirection) || [],
-    speedSeries: (state.gridSeries && state.gridSeries.windSpeedKt) || []
-  };
-  var sim = computeSailSim(state.departureMs, getReturnMs(), state.curvePoints, wind, boatSpeedKt, state.lastDirectionRec, sailSimUI.motorFirstLeg, motorSpeedKt);
+  var windDirSeries = (state.gridSeries && state.gridSeries.windDirection) || [];
+  var windSpeedSeries = (state.gridSeries && state.gridSeries.windSpeedKt) || [];
+  var sim = computeSailSim(state.departureMs, getReturnMs(), state.curvePoints, windDirSeries, windSpeedSeries, boatSpeedKt, state.lastDirectionRec, sailSimUI.motorFirstLeg, motorSpeedKt);
   if (!sim) {
     state.sailSim = null;
     clearSailSimBody();
@@ -3456,6 +3784,65 @@ function selectObsWindStation(station) {
   renderObsWindRow(state.lastMaxSustainedKt, state.lastMaxGustKt, (state.settings && state.settings.limits) || DEFAULT_LIMITS);
 }
 
+function weatherFlowConfigured() {
+  var s = state.settings || {};
+  return !!(s.weatherFlowToken && s.weatherFlowStationId);
+}
+function updateWeatherFlowChipState(connected) {
+  var chip = $('obsStationWeatherflowChip');
+  if (!chip) return;
+  showEl(chip);
+  var configured = weatherFlowConfigured();
+  chip.classList.toggle('setup-required', !configured);
+  chip.classList.toggle('station-unavailable', configured && connected === false);
+  chip.title = configured ? (connected === false ? 'Station unavailable; click to review connection' : 'Use Willy Wall observations') : 'Connect Willy Wall';
+  chip.setAttribute('aria-label', chip.title);
+}
+function openWeatherFlowSetup(message) {
+  var s = state.settings || {};
+  $('weatherFlowSetupToken').value = s.weatherFlowToken || '';
+  $('weatherFlowSetupStationId').value = s.weatherFlowStationId || '';
+  var status = $('weatherFlowSetupStatus');
+  status.textContent = message || '';
+  status.classList.toggle('error', !!message);
+  showEl($('weatherFlowSetup'));
+  $('obsStationWeatherflowChip').setAttribute('aria-expanded', 'true');
+}
+function closeWeatherFlowSetup() {
+  hideEl($('weatherFlowSetup'));
+  $('obsStationWeatherflowChip').setAttribute('aria-expanded', 'false');
+}
+function connectWeatherFlowFromSetup() {
+  var token = $('weatherFlowSetupToken').value.trim();
+  var stationId = $('weatherFlowSetupStationId').value.trim();
+  var status = $('weatherFlowSetupStatus');
+  if (!token || !stationId) {
+    status.textContent = 'Enter both the API token and station ID.';
+    status.classList.add('error');
+    return;
+  }
+  state.settings.weatherFlowToken = token;
+  state.settings.weatherFlowStationId = stationId;
+  saveSettings(state.settings);
+  // Keep the general Settings copy synchronized for users who open it later.
+  $('weatherFlowToken').value = token;
+  $('weatherFlowStationId').value = stationId;
+  status.textContent = 'Connecting…';
+  status.classList.remove('error');
+  $('weatherFlowSetupConnect').disabled = true;
+  maybeLoadWeatherFlow().then(function (ok) {
+    $('weatherFlowSetupConnect').disabled = false;
+    if (!ok) {
+      status.textContent = 'Could not load this station. Check the token and station ID.';
+      status.classList.add('error');
+      return;
+    }
+    selectObsWindStation('weatherflow');
+    closeWeatherFlowSetup();
+    showToast('Willy Wall connected');
+  });
+}
+
 function renderObsWindRow(maxSustainedKt, maxGustKt, limits) {
   var el = $('obsWindRow');
   if (!el) return;
@@ -3478,12 +3865,10 @@ function renderObsWindRow(maxSustainedKt, maxGustKt, limits) {
   var aboveForecast = (maxSustainedKt != null && w.sustainedKt != null && w.sustainedKt > maxSustainedKt) ||
     (maxGustKt != null && w.gustKt != null && w.gustKt > maxGustKt);
   var ageText = w.ms != null ? ('as of ' + fmtTime(w.ms) + ageSuffix(w.ms)) : '';
-  var gustyHtml = windIsGusty(w.sustainedKt, w.gustKt) ? gustyFlagHtml() : '';
-
   el.innerHTML =
     '<span>Wind &middot; ' + escapeHtml(label) + '</span>' +
     '<span class="observed-value">' +
-    '<span class="observed-pill ' + cls + '">' + escapeHtml(windText) + '</span>' + gustyHtml +
+    '<span class="observed-pill ' + cls + '">' + escapeHtml(windText) + '</span>' +
     (aboveForecast ? '<span class="observed-warn">observed above forecast</span>' : '') +
     (ageText ? '<span class="observed-age">' + escapeHtml(ageText) + '</span>' : '') +
     '</span>';
@@ -3614,7 +3999,7 @@ function renderWindNow(observedData, limits) {
   var cls = windCellClass(w.sustainedKt, w.gustKt, limits);
   valueEl.className = 'wind-now-value ' + cls;
   valueEl.innerHTML = (w.sustainedKt != null ? round1(w.sustainedKt) : '--') + '<span class="wind-now-unit">kt</span>' +
-    (w.gustKt != null ? ' <span class="wind-now-gust">gust ' + round1(w.gustKt) + (windIsGusty(w.sustainedKt, w.gustKt) ? gustyFlagHtml() : '') + '</span>' : '');
+    (w.gustKt != null ? ' <span class="wind-now-gust">gust ' + round1(w.gustKt) + '</span>' : '');
   var dirLabel = w.dirCardinal || degToCompass(w.dirDeg);
   setText('windNowDir', dirLabel + (w.dirDeg != null ? ' ' + Math.round(w.dirDeg) + '°' : ''));
   setText('windNowCaption', 'Observed · Robbins Reef · as of ' + (w.ms != null ? fmtTime(w.ms) : '--:--'));
@@ -4027,9 +4412,7 @@ function renderWindHourlyTable(hourlyPeriods, departureMs, returnMs, limits) {
       var dirLabel = r.dirText || degToCompass(dirDeg);
       var dirHtml = (dirDeg != null ? windArrowCellSvg(dirDeg, 'currentColor') : '') +
         '<span>' + escapeHtml(dirLabel) + (dirDeg != null ? ' ' + Math.round(dirDeg) + '°' : '') + '</span>';
-      var gustHtml = r.gust != null
-        ? ('gust ' + round1(r.gust) + (windIsGusty(r.sustained, r.gust) ? gustyFlagHtml() : ''))
-        : '—';
+      var gustHtml = r.gust != null ? ('gust ' + round1(r.gust)) : '—';
       return '<tr class="' + cls + '"><td>' + fmtTime(r.ms) + '</td>' +
         '<td class="wind-dir-cell">' + dirHtml + '</td>' +
         '<td class="num">' + (r.sustained != null ? round1(r.sustained) : '—') + '</td>' +
@@ -4152,6 +4535,35 @@ function twilightReturnNote(returnMs, sunsetMs, civilDuskMs) {
   return null;
 }
 
+var twilightCountdownTargets = null;
+var twilightCountdownTimer = null;
+
+function formatTimeFromNow(targetMs, nowMs) {
+  if (targetMs == null || !isFinite(targetMs)) return '';
+  nowMs = nowMs == null ? Date.now() : nowMs;
+  var diffMinutes = Math.round((targetMs - nowMs) / 60000);
+  if (Math.abs(diffMinutes) < 1) return 'now';
+  var future = diffMinutes > 0;
+  var totalMinutes = Math.abs(diffMinutes);
+  var days = Math.floor(totalMinutes / 1440);
+  var hours = Math.floor((totalMinutes % 1440) / 60);
+  var minutes = totalMinutes % 60;
+  var parts = [];
+  if (days) parts.push(days + 'd');
+  if (hours) parts.push(hours + 'h');
+  if (!days && minutes) parts.push(minutes + 'm');
+  var duration = parts.join(' ');
+  return future ? 'in ' + duration : duration + ' ago';
+}
+
+function updateTwilightCountdowns() {
+  if (!twilightCountdownTargets) return;
+  var nowMs = Date.now();
+  Object.keys(twilightCountdownTargets).forEach(function (id) {
+    setText(id, formatTimeFromNow(twilightCountdownTargets[id], nowMs));
+  });
+}
+
 // Every America/New_York calendar date (as {y,m,d}) touched by [startMs,endMs] — pure
 // calendar arithmetic via UTC-labeled Date math, no timezone conversion needed here.
 function localCalendarDaysInRange(startMs, endMs) {
@@ -4188,6 +4600,16 @@ function renderSunTwilightCard(departureMs, returnMs) {
   setText('twilightSunset', fmtTime(t.sunsetMs));
   setText('twilightCivilDusk', fmtTime(t.civilDuskMs));
   setText('twilightNauticalDusk', fmtTime(t.nauticalDuskMs));
+  twilightCountdownTargets = {
+    twilightSunriseRelative: t.sunriseMs,
+    twilightSunsetRelative: t.sunsetMs,
+    twilightCivilDuskRelative: t.civilDuskMs,
+    twilightNauticalDuskRelative: t.nauticalDuskMs
+  };
+  updateTwilightCountdowns();
+  if (twilightCountdownTimer == null) {
+    twilightCountdownTimer = setInterval(updateTwilightCountdowns, 30000);
+  }
 
   var note = twilightReturnNote(returnMs, t.sunsetMs, t.civilDuskMs);
   var noteEl = $('twilightNote');
@@ -4542,6 +4964,12 @@ function renderWeatherChart(rows, domStart, domEnd, departureMs, returnMs, nowMs
 
   var vals = tempPts.map(function (p) { return p.v; });
   var tMin = Math.min.apply(null, vals), tMax = Math.max.apply(null, vals);
+  // A flat line with repeated identical labels adds noise, not information. The hourly
+  // timeline already carries the actual temperatures, so only chart a meaningful trend.
+  if (tMax - tMin < 2) {
+    wrap.innerHTML = '';
+    return;
+  }
   var tPad = Math.max(2, (tMax - tMin) * 0.25);
   tMin -= tPad; tMax += tPad;
   if (tMax - tMin < 4) { tMax += 2; tMin -= 2; }
@@ -4614,10 +5042,14 @@ function renderWeatherChart(rows, domStart, domEnd, departureMs, returnMs, nowMs
 function renderWeatherScroller(rows, departureMs, returnMs) {
   var el = $('weatherScroller');
   if (!rows.length) { el.innerHTML = '<p class="sub">No hourly forecast periods in window.</p>'; return; }
+  var sawWindow = false;
   el.innerHTML = rows.map(function (r) {
+    var inWindow = rowOverlapsWindow(r, departureMs, returnMs);
+    var isSailStart = inWindow && !sawWindow;
+    if (inWindow) sawWindow = true;
     var popHtml = r.pop != null ? '<div class="wi-pop' + (r.pop > 0 ? ' wi-pop-active' : '') + '">' + r.pop + '%</div>' : '';
     var cls = 'weather-item' + (r.isThunder ? ' weather-item-thunder' : '') +
-      (rowOverlapsWindow(r, departureMs, returnMs) ? ' in-window' : '');
+      (inWindow ? ' in-window' : '') + (isSailStart ? ' sail-start' : '');
     return '<div class="' + cls + '">' +
       '<div class="wi-time">' + escapeHtml(fmtTime(r.ms)) + '</div>' +
       weatherIconSvg(r.tag, 24) +
@@ -4658,7 +5090,7 @@ function weatherMetricCellHtml(chip, r, limits, maxPrecipIn, inWindow) {
   // wind (default) — the hazard color (windCellClass) stays authoritative; in-window only
   // adds a translucent box-shadow wash on top (see CSS), never replaces this background.
   var cls = cellCls + ' ' + windCellClass(r.sustainedKt, r.gustKt, limits);
-  var gustSub = r.gustKt != null ? ('gust ' + Math.round(r.gustKt) + (windIsGusty(r.sustainedKt, r.gustKt) ? gustyFlagHtml() : '')) : '';
+  var gustSub = r.gustKt != null ? ('gust ' + Math.round(r.gustKt)) : '';
   return '<div class="' + cls + '">' + time + windArrowSvg(r.dirDeg) +
     '<div class="metric-main">' + (r.sustainedKt != null ? Math.round(r.sustainedKt) : '--') + '</div>' +
     '<div class="metric-sub">' + gustSub + '</div></div>';
@@ -4692,7 +5124,6 @@ function updateWeatherChipActive() {
 function renderWeatherCard(hourlyPeriods, gridSeries, departureMs, returnMs, limits) {
   var domStart = departureMs - 2 * 3600000;
   var domEnd = (returnMs != null ? returnMs : departureMs) + 2 * 3600000;
-  var nowMs = Date.now();
 
   var rows = buildWeatherRows(hourlyPeriods, gridSeries, domStart, domEnd);
   state.weatherRows = rows;
@@ -4700,7 +5131,6 @@ function renderWeatherCard(hourlyPeriods, gridSeries, departureMs, returnMs, lim
   if (!rows.length) {
     $('weatherHeadline').textContent = 'No forecast data available.';
     setText('weatherSummary', '');
-    $('weatherChartWrap').innerHTML = '';
     $('weatherScroller').innerHTML = '<p class="sub">No hourly forecast periods in window.</p>';
     $('weatherMetricStrip').innerHTML = '';
     return;
@@ -4709,7 +5139,6 @@ function renderWeatherCard(hourlyPeriods, gridSeries, departureMs, returnMs, lim
   var sunEvents = sunEventsInRange(domStart, domEnd);
   $('weatherHeadline').innerHTML = composeWeatherHeadline(rows, departureMs, returnMs, sunEvents);
   setText('weatherSummary', composeWeatherSummary(rows, sunEvents));
-  renderWeatherChart(rows, domStart, domEnd, departureMs, returnMs, nowMs, sunEvents);
   renderWeatherScroller(rows, departureMs, returnMs);
   renderWeatherMetricStrip(rows, limits || DEFAULT_LIMITS, departureMs, returnMs);
 }
@@ -4742,6 +5171,7 @@ function renderAdvisories(alerts, departureMs, returnMs) {
     var inWindow = alertOverlapsWindow(a, departureMs, returnMs);
     var sevClass = severityBadgeClass(p.severity);
     var s = alertStartMs(p), e = alertEndMs(p);
+    var sourceUrl = /^https:\/\//i.test(String(p.web || '')) ? p.web : '';
     return '<div class="advisory-item">' +
       '<div class="advisory-head"><span class="advisory-event">' + escapeHtml(p.event) + '</span>' +
       '<span class="badge ' + sevClass + '">' + escapeHtml(p.severity || 'Unknown') + '</span>' +
@@ -4749,7 +5179,8 @@ function renderAdvisories(alerts, departureMs, returnMs) {
       '<div class="advisory-time">' + (s ? fmtTime(s) : '?') + ' – ' + (e ? fmtTime(e) : 'ongoing') + '</div>' +
       '<div class="advisory-headline">' + escapeHtml(p.headline || '') + '</div>' +
       '<button class="btn-ghost advisory-expand-btn" data-idx="' + idx + '">Details</button>' +
-      '<div class="advisory-desc hidden">' + escapeHtml(p.description || 'No further details.') + '</div>' +
+      '<div class="advisory-desc hidden">' + escapeHtml(p.description || 'No further details.') +
+      (sourceUrl ? '<br><a class="advisory-source" href="' + escapeHtml(sourceUrl) + '" target="_blank" rel="noopener noreferrer">Open original NWS alert</a>' : '') + '</div>' +
       '</div>';
   }).join('');
   list.querySelectorAll('.advisory-expand-btn').forEach(function (btn) {
@@ -4888,8 +5319,7 @@ function windRowLabelHtml(w) {
   var rangeText = (w.min === w.max) ? String(w.max) : (w.min + '–' + w.max);
   var label = (w.becoming ? 'Becoming ' : '') + w.direction + ' ' + rangeText + ' kt' +
     (w.gustKt != null ? ', gust ' + w.gustKt + ' kt' : '') + (w.when ? ' ' + w.when : '');
-  var gustyHtml = (w.gustKt != null && windIsGusty(w.max, w.gustKt)) ? gustyFlagHtml() : '';
-  return windArrowSvg(compassAbbrToDeg(w.direction)) + ' ' + escapeHtml(label) + gustyHtml;
+  return windArrowSvg(compassAbbrToDeg(w.direction)) + ' ' + escapeHtml(label);
 }
 
 function hazardChipsHtml(hazards) {
@@ -4912,7 +5342,7 @@ function renderMarineSummaryTable(parsed, limits) {
     return windRows.map(function (w, i) {
       var cells = (i === 0) ? '<td rowspan="' + span + '">' + escapeHtml(p.name) + '</td>' : '';
       var cls = (w && w.direction != null) ? windCellClass(w.max, w.gustKt, limits) : '';
-      cells += '<td class="' + cls + '">' + windRowLabelHtml(w) + '</td>';
+      cells += '<td><div class="marine-wind-status ' + cls + '">' + windRowLabelHtml(w) + '</div></td>';
       if (i === 0) {
         cells += '<td rowspan="' + span + '">' + (p.wavesText ? escapeHtml(p.wavesText) : '--') + '</td>';
         cells += '<td rowspan="' + span + '">' + hazardChipsHtml(p.hazards) + '</td>';
@@ -4992,7 +5422,7 @@ function renderMarineText(text) {
 
 var radarState = {
   map: null, baseLayer: null, currentLayer: null, warningLayer: null, frames: [], index: 0,
-  playing: false, playTimer: null, lastFetchMs: 0, mode: 'live'
+  playing: false, playTimer: null, lastFetchMs: 0, mode: 'live', pierMarker: null
 };
 
 function resolvedTheme() {
@@ -5010,16 +5440,20 @@ function makeRecenterControl() {
   var RecenterControl = L.Control.extend({
     options: { position: 'topleft' },
     onAdd: function () {
-      var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
-      var link = L.DomUtil.create('a', '', container);
-      link.href = '#';
-      link.innerHTML = '&#8982;'; // ⌖ crosshair
-      link.title = 'Recenter on Pier 25';
-      link.setAttribute('role', 'button');
-      link.setAttribute('aria-label', 'Recenter map on Pier 25');
-      L.DomEvent.on(link, 'click', function (e) {
-        L.DomEvent.stop(e);
-        radarState.map.setView([PIER25.lat, PIER25.lon], DEFAULT_RADAR_ZOOM);
+      var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control leaflet-control-recenter');
+      var button = L.DomUtil.create('button', '', container);
+      button.type = 'button';
+      button.innerHTML = '&#8982;'; // ⌖ crosshair
+      button.title = 'Return to Pier 25';
+      button.setAttribute('aria-label', 'Return map to Pier 25 in Manhattan');
+      L.DomEvent.disableClickPropagation(container);
+      L.DomEvent.disableScrollPropagation(container);
+      L.DomEvent.on(button, 'click', function (e) {
+        L.DomEvent.preventDefault(e);
+        if (!radarState.map) return;
+        radarState.map.invalidateSize();
+        radarState.map.setView(L.latLng(PIER25.lat, PIER25.lon), DEFAULT_RADAR_ZOOM, { animate: false });
+        if (radarState.pierMarker) radarState.pierMarker.openPopup();
       });
       return container;
     }
@@ -5035,7 +5469,7 @@ function initLeafletMap() {
     // was just fixed for (sub-pixel gaps between tiles at non-integer scale factors).
     radarState.map = L.map('radarMap', { zoomControl: true, attributionControl: true, maxZoom: 15 }).setView([PIER25.lat, PIER25.lon], DEFAULT_RADAR_ZOOM);
     addBaseTileLayer();
-    L.marker([PIER25.lat, PIER25.lon]).addTo(radarState.map).bindPopup('Pier 25 Mooring');
+    radarState.pierMarker = L.marker([PIER25.lat, PIER25.lon]).addTo(radarState.map).bindPopup('Pier 25 Mooring, Manhattan');
     makeRecenterControl().addTo(radarState.map);
     return true;
   } catch (e) {
@@ -5074,20 +5508,13 @@ function buildRadarFrameList(nowMs) {
   });
 }
 
-// Zero-pads a forecast-minute offset to IEM's 4-digit FXXXX token: 0 -> 'F0000',
-// 60 -> 'F0060', 1080 -> 'F1080'. Pure.
-function fxxxxToken(offsetMin) {
-  return 'F' + String(offsetMin).padStart(4, '0');
-}
-// Pure — no DOM/Leaflet access. Mirrors nexradFrameUrl's shape for the forecast product.
-function hrrrFrameUrl(offsetMin, bucketMs) {
-  return IEM_HRRR_BASE + fxxxxToken(offsetMin) + '-0/{z}/{x}/{y}.png?_=' + bucketMs;
-}
-// Builds the full now->+18h frame list (19 hourly frames) for a given "now". Pure.
-function buildHrrrFrameList(nowMs) {
-  var bucketMs = fiveMinBucketMs(nowMs);
-  return HRRR_OFFSET_STEPS_MIN.map(function (offsetMin) {
-    return { offsetMin: offsetMin, url: hrrrFrameUrl(offsetMin, bucketMs), timeMs: nowMs + offsetMin * 60000 };
+function buildNowcastFrameList(payload, nowMs) {
+  return payload.frames.map(function (frame) {
+    return {
+      offsetMin: Math.round((frame.time * 1000 - nowMs) / 60000),
+      url: payload.host + frame.path + '/256/{z}/{x}/{y}/2/1_1.png',
+      timeMs: frame.time * 1000
+    };
   });
 }
 
@@ -5098,23 +5525,23 @@ function loadRadarData(force) {
     return Promise.resolve(true); // frame URLs still fresh enough
   }
   var isForecast = radarState.mode === 'forecast';
-  var healthcheck = isForecast ? fetchHrrrHealthcheck(fiveMinBucketMs(nowMs)) : fetchNexradHealthcheck(fiveMinBucketMs(nowMs));
-  return healthcheck.then(function () {
+  var source = isForecast ? fetchRainViewerFrames() : fetchNexradHealthcheck(fiveMinBucketMs(nowMs));
+  return source.then(function (payload) {
     radarState.lastFetchMs = nowMs;
-    buildRadarFrames(nowMs);
+    buildRadarFrames(nowMs, isForecast ? payload : null);
     hideEl($('radarError'));
     hideEl($('radarFallback'));
     return true;
   }).catch(function (e) {
-    var label = isForecast ? 'HRRR forecast' : 'NEXRAD radar';
+    var label = isForecast ? 'Radar loop' : 'NEXRAD radar';
     showCardError('radarError', label + ' unavailable: ' + e.message, function () { loadRadarData(true); });
     showRadarFallbackGif();
     return false;
   });
 }
-function buildRadarFrames(nowMs) {
+function buildRadarFrames(nowMs, nowcastPayload) {
   var isForecast = radarState.mode === 'forecast';
-  var frames = isForecast ? buildHrrrFrameList(nowMs) : buildRadarFrameList(nowMs);
+  var frames = isForecast ? buildNowcastFrameList(nowcastPayload, nowMs) : buildRadarFrameList(nowMs);
   radarState.frames = frames;
   var slider = $('radarSlider');
   slider.max = Math.max(0, frames.length - 1);
@@ -5131,20 +5558,20 @@ function showRadarFrame(idx) {
   var isForecast = radarState.mode === 'forecast';
   radarState.currentLayer = L.tileLayer(f.url, {
     opacity: 0.72,
-    maxNativeZoom: isForecast ? 10 : 12, // HRRR is a 3km model — coarser native tiles than NEXRAD
+    maxNativeZoom: isForecast ? 12 : 12,
     maxZoom: 15,
     zIndex: 5,
-    attribution: isForecast ? 'HRRR forecast: IEM/NWS' : 'NEXRAD: Iowa Environmental Mesonet / NWS'
+    attribution: isForecast ? 'Radar loop: RainViewer' : 'NEXRAD: Iowa Environmental Mesonet / NWS'
   }).addTo(radarState.map);
   radarState.index = idx;
   $('radarSlider').value = idx;
   // "≈" is deliberate — the label marks an approximate lag/offset bucket, not an exact
   // scan or model-valid time.
   $('radarFrameLabel').textContent = isForecast
-    ? ('+' + (f.offsetMin / 60) + 'h · ≈' + fmtTime(f.timeMs))
+    ? ((f.offsetMin > 0 ? ('+' + f.offsetMin + 'm · ') : '') + '≈' + fmtTime(f.timeMs))
     : ('≈' + fmtTime(f.timeMs));
 }
-// Switches between live NEXRAD and HRRR forecast: stops any running playback (the frame
+// Switches between live NEXRAD and the RainViewer animation: stops any running playback (the frame
 // set is about to change out from under it), swaps mode, persists it, updates the chip
 // row + caption, and forces a fresh health-check/frame rebuild for the new mode.
 function setRadarMode(mode) {
@@ -5261,8 +5688,10 @@ var state = {
   lastManualRefreshMs: 0, lastTickMs: 0,
   planNarrative: '', planNarrativeDirty: false, planNarrativeEngine: null,
   weatherRows: [], weatherChip: 'humidity', marineTab: 'summary',
+  timelineMode: 'current',
   sailSim: null,
   planWindowChanged: false, lastDiffSnapshot: null, lastNotifiedStateKey: null,
+  pendingSharedPlan: null, sharedPlanBaseline: null,
   lastGoodUpdateMs: null
 };
 
@@ -5367,37 +5796,24 @@ function loadKvkCurrent() {
     state.kvkCurrentRaw = data;
   }).then(function () { return true; }).catch(function () { return false; });
 }
-// Optional "Willy Wall" WeatherFlow station: only attempted when both a token and station id
-// are configured in Settings. Any failure (missing config, network, unexpected payload) hides
-// the chip and, if it was the active selection, silently falls back to Robbins Reef.
-function weatherFlowConfigured() {
-  var s = state.settings;
-  return !!(s && s.weatherFlowToken && s.weatherFlowStationId);
-}
-
-// The Willy Wall chip used to be hidden entirely until a WeatherFlow token + station ID
-// were configured — and since settings live in per-device localStorage, the option simply
-// didn't exist on a phone that hadn't been set up (user report: "we're missing the willy
-// wall"). Now the chip is always visible: dimmed when unconfigured/unavailable (tapping it
-// routes to Settings — see the obsWindStationRow click handler), solid when live.
+// Optional "Willy Wall" WeatherFlow station. The chip remains visible when unconfigured so
+// it can open the focused inline setup; connection state is communicated without hiding it.
 function maybeLoadWeatherFlow() {
   var s = state.settings;
-  var chip = $('obsStationWeatherflowChip');
-  if (!weatherFlowConfigured()) {
-    if (chip) { showEl(chip); chip.classList.add('chip-dim'); }
+  var token = s && s.weatherFlowToken, stationId = s && s.weatherFlowStationId;
+  if (!token || !stationId) {
+    updateWeatherFlowChipState(false);
     if (state.obsWindStation === 'weatherflow') selectObsWindStation('robbinsReef');
     return Promise.resolve(false);
   }
   return fetchObservedWindWeatherFlow(s.weatherFlowToken, s.weatherFlowStationId).then(function (data) {
     if (!data) {
-      // Configured but no data (bad credentials or a transient failure): stay visible but
-      // dimmed rather than vanishing, and fall back to Robbins Reef for the wind row.
-      if (chip) { showEl(chip); chip.classList.add('chip-dim'); }
+      updateWeatherFlowChipState(false);
       if (state.obsWindStation === 'weatherflow') selectObsWindStation('robbinsReef');
       return false;
     }
     state.obsWindWeatherflowRaw = data;
-    if (chip) { showEl(chip); chip.classList.remove('chip-dim'); }
+    updateWeatherFlowChipState(true);
     if (state.obsWindStation === 'weatherflow') {
       renderObsWindRow(state.lastMaxSustainedKt, state.lastMaxGustKt, (state.settings && state.settings.limits) || DEFAULT_LIMITS);
     }
@@ -5527,6 +5943,7 @@ function recomputeWindowDependentUI() {
   var returnMs = getReturnMs();
   var nowMs = Date.now();
   var limits = state.settings.limits;
+  refreshSourceLinks(departureMs);
 
   var maxSustainedKt = null, maxGustKt = null;
   if (state.gridSeries && state.gridSeries.windSpeedKt.length) {
@@ -5599,6 +6016,7 @@ function recomputeWindowDependentUI() {
 
   updateFloatPlanAutoFields(direction, departureMs, returnMs);
   buildPrintSummary(verdict, direction, departureMs, returnMs, maxSustainedKt, maxGustKt);
+  renderSharedPlanComparison();
 }
 
 // Resolves true if at least one source came back fresh this round, false only on a total
@@ -5684,6 +6102,7 @@ function computeTurnaroundMs(departureMs, returnMs) {
 function updateFloatPlanAutoFields(direction, departureMs, returnMs) {
   var route = 'Depart Pier 25 mooring → Hudson ' + (direction.initialHeading === 'S' ? 'South' : 'North') + ' → return';
   $('fpPlannedRoute').value = route;
+  $('fpPlannedRouteDisplay').textContent = route;
   $('fpEtd').value = fmtDateTime(departureMs);
   $('fpEta').value = fmtDateTime(returnMs);
   var taEl = $('fpTurnaround');
@@ -5771,6 +6190,329 @@ function crewSummaryLine() {
   return n + ' crew + 1 skipper (' + (n + 1) + ' aboard)';
 }
 
+/* ============================== Float Codes ============================== */
+// A compact, versioned share format for Pier 25 plans. The payload is a packed JSON array,
+// UTF-8/base64url encoded, with an FNV-1a checksum. Contact details and crew names are never
+// included. FP1 implies Pier 25 and gives us a clean migration path for future versions.
+
+var FLOAT_CODE_PREFIX = 'FP1';
+var VERDICT_TO_FLOAT_CODE = { GO: 'G', REEF: 'R', CAUTION: 'C', NOGO: 'X' };
+var FLOAT_CODE_TO_VERDICT = { G: 'GO', R: 'REEF', C: 'CAUTION', X: 'NOGO' };
+
+function floatCodeHash(text) {
+  var h = 2166136261;
+  for (var i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36).padStart(7, '0');
+}
+
+function base64UrlEncodeUtf8(text) {
+  var bytes = new TextEncoder().encode(text);
+  var binary = '';
+  for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function base64UrlDecodeUtf8(value) {
+  var base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+  while (base64.length % 4) base64 += '=';
+  var binary = atob(base64);
+  var bytes = new Uint8Array(binary.length);
+  for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+function compactPlanText(value, maxLength) {
+  return String(value == null ? '' : value).trim().replace(/\s+/g, ' ').slice(0, maxLength);
+}
+
+function alertHashes(alertIds) {
+  return (alertIds || []).map(function (id) { return floatCodeHash(String(id)).slice(-6); }).sort();
+}
+
+function buildFloatCodePlan() {
+  var snap = buildPlanSnapshot();
+  var limits = (state.settings && state.settings.limits) || DEFAULT_LIMITS;
+  var heading = state.lastDirectionRec && state.lastDirectionRec.initialHeading;
+  function field(id, maxLength) { var el = $(id); return compactPlanText(el ? el.value : '', maxLength); }
+  return {
+    createdAtMs: snap.savedAtMs,
+    departureMs: snap.departureMs,
+    durationMinutes: Math.round(snap.durationHours * 60),
+    heading: heading === 'N' || heading === 'S' ? heading : null,
+    verdictLevel: snap.verdictLevel,
+    maxSustainedKt: snap.maxSustainedKt,
+    maxGustKt: snap.maxGustKt,
+    thunder: !!snap.thunder,
+    alertHashes: alertHashes(snap.alertIds),
+    limits: [limits.reefLow, limits.reefHigh, limits.noGoSustained, limits.noGoGust],
+    vesselName: field('fpVesselName', 36),
+    vesselType: field('fpVesselType', 48),
+    sailNumber: field('fpSailNumber', 20),
+    crewCount: field('fpCrewCount', 8)
+  };
+}
+
+function encodeFloatCode(plan) {
+  var packed = [
+    1,
+    Math.round(plan.createdAtMs / 60000),
+    Math.round(plan.departureMs / 60000),
+    plan.durationMinutes,
+    plan.heading,
+    VERDICT_TO_FLOAT_CODE[plan.verdictLevel] || 'G',
+    plan.maxSustainedKt == null ? null : Math.round(plan.maxSustainedKt * 10),
+    plan.maxGustKt == null ? null : Math.round(plan.maxGustKt * 10),
+    plan.thunder ? 1 : 0,
+    plan.alertHashes || [],
+    (plan.limits || []).map(function (n) { return Math.round(n * 10); }),
+    compactPlanText(plan.vesselName, 36),
+    compactPlanText(plan.vesselType, 48),
+    compactPlanText(plan.sailNumber, 20),
+    compactPlanText(plan.crewCount, 8)
+  ];
+  var payload = base64UrlEncodeUtf8(JSON.stringify(packed));
+  return FLOAT_CODE_PREFIX + '-' + payload + '-' + floatCodeHash(payload);
+}
+
+function decodeFloatCode(input) {
+  var code = String(input == null ? '' : input).trim().replace(/\s+/g, '');
+  var match = /^FP1-([A-Za-z0-9_-]+)-([0-9a-z]{7})$/.exec(code);
+  if (!match) throw new Error('That does not look like an FP1 Float Code.');
+  if (floatCodeHash(match[1]) !== match[2]) throw new Error('The code is damaged or incomplete. Check the copy and try again.');
+  var packed;
+  try { packed = JSON.parse(base64UrlDecodeUtf8(match[1])); }
+  catch (e) { throw new Error('The code payload could not be read.'); }
+  if (!Array.isArray(packed) || packed[0] !== 1 || packed.length < 15) throw new Error('This Float Code version is not supported.');
+
+  var createdAtMs = Number(packed[1]) * 60000;
+  var departureMs = Number(packed[2]) * 60000;
+  var durationMinutes = Number(packed[3]);
+  var minDate = Date.UTC(2020, 0, 1), maxDate = Date.UTC(2101, 0, 1);
+  if (!isFinite(createdAtMs) || !isFinite(departureMs) || createdAtMs < minDate || createdAtMs >= maxDate ||
+      departureMs < minDate || departureMs >= maxDate) {
+    throw new Error('The plan date is outside the supported range.');
+  }
+  if (!isFinite(durationMinutes) || durationMinutes < 60 || durationMinutes > 720 || durationMinutes % 30 !== 0) {
+    throw new Error('The plan duration is invalid.');
+  }
+  var heading = packed[4] === 'N' || packed[4] === 'S' ? packed[4] : null;
+  var verdictLevel = FLOAT_CODE_TO_VERDICT[packed[5]];
+  if (!verdictLevel) throw new Error('The saved verdict is invalid.');
+  var packedLimits = Array.isArray(packed[10]) ? packed[10] : [];
+  var limits = packedLimits.length === 4 ? packedLimits.map(function (n) { return Number(n) / 10; }) :
+    [DEFAULT_LIMITS.reefLow, DEFAULT_LIMITS.reefHigh, DEFAULT_LIMITS.noGoSustained, DEFAULT_LIMITS.noGoGust];
+  if (limits.some(function (n) { return !isFinite(n) || n < 0 || n > 100; })) throw new Error('The saved wind limits are invalid.');
+  var maxSustainedKt = packed[6] == null ? null : Number(packed[6]) / 10;
+  var maxGustKt = packed[7] == null ? null : Number(packed[7]) / 10;
+  if ((maxSustainedKt != null && (!isFinite(maxSustainedKt) || maxSustainedKt < 0 || maxSustainedKt > 200)) ||
+      (maxGustKt != null && (!isFinite(maxGustKt) || maxGustKt < 0 || maxGustKt > 200))) {
+    throw new Error('The saved wind snapshot is invalid.');
+  }
+  var savedAlertHashes = Array.isArray(packed[9]) ? packed[9].map(String).slice(0, 20) : [];
+  if (savedAlertHashes.some(function (hash) { return !/^[0-9a-z]{1,7}$/.test(hash); })) {
+    throw new Error('The saved advisory snapshot is invalid.');
+  }
+
+  return {
+    code: code,
+    createdAtMs: createdAtMs,
+    departureMs: departureMs,
+    durationMinutes: durationMinutes,
+    heading: heading,
+    verdictLevel: verdictLevel,
+    maxSustainedKt: maxSustainedKt,
+    maxGustKt: maxGustKt,
+    thunder: packed[8] === 1,
+    alertHashes: savedAlertHashes,
+    limits: limits,
+    vesselName: compactPlanText(packed[11], 36),
+    vesselType: compactPlanText(packed[12], 48),
+    sailNumber: compactPlanText(packed[13], 20),
+    crewCount: compactPlanText(packed[14], 8)
+  };
+}
+
+function planDurationText(minutes) {
+  var hours = minutes / 60;
+  return (hours % 1 === 0 ? String(hours) : hours.toFixed(1)) + ' hours';
+}
+
+function vesselSummaryForCode(plan) {
+  var bits = [];
+  if (plan.vesselName) bits.push(plan.vesselName);
+  if (plan.vesselType) bits.push(plan.vesselType);
+  if (plan.sailNumber) bits.push('sail ' + plan.sailNumber);
+  if (plan.crewCount) bits.push(plan.crewCount + ' aboard');
+  return bits.length ? bits.join(' · ') : 'Not included';
+}
+
+function renderPlanCodePreview(plan) {
+  var preview = $('planCodePreview');
+  var etaMs = plan.departureMs + plan.durationMinutes * 60000;
+  var hasEnded = etaMs < Date.now();
+  preview.innerHTML =
+    '<div class="plan-code-preview-title"><strong>FP1 · Pier 25</strong><span class="sub">created ' + escapeHtml(fmtDateTime(plan.createdAtMs)) + '</span></div>' +
+    '<div class="plan-code-preview-grid">' +
+      '<div class="plan-code-preview-item"><span>Departure</span>' + escapeHtml(fmtDateTime(plan.departureMs)) + '</div>' +
+      '<div class="plan-code-preview-item"><span>Return</span>' + escapeHtml(fmtDateTime(etaMs)) + '</div>' +
+      '<div class="plan-code-preview-item"><span>Duration</span>' + escapeHtml(planDurationText(plan.durationMinutes)) + '</div>' +
+      '<div class="plan-code-preview-item"><span>Intended first leg</span>' + escapeHtml(plan.heading === 'S' ? 'South' : plan.heading === 'N' ? 'North' : 'Not saved') + '</div>' +
+      '<div class="plan-code-preview-item"><span>Verdict when created</span>' + escapeHtml(VERDICT_LABELS[plan.verdictLevel]) + '</div>' +
+      '<div class="plan-code-preview-item"><span>Vessel</span>' + escapeHtml(vesselSummaryForCode(plan)) + '</div>' +
+    '</div>' +
+    (hasEnded ? '<p class="plan-code-error">This plan has already ended, so current forecast comparison may be limited.</p>' : '') +
+    '<p class="plan-code-privacy">Contacts and crew names are not present in this code.</p>' +
+    '<div class="plan-code-actions"><button type="button" class="btn-primary" id="applyPlanCodeBtn">Use schedule and compare</button></div>';
+  showEl(preview);
+  $('applyPlanCodeBtn').addEventListener('click', function () { applySharedPlan(plan); });
+}
+
+function createCurrentFloatCode() {
+  try {
+    var code = encodeFloatCode(buildFloatCodePlan());
+    $('generatedPlanCode').value = code;
+    setText('generatedPlanCodeMeta', code.length + ' characters · contacts excluded');
+    showEl($('generatedPlanCodeWrap'));
+  } catch (e) {
+    showToast('Could not create a Float Code: ' + e.message);
+  }
+}
+
+function copyCurrentFloatCode() {
+  var code = $('generatedPlanCode').value;
+  if (!code) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(code).then(function () { showToast('Float Code copied'); })
+      .catch(function () { legacyCopy(code, 'Float Code copied'); });
+  } else {
+    legacyCopy(code, 'Float Code copied');
+  }
+}
+
+function previewIncomingFloatCode() {
+  var errorEl = $('planCodeError');
+  try {
+    var plan = decodeFloatCode($('incomingPlanCode').value);
+    state.pendingSharedPlan = plan;
+    errorEl.textContent = '';
+    hideEl(errorEl);
+    renderPlanCodePreview(plan);
+  } catch (e) {
+    state.pendingSharedPlan = null;
+    hideEl($('planCodePreview'));
+    errorEl.textContent = e.message;
+    showEl(errorEl);
+  }
+}
+
+function applySharedPlan(plan) {
+  state.sharedPlanBaseline = plan;
+  lsSetJSON('sharedPlanBaseline', plan);
+  state.departureMs = plan.departureMs;
+  state.durationHours = plan.durationMinutes / 60;
+  if (state.durationHours === 2 || state.durationHours === 3) {
+    state.durationMode = String(state.durationHours);
+  } else {
+    state.durationMode = 'custom';
+    state.customDurationHours = state.durationHours;
+    $('customDurationInput').value = state.customDurationHours;
+    lsSetJSON('customDuration', state.customDurationHours);
+  }
+  lsSetJSON('durationMode', state.durationMode);
+  $('departureInput').value = msToDatetimeLocalNY(state.departureMs);
+  setDurationActive(state.durationMode);
+  updateCustomDurationVisibility();
+  persistDurationPlan();
+  loadCurrentsSlack();
+  loadCurrentsCurve();
+  loadWater();
+  recomputeWindowDependentUI();
+  showToast('Shared schedule loaded · checking current conditions');
+}
+
+function clearSharedPlanComparison() {
+  state.sharedPlanBaseline = null;
+  try { localStorage.removeItem(LS_PREFIX + 'sharedPlanBaseline'); } catch (e) { /* ignore */ }
+  hideEl($('sharedPlanComparison'));
+}
+
+function sameLimits(a, b) {
+  if (!a || !b || a.length !== 4 || b.length !== 4) return false;
+  return a.every(function (value, idx) { return Math.abs(value - b[idx]) < 0.05; });
+}
+
+function comparisonWindText(before, after) {
+  if (before == null && after == null) return 'Unavailable';
+  if (before == null) return 'Now ' + round1(after) + ' kt';
+  if (after == null) return round1(before) + ' kt → unavailable';
+  var delta = after - before;
+  return round1(before) + ' → ' + round1(after) + ' kt' + (Math.abs(delta) >= 0.1 ? ' (' + (delta > 0 ? '+' : '') + round1(delta) + ')' : '');
+}
+
+function renderSharedPlanComparison() {
+  var el = $('sharedPlanComparison');
+  var plan = state.sharedPlanBaseline;
+  if (!el || !plan) { if (el) hideEl(el); return; }
+  showEl(el);
+  var durationHours = plan.durationMinutes / 60;
+  if (state.departureMs !== plan.departureMs || Math.abs(state.durationHours - durationHours) > 0.001) {
+    el.innerHTML = '<div class="shared-plan-comparison-head"><strong>Shared-plan comparison</strong><span class="comparison-state changed">Schedule changed</span></div>' +
+      '<p class="sub">The dashboard schedule no longer matches the loaded Float Code.</p>' +
+      '<div class="plan-code-actions"><button type="button" class="btn-secondary" id="clearSharedComparisonBtn">Stop comparing</button></div>';
+    $('clearSharedComparisonBtn').addEventListener('click', clearSharedPlanComparison);
+    return;
+  }
+
+  var current = buildPlanSnapshotForWindow(plan.departureMs, durationHours);
+  var currentAlertHashes = alertHashes(current.alertIds);
+  var newAlerts = currentAlertHashes.filter(function (hash) { return plan.alertHashes.indexOf(hash) === -1; });
+  var currentHeading = state.lastDirectionRec && state.lastDirectionRec.initialHeading;
+  var headingChanged = !!(plan.heading && currentHeading && plan.heading !== currentHeading);
+  var levelDelta = LEVEL_ORDER.indexOf(current.verdictLevel) - LEVEL_ORDER.indexOf(plan.verdictLevel);
+  var windWorse = current.maxSustainedKt != null && plan.maxSustainedKt != null && current.maxSustainedKt - plan.maxSustainedKt >= 3;
+  var gustWorse = current.maxGustKt != null && plan.maxGustKt != null && current.maxGustKt - plan.maxGustKt >= 3;
+  var worse = levelDelta > 0 || windWorse || gustWorse || newAlerts.length > 0 || (current.thunder && !plan.thunder);
+  var localLimits = state.settings.limits;
+  var currentLimitArray = [localLimits.reefLow, localLimits.reefHigh, localLimits.noGoSustained, localLimits.noGoGust];
+  var limitsDiffer = !sameLimits(plan.limits, currentLimitArray);
+  var changed = worse || levelDelta !== 0 || headingChanged || limitsDiffer || currentAlertHashes.length !== plan.alertHashes.length || current.thunder !== plan.thunder;
+  var statusClass = worse ? 'worse' : changed ? 'changed' : 'stable';
+  var statusText = worse ? 'Conditions worsened' : changed ? 'Changed' : 'No material change';
+  var headingBefore = plan.heading === 'S' ? 'South' : plan.heading === 'N' ? 'North' : 'Not saved';
+  var headingNow = currentHeading === 'S' ? 'South' : currentHeading === 'N' ? 'North' : 'Unavailable';
+
+  var rows = [
+    ['Verdict', VERDICT_LABELS[plan.verdictLevel] + ' → ' + VERDICT_LABELS[current.verdictLevel]],
+    ['Max sustained', comparisonWindText(plan.maxSustainedKt, current.maxSustainedKt)],
+    ['Max gust', comparisonWindText(plan.maxGustKt, current.maxGustKt)],
+    ['First leg', headingBefore + ' → ' + headingNow],
+    ['Advisories', plan.alertHashes.length + ' → ' + currentAlertHashes.length + (newAlerts.length ? ' (' + newAlerts.length + ' new)' : '')],
+    ['Thunder in window', (plan.thunder ? 'Yes' : 'No') + ' → ' + (current.thunder ? 'Yes' : 'No')]
+  ];
+  if (limitsDiffer) rows.push(['Safety limits', 'Creator and this dashboard differ']);
+
+  el.innerHTML = '<div class="shared-plan-comparison-head"><strong>Compared with current conditions</strong><span class="comparison-state ' + statusClass + '">' + statusText + '</span></div>' +
+    '<p class="sub">Baseline created ' + escapeHtml(fmtDateTime(plan.createdAtMs)) + '.</p>' +
+    '<ul class="comparison-list">' + rows.map(function (row) {
+      return '<li><span class="compare-label">' + escapeHtml(row[0]) + '</span><span class="compare-value">' + escapeHtml(row[1]) + '</span></li>';
+    }).join('') + '</ul>' +
+    '<div class="plan-code-actions"><button type="button" class="btn-secondary" id="clearSharedComparisonBtn">Stop comparing</button></div>';
+  $('clearSharedComparisonBtn').addEventListener('click', clearSharedPlanComparison);
+}
+
+function verificationSources(departureMs) {
+  return [
+    { label: 'NWS wind and weather', url: GRID_URL },
+    { label: 'NWS hourly forecast', url: HOURLY_URL },
+    { label: 'NWS point alerts', url: ALERTS_POINT_URL },
+    { label: 'NWS NY Harbor alerts', url: ALERTS_ZONE_URL },
+    { label: 'NOAA current predictions', url: buildCurrentsUrl(departureMs, 'MAX_SLACK') }
+  ];
+}
+
 function buildFloatPlanText() {
   function v(id) { var el = $(id); return el ? el.value : ''; }
   var departureMs = state.departureMs, returnMs = getReturnMs();
@@ -5798,6 +6540,10 @@ function buildFloatPlanText() {
     ? state.alertsRaw.map(function (a) { return a.properties.event; }).join(', ')
     : 'None';
   lines.push('Advisories: ' + advisoryText);
+  lines.push('', 'SOURCES');
+  verificationSources(state.departureMs).forEach(function (source) {
+    lines.push(source.label + ': ' + source.url);
+  });
   var text = lines.join('\n');
   if (state.planNarrative) text += '\n\nPROPOSED PLAN\n' + state.planNarrative;
   return text;
@@ -5864,6 +6610,10 @@ function buildPrintSummary(verdict, direction, departureMs, returnMs, maxSustain
     '<div class="pf-row"><strong>Plan:</strong> ' + escapeHtml(direction.headline) + '</div>' +
     '<div class="pf-row"><strong>Precip:</strong> ' + escapeHtml(precipLine || 'n/a') + '</div>' +
     '<div class="pf-row"><strong>Advisories:</strong> ' + escapeHtml(advisoryText) + '</div>';
+  html += '<h2>Sources</h2>' + verificationSources(departureMs).map(function (source) {
+    return '<div class="pf-row"><strong>' + escapeHtml(source.label) + ':</strong> <a href="' +
+      escapeHtml(source.url) + '">' + escapeHtml(source.url) + '</a></div>';
+  }).join('');
   if (state.planNarrative) {
     html += '<h2>Proposed Plan</h2><div class="pf-row pf-pre">' + escapeHtml(state.planNarrative) + '</div>';
   }
@@ -6432,7 +7182,7 @@ function resetSettingsDefaults() {
   $('boatSpeedKt').value = DEFAULT_BOAT_SPEED_KT;
   $('motorSpeedKt').value = DEFAULT_MOTOR_SPEED_KT;
   $('monitorIntervalSelect').value = '10';
-  $('themeSelect').value = 'auto';
+  $('themeSelect').value = DEFAULT_SETTINGS.theme;
 }
 
 /* ============================== Monitor mode ============================== */
@@ -6981,13 +7731,24 @@ function init() {
 
   state.savedPlan = lsGetJSON('savedPlan', null, true);
   if (state.savedPlan) { $('monitorToggle').disabled = false; hideEl($('savePlanHint')); }
+  var storedSharedPlan = lsGetJSON('sharedPlanBaseline', null, true);
+  if (storedSharedPlan && storedSharedPlan.code) {
+    try { state.sharedPlanBaseline = decodeFloatCode(storedSharedPlan.code); }
+    catch (e) { state.sharedPlanBaseline = null; }
+  }
 
   loadFloatPlanFields();
   wireCollapsible('marineTextToggle', 'marineTextBody');
+  wireCollapsible('sharePlanToggle', 'sharePlanBody');
   wireCollapsible('observedMoreToggle', 'observedMoreBody');
   wireCollapsible('marineInfoToggle', 'marineInfoBlock');
   wireCollapsible('weatherDetailsToggle', 'weatherDetailsBody');
   wireMarineTabs();
+
+  setTimelineMode(lsGetJSON('timelineMode', 'current'), false);
+  document.querySelectorAll('#timelineModeRow .chip').forEach(function (chip) {
+    chip.addEventListener('click', function () { setTimelineMode(chip.dataset.mode, true); });
+  });
 
   $('departureInput').addEventListener('change', function () {
     onDepartureChanged();
@@ -7002,19 +7763,21 @@ function init() {
   updateObsWindStationChipActive();
   document.querySelectorAll('#obsWindStationRow .chip').forEach(function (chip) {
     chip.addEventListener('click', function () {
-      if (chip.classList.contains('hidden')) return;
-      // Unconfigured Willy Wall: route to Settings instead of selecting a station that has
-      // no data source yet.
-      if (chip.dataset.station === 'weatherflow' && !weatherFlowConfigured()) {
-        showToast('Add your WeatherFlow token + station ID in Settings to enable Willy Wall');
-        openSettingsModal();
-        return;
+      if (chip.dataset.station === 'weatherflow') {
+        if (!weatherFlowConfigured()) { openWeatherFlowSetup(); return; }
+        if (!state.obsWindWeatherflowRaw) { openWeatherFlowSetup('Station data is unavailable. Review the connection details.'); return; }
+        closeWeatherFlowSetup();
       }
       selectObsWindStation(chip.dataset.station);
     });
   });
+  $('weatherFlowSetupCancel').addEventListener('click', closeWeatherFlowSetup);
+  $('weatherFlowSetupConnect').addEventListener('click', connectWeatherFlowFromSetup);
 
   $('savePlanBtn').addEventListener('click', onGeneratePlanMainClick);
+  $('createPlanCodeBtn').addEventListener('click', createCurrentFloatCode);
+  $('copyPlanCodeBtn').addEventListener('click', copyCurrentFloatCode);
+  $('previewPlanCodeBtn').addEventListener('click', previewIncomingFloatCode);
   $('refreshBtn').addEventListener('click', manualRefresh);
   $('monitorToggle').addEventListener('change', function (e) {
     if (e.target.checked) startMonitor(); else stopMonitor();
