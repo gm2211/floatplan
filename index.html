@@ -311,6 +311,10 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
   pointer-events: none; white-space: nowrap;
 }
 .chart-scrub-readout .scrub-time { font-weight: 650; margin-bottom: 2px; }
+.chart-scrub-readout .scrub-group {
+  margin-top: 4px; color: var(--ink-dim); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
 
 /* The route stays beside its compact readout legend whenever the card can fit both. This
    keeps the simulator short in the three-column dashboard without shrinking the chart's
@@ -1142,25 +1146,25 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     </div>
     <div class="svg-wrap" id="timelineSvgWrap"></div>
     <div class="chart-legend" id="timelineLegend">
-      <span><span class="swatch swatch-current"></span>predicted current</span>
-      <span id="timelineLegendKvk"><span class="swatch swatch-measured-current"></span>Kill Van Kull <span class="legend-status" id="timelineLegendKvkStatus">&middot; unavailable</span></span>
-      <span id="timelineLegendNarrows"><span class="swatch swatch-narrows-current"></span>The Narrows <span class="legend-status" id="timelineLegendNarrowsStatus">&middot; unavailable</span></span>
-      <span class="timeline-water-legend hidden"><span class="swatch swatch-pred"></span>predicted water level</span>
-      <span class="timeline-water-legend hidden" id="timelineLegendObs"><span class="swatch swatch-obs"></span>observed water level</span>
+      <span><span class="swatch swatch-current"></span>Hudson current &middot; forecast</span>
+      <span id="timelineLegendKvk"><span class="swatch swatch-measured-current"></span>Kill Van Kull current &middot; measured <span class="legend-status" id="timelineLegendKvkStatus">&middot; unavailable</span></span>
+      <span id="timelineLegendNarrows"><span class="swatch swatch-narrows-current"></span>The Narrows current &middot; measured <span class="legend-status" id="timelineLegendNarrowsStatus">&middot; unavailable</span></span>
+      <span class="timeline-water-legend hidden"><span class="swatch swatch-pred"></span>Battery water level &middot; forecast</span>
+      <span class="timeline-water-legend hidden" id="timelineLegendObs"><span class="swatch swatch-obs"></span>Battery water level &middot; measured</span>
     </div>
     <div class="timeline-sensor-map-section">
-      <div class="timeline-sensor-map-heading">Remote current sensor locations</div>
-      <div class="timeline-sensor-map" id="timelineSensorMap" role="img" aria-label="Map showing Pier 25, Kill Van Kull LB 14, and The Narrows current sensors"></div>
+      <div class="timeline-sensor-map-heading">Current reference locations</div>
+      <div class="timeline-sensor-map" id="timelineSensorMap" role="img" aria-label="Map showing Pier 25, Kill Van Kull, and The Narrows current sensors"></div>
     </div>
-    <div class="chart-footnote hidden" id="timelineObsFootnote">Observed water level appears once the window includes elapsed time.</div>
+    <div class="chart-footnote hidden" id="timelineObsFootnote">Measured water level appears once the window includes elapsed time.</div>
     <div class="card-error hidden" id="timelineError"></div>
     <div class="card-error hidden" id="waterError"></div>
     <details class="source-links"><summary>Sources</summary><div class="source-links-body">
       <div class="source-links-notes">
         <div class="chart-footnote" id="timelineCurrentCompare"></div>
-        <div class="chart-footnote">Predicted current: Hudson River Entrance (NYH1927) &middot; observed currents: Kill Van Kull LB 14 and The Narrows remote harbor references, not Pier 25 &middot; water level: The Battery (8518750)</div>
+        <div class="chart-footnote">Forecast current: Hudson River Entrance &middot; measured current: Kill Van Kull and The Narrows &middot; forecast and measured water level: The Battery</div>
       </div>
-      <a id="srcTimelinePorts" href="https://tidesandcurrents.noaa.gov/ports/index.html?port=ny" target="_blank" rel="noopener noreferrer">NY/NJ PORTS map</a><a id="srcTimelineCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">Current prediction</a><a id="srcTimelineKvk" href="https://tidesandcurrents.noaa.gov/cdata/DataPlot?id=n06010&amp;view=data" target="_blank" rel="noopener noreferrer">Kill Van Kull observed current</a><a id="srcTimelineNarrows" href="https://tidesandcurrents.noaa.gov/cdata/DataPlot?id=n03020&amp;view=data" target="_blank" rel="noopener noreferrer">The Narrows observed current</a><a id="srcTimelineLevelPredicted" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Water-level prediction</a><a id="srcTimelineLevelObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Measured water level</a>
+      <a id="srcTimelinePorts" href="https://tidesandcurrents.noaa.gov/ports/index.html?port=ny" target="_blank" rel="noopener noreferrer">NY/NJ PORTS map</a><a id="srcTimelineCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">Hudson forecast current</a><a id="srcTimelineKvk" href="https://tidesandcurrents.noaa.gov/cdata/DataPlot?id=n06010&amp;view=data" target="_blank" rel="noopener noreferrer">Kill Van Kull measured current</a><a id="srcTimelineNarrows" href="https://tidesandcurrents.noaa.gov/cdata/DataPlot?id=n03020&amp;view=data" target="_blank" rel="noopener noreferrer">The Narrows measured current</a><a id="srcTimelineLevelPredicted" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Battery forecast water level</a><a id="srcTimelineLevelObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Battery measured water level</a>
     </div></details>
   </section>
 
@@ -1466,7 +1470,7 @@ var STORM_WARNING_RE = /^(Tornado Warning|Severe Thunderstorm Warning|Special Ma
 var NORTHEAST_STORM_DOMAIN = { south: 37.0, west: -82.5, north: 47.5, east: -65.0 };
 var PIER25 = { lat: 40.7203, lon: -74.0135 };
 var CURRENT_SENSOR_LOCATIONS = {
-  kvk: { name: 'Kill Van Kull LB 14', lat: 40.64358, lon: -74.13889 },
+  kvk: { name: 'Kill Van Kull', lat: 40.64358, lon: -74.13889 },
   narrows: { name: 'The Narrows', lat: 40.60639953613281, lon: -74.03800201416016 }
 };
 var DEFAULT_RADAR_ZOOM = 10;
@@ -2021,7 +2025,7 @@ function fetchMeasuredCurrentHistory(station, label, nowMs, rangeHours) {
   });
 }
 function fetchKvkCurrentHistory(nowMs) {
-  return fetchMeasuredCurrentHistory(STATION_KVK_CURRENT, 'Kill Van Kull LB 14', nowMs, MEASURED_CURRENT_HISTORY_HOURS);
+  return fetchMeasuredCurrentHistory(STATION_KVK_CURRENT, 'Kill Van Kull', nowMs, MEASURED_CURRENT_HISTORY_HOURS);
 }
 function fetchNarrowsCurrentHistory(nowMs) {
   return fetchMeasuredCurrentHistory(STATION_NARROWS_CURRENT, 'The Narrows', nowMs, MEASURED_CURRENT_HISTORY_HOURS);
@@ -3774,18 +3778,17 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   if (obsFootnoteEl) obsFootnoteEl.classList.toggle('hidden', !showWater || hasObs);
   var kvkLegendStatus = $('timelineLegendKvkStatus');
   var narrowsLegendStatus = $('timelineLegendNarrowsStatus');
-  if (kvkLegendStatus) kvkLegendStatus.textContent = kvkAll.length ? (kvkInDomain.length ? '· observed' : '· outside window') : '· unavailable';
-  if (narrowsLegendStatus) narrowsLegendStatus.textContent = narrowsAll.length ? (narrowsInDomain.length ? '· observed' : '· outside window') : '· unavailable';
+  if (kvkLegendStatus) kvkLegendStatus.textContent = kvkAll.length ? (kvkInDomain.length ? '' : '· outside window') : '· unavailable';
+  if (narrowsLegendStatus) narrowsLegendStatus.textContent = narrowsAll.length ? (narrowsInDomain.length ? '' : '· outside window') : '· unavailable';
   var compareEl = $('timelineCurrentCompare');
   if (compareEl) {
     function stationObservationSummary(name, latest) {
-      if (!latest) return name + ': unavailable';
-      return name + ': ' + round1(Math.abs(latest.v)) + ' kt ' + (latest.v >= 0 ? 'flood-axis' : 'ebb-axis') +
-        ' at ' + fmtTime(latest.ms);
+      if (!latest) return name + ' current (measured): unavailable';
+      return name + ' current (measured): ' + classifyCurrent(latest.v) + ' ' + round1(Math.abs(latest.v)) +
+        ' kt at ' + fmtTime(latest.ms);
     }
-    compareEl.textContent = stationObservationSummary('Kill Van Kull LB 14', latestKvkAll) + ' · ' +
-      stationObservationSummary('The Narrows', latestNarrowsAll) +
-      '. Both are remote harbor references, not Pier 25 measurements; the Hudson curve is harmonic prediction only.';
+    compareEl.textContent = stationObservationSummary('Kill Van Kull', latestKvkAll) + ' · ' +
+      stationObservationSummary('The Narrows', latestNarrowsAll) + '. Hudson current is forecast.';
   }
   updateCurrentSensorMap();
 
@@ -3799,15 +3802,25 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
       // Observations stop at now; never extend the last measured value into the future.
       var vObs = (showWater && ms <= nowMs) ? levelValueAt(levelObservedPoints, ms) : null;
       if (vCur == null && vKvk == null && vNarrows == null && vPred == null && vObs == null) return null;
-      var curState = classifyCurrent(vCur);
-      var phaseWord = curState === 'unknown' ? '' : (curState.charAt(0).toUpperCase() + curState.slice(1));
+      function currentRow(location, kind, value) {
+        if (value == null) return '';
+        return '<div>' + escapeHtml(location) + ' current (' + kind + ') &mdash; ' +
+          escapeHtml(classifyCurrent(value)) + ' ' + round1(Math.abs(value)) + ' kt</div>';
+      }
       var rows = [];
       rows.push('<div class="scrub-time">' + escapeHtml(fmtTime(ms)) + '</div>');
-      if (vCur != null) rows.push('<div>' + escapeHtml(phaseWord) + ' ' + round1(Math.abs(vCur)) + ' kt' + (vCur !== 0 ? (vCur > 0 ? ' (N)' : ' (S)') : '') + '</div>');
-      if (vKvk != null) rows.push('<div>Kill Van Kull LB 14 (remote) ' + round1(Math.abs(vKvk)) + ' kt ' + (vKvk >= 0 ? 'flood-axis' : 'ebb-axis') + '</div>');
-      if (vNarrows != null) rows.push('<div>The Narrows (remote) ' + round1(Math.abs(vNarrows)) + ' kt ' + (vNarrows >= 0 ? 'flood-axis' : 'ebb-axis') + '</div>');
-      if (vPred != null) rows.push('<div>Level ' + vPred.toFixed(1) + ' ft (pred)</div>');
-      if (vObs != null) rows.push('<div>Level ' + vObs.toFixed(1) + ' ft (obs)</div>');
+      var currentRows = [
+        currentRow('Hudson Entrance', 'forecast', vCur),
+        currentRow('Kill Van Kull', 'measured', vKvk),
+        currentRow('The Narrows', 'measured', vNarrows)
+      ].filter(Boolean);
+      if (currentRows.length) rows.push('<div class="scrub-group">Current</div>', currentRows.join(''));
+      if (showWater) {
+        var waterRows = [];
+        if (vPred != null) waterRows.push('<div>Battery water level (forecast) &mdash; ' + vPred.toFixed(1) + ' ft</div>');
+        if (vObs != null) waterRows.push('<div>Battery water level (measured) &mdash; ' + vObs.toFixed(1) + ' ft</div>');
+        if (waterRows.length) rows.push('<div class="scrub-group">Water level</div>', waterRows.join(''));
+      }
       // Pin a dot on each curve where the scrub line crosses it, matching each series'
       // color (user report: the vertical line gave numbers but nothing marked WHERE on the
       // curves those numbers live).
@@ -4437,7 +4450,7 @@ function renderObsWindRow(limits) {
 }
 
 var OBS_CURRENT_REFERENCES = {
-  kvk: { label: 'Kill Van Kull LB 14', stateKey: 'kvkCurrentRaw' },
+  kvk: { label: 'Kill Van Kull', stateKey: 'kvkCurrentRaw' },
   newark: { label: 'Newark Bay Entrance LB 18', stateKey: 'newarkCurrentRaw' },
   narrows: { label: 'The Narrows', stateKey: 'narrowsCurrentRaw' }
 };
@@ -6207,9 +6220,9 @@ function latestProjectedObservation(history, latest, axisDeg) {
 }
 
 function currentSensorPopup(name, observation) {
-  if (!observation) return '<strong>' + escapeHtml(name) + '</strong><br>Observed current unavailable';
-  return '<strong>' + escapeHtml(name) + '</strong><br>' + round1(Math.abs(observation.v)) + ' kt ' +
-    (observation.v >= 0 ? 'flood-axis' : 'ebb-axis') + ' · ' + escapeHtml(fmtTime(observation.ms));
+  if (!observation) return '<strong>' + escapeHtml(name) + '</strong><br>Measured current unavailable';
+  return '<strong>' + escapeHtml(name) + '</strong><br>Measured current: ' + classifyCurrent(observation.v) + ' ' +
+    round1(Math.abs(observation.v)) + ' kt · ' + escapeHtml(fmtTime(observation.ms));
 }
 
 function addCurrentSensorBaseLayer() {
@@ -6251,7 +6264,7 @@ function initCurrentSensorMap() {
   currentSensorMapState.markers.pier = L.circleMarker([PIER25.lat, PIER25.lon], {
     radius: 5, color: pierColor, weight: 2, fillColor: pierColor, fillOpacity: 0.9
   }).addTo(currentSensorMapState.map).bindTooltip('Pier 25', { permanent: true, direction: 'top', offset: [0, -4] })
-    .bindPopup('<strong>Pier 25</strong><br>Home reference; no current meter');
+    .bindPopup('<strong>Pier 25</strong><br>Home reference; no current sensor');
   currentSensorMapState.markers.kvk = L.circleMarker([CURRENT_SENSOR_LOCATIONS.kvk.lat, CURRENT_SENSOR_LOCATIONS.kvk.lon], {
     radius: 6, color: kvkColor, weight: 2, fillColor: kvkColor, fillOpacity: 0.85
   }).addTo(currentSensorMapState.map).bindTooltip('Kill Van Kull', { permanent: true, direction: 'left', offset: [-5, 0] });

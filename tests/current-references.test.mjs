@@ -99,8 +99,8 @@ assert.ok(timelineSourcesStart >= 0, 'timeline Sources disclosure not found');
 assert.ok(timelineCard.indexOf('id="timelineError"') < timelineSourcesStart, 'current errors must remain visible outside Sources');
 assert.ok(timelineCard.indexOf('id="waterError"') < timelineSourcesStart, 'water-level errors must remain visible outside Sources');
 assert.ok(timelineCard.indexOf('id="timelineCurrentCompare"') > timelineSourcesStart, 'measured phase comparison must stay inside collapsed Sources');
-assert.ok(timelineCard.indexOf('Predicted current: Hudson River Entrance') > timelineSourcesStart, 'station provenance must stay inside collapsed Sources');
-assert.ok(timelineCard.indexOf('remote harbor references, not Pier 25') > timelineSourcesStart, 'remote-station provenance must remain available inside collapsed Sources');
+assert.ok(timelineCard.indexOf('Forecast current: Hudson River Entrance') > timelineSourcesStart, 'plain-English station provenance must stay inside collapsed Sources');
+assert.ok(timelineCard.indexOf('measured current: Kill Van Kull and The Narrows') > timelineSourcesStart, 'measured-current provenance must remain available inside collapsed Sources');
 assert.ok(timelineCard.includes('class="source-links-notes"'), 'timeline provenance notes need a full-width source row');
 assert.ok(!timelineCard.includes('<details class="source-links" open>'), 'timeline Sources must remain collapsed by default');
 ['srcTimelinePorts', 'srcTimelineCurrents', 'srcTimelineKvk', 'srcTimelineNarrows', 'srcTimelineLevelPredicted', 'srcTimelineLevelObserved'].forEach(id => {
@@ -109,8 +109,20 @@ assert.ok(!timelineCard.includes('<details class="source-links" open>'), 'timeli
 assert.ok(html.includes("stationObservationSummary('The Narrows', latestNarrowsAll)"), 'Narrows outage must render an honest unavailable summary');
 assert.ok(html.includes("narrowsLegendStatus.textContent = narrowsAll.length ?"));
 assert.ok(html.includes("'· unavailable'"), 'an unavailable observed station must remain visible in the compact legend');
-assert.ok(html.includes('Both are remote harbor references, not Pier 25 measurements'));
-assert.ok(html.includes('The Narrows (remote) '), 'scrub readout must label The Narrows as remote');
+assert.ok(timelineCard.includes('Hudson current &middot; forecast'));
+assert.ok(timelineCard.includes('Kill Van Kull current &middot; measured'));
+assert.ok(timelineCard.includes('The Narrows current &middot; measured'));
+assert.ok(timelineCard.includes('Battery water level &middot; forecast'));
+assert.ok(timelineCard.includes('Battery water level &middot; measured'));
+['LB 14', 'remote', 'flood-axis', 'ebb-axis', '(pred)', '(obs)'].forEach(jargon => {
+  assert.ok(!timelineCard.includes(jargon), `timeline card must not expose ${jargon}`);
+});
+assert.ok(html.includes("currentRow('Hudson Entrance', 'forecast', vCur)"));
+assert.ok(html.includes("currentRow('Kill Van Kull', 'measured', vKvk)"));
+assert.ok(html.includes("currentRow('The Narrows', 'measured', vNarrows)"));
+assert.ok(html.includes('Battery water level (forecast) &mdash;'));
+assert.ok(html.includes('Battery water level (measured) &mdash;'));
+assert.ok(!html.includes('The Narrows (remote) '), 'scrub readout must not expose implementation jargon');
 assert.ok(html.includes('kvkInDomain.concat(narrowsInDomain).forEach'), 'both observed series extrema must participate in current-axis scaling');
 assert.ok(html.includes('loadKvkCurrentHistory()'), 'measured history must load with the dashboard');
 assert.ok(html.includes('loadNarrowsCurrentHistory()'), 'Narrows measured history must load with the dashboard');
@@ -120,7 +132,7 @@ assert.ok(html.includes("narrowsCurrentColor = 'var(--narrows-current)'"), 'The 
 assert.ok(html.includes('stroke-dasharray="5,3"'), 'The Narrows line needs a non-color dashed distinction');
 assert.ok(html.includes('.source-links-notes { flex: 1 1 100%;'), 'source notes must occupy a full row above the links');
 
-assert.ok(html.includes("kvk: { name: 'Kill Van Kull LB 14', lat: 40.64358, lon: -74.13889 }"));
+assert.ok(html.includes("kvk: { name: 'Kill Van Kull', lat: 40.64358, lon: -74.13889 }"));
 assert.ok(html.includes("narrows: { name: 'The Narrows', lat: 40.60639953613281, lon: -74.03800201416016 }"));
 assert.ok(html.includes('height: 132px'), 'sensor locator must stay compact and fixed-height');
 assert.ok(html.includes("L.map(el, {"), 'sensor locator initializes a Leaflet map once');
