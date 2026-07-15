@@ -98,6 +98,7 @@ Logic over current predictions within the window:
 
 - List active alerts sorted severity desc: event name, severity badge, onset–ends (local), headline. Expand for description. None → subdued "No active advisories" with checkmark.
 - Any alert overlapping the sail window gets a "IN WINDOW" badge and feeds the verdict.
+- Minimize vertical scrolling by pairing Advisories with Marine Forecast at half-window and medium dashboard widths (520–1199 CSS px). At medium widths, use a dedicated full-dashboard-width pair row so neither card is squeezed into a quarter-page column. In paired layouts, omit the explanatory marine subtitle and compact the table typography, padding, and column proportions without hiding forecast rows or fields. Keep the cards stacked on narrower phones below 520 px so the four-column safety forecast remains readable, and preserve the existing three-column layout at 1200 px and above. All unrelated cards retain their assigned rail or full-width mobile-tab layout.
 
 ## Monitor mode
 
