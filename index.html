@@ -4,14 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Pier 25 Float Plan</title>
-<meta name="theme-color" id="themeColorMeta" content="#f3f0e8">
+<meta name="theme-color" id="themeColorMeta" content="#0a1520">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" integrity="sha512-Zcn6bjR/8RZbLEpLIeOwNtzREBAJnUKESxces60Mpoj+2okopSAcSUIUOseddDm0cxnGQzxIR7vJgsLZbdLE3w==" crossorigin="anonymous">
 <script>
 // Resolve theme synchronously before first paint to avoid a flash of the wrong theme.
 (function () {
   try {
     var s = JSON.parse(localStorage.getItem('fp25.settings') || '{}');
-    var t = s.theme || 'light';
+    var t = s.theme || 'dark';
     var resolved = t === 'auto'
       ? (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
       : t;
@@ -21,7 +21,7 @@
     var meta = document.getElementById('themeColorMeta');
     if (meta) meta.content = resolved === 'dark' ? '#0a1520' : '#f3f0e8';
   } catch (e) {
-    document.documentElement.setAttribute('data-theme', 'light');
+    document.documentElement.setAttribute('data-theme', 'dark');
   }
 })();
 </script>
@@ -1307,7 +1307,7 @@ var DEFAULT_BOAT_SPEED_KT = 5;
 var DEFAULT_MOTOR_SPEED_KT = 6;
 var DEFAULT_CUSTOM_DURATION_HOURS = 4;
 var DEFAULT_SETTINGS = {
-  theme: 'light', monitorInterval: 10, limits: DEFAULT_LIMITS,
+  theme: 'dark', monitorInterval: 10, limits: DEFAULT_LIMITS,
   boatSpeedKt: DEFAULT_BOAT_SPEED_KT, motorSpeedKt: DEFAULT_MOTOR_SPEED_KT
 };
 
