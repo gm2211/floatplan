@@ -1071,7 +1071,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     </div>
     <div class="card-error hidden" id="windError"></div>
     <div class="card-error hidden" id="windModelsError"></div>
-    <div class="source-links"><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS raw forecast</a><a href="https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly" target="_blank" rel="noopener noreferrer">NWS hourly forecast</a><a href="https://api.open-meteo.com/v1/forecast?latitude=40.7203&amp;longitude=-74.0135&amp;hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m&amp;wind_speed_unit=kn&amp;timezone=America%2FNew_York&amp;forecast_days=3&amp;models=gfs_seamless,ecmwf_ifs025,icon_seamless" target="_blank" rel="noopener noreferrer">Open-Meteo models</a><a id="srcWindObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8530973" target="_blank" rel="noopener noreferrer">Observed wind</a></div>
+    <div class="source-links"><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS raw forecast</a><a href="https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly" target="_blank" rel="noopener noreferrer">NWS hourly forecast</a><a href="https://api.open-meteo.com/v1/forecast?latitude=40.7203&amp;longitude=-74.0135&amp;hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m&amp;wind_speed_unit=kn&amp;timezone=America%2FNew_York&amp;past_days=1&amp;forecast_days=3&amp;models=gfs_seamless,ecmwf_ifs025,icon_seamless" target="_blank" rel="noopener noreferrer">Open-Meteo models</a><a id="srcWindObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8530973" target="_blank" rel="noopener noreferrer">Observed wind</a></div>
   </section>
 
   <section class="card" id="weatherCard">
@@ -1277,7 +1277,7 @@ var HOURLY_URL = 'https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly';
 // wind_speed_unit=kn means the values are already knots, no conversion needed.
 var WINDMODELS_URL = 'https://api.open-meteo.com/v1/forecast?latitude=40.7203&longitude=-74.0135' +
   '&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m&wind_speed_unit=kn' +
-  '&timezone=America%2FNew_York&forecast_days=3&models=gfs_seamless,ecmwf_ifs025,icon_seamless';
+  '&timezone=America%2FNew_York&past_days=1&forecast_days=3&models=gfs_seamless,ecmwf_ifs025,icon_seamless';
 var ALERTS_POINT_URL = 'https://api.weather.gov/alerts/active?point=40.7203,-74.0135';
 var ALERTS_ZONE_URL = 'https://api.weather.gov/alerts/active?zone=' + ZONE_MARINE;
 // IEM time-lagged NEXRAD composite (RadarScope-style): current + 10 five-minute-lagged
@@ -4153,7 +4153,8 @@ function buildNwsWindRows(gridSeries, domStart, domEnd) {
 // assumes a 1h cadence, matching the request's hourly resolution.
 function buildModelWindRows(modelRows, domStart, domEnd) {
   return (modelRows || []).filter(function (r) {
-    return r.ms != null && (r.ms + 3600000) > domStart && r.ms < domEnd;
+    return r.ms != null && (r.ms + 3600000) > domStart && r.ms < domEnd &&
+      (r.sustained != null || r.gust != null || r.dir != null);
   }).map(function (r) { return { ms: r.ms, endMs: r.ms + 3600000, sustained: r.sustained, gust: r.gust, dir: r.dir }; });
 }
 function windRowsForModel(model, domStart, domEnd) {
@@ -4166,6 +4167,22 @@ function findWindRowForMs(rows, ms) {
     if (ms >= rows[i].ms && ms < rows[i].endMs) return rows[i];
   }
   return null;
+}
+
+// Keep provider gaps honest. A missing model hour is not permission to draw a smooth line
+// across it: split point arrays whenever adjacent samples are more than one normal hourly
+// cadence apart, then render each segment independently.
+function splitWindPointSegments(points) {
+  var segments = [], current = [];
+  (points || []).forEach(function (p) {
+    if (current.length && p.ms - current[current.length - 1].ms > 90 * 60000) {
+      segments.push(current);
+      current = [];
+    }
+    current.push(p);
+  });
+  if (current.length) segments.push(current);
+  return segments;
 }
 
 /* ============================== Wind card: chart SVG ============================== */
@@ -4356,9 +4373,13 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
     var lines = WIND_MODEL_ORDER.map(function (mk) {
       var rows = seriesByModel[mk];
       if (rows.length < 2) return '';
-      var pathD = smoothPathD(rows.map(function (r) { return { ms: r.ms, v: r.sustained }; }), x, yAll);
-      return '<path d="' + pathD + '" fill="none" stroke="' + accent + '" stroke-width="2" stroke-opacity="' + WIND_MODEL_OPACITY[mk] + '"' +
-        (WIND_MODEL_DASH[mk] !== 'none' ? ' stroke-dasharray="' + WIND_MODEL_DASH[mk] + '"' : '') + '/>';
+      var points = rows.map(function (r) { return { ms: r.ms, v: r.sustained }; });
+      return splitWindPointSegments(points).map(function (segment) {
+        if (segment.length < 2) return '';
+        var pathD = smoothPathD(segment, x, yAll);
+        return '<path d="' + pathD + '" fill="none" stroke="' + accent + '" stroke-width="2" stroke-opacity="' + WIND_MODEL_OPACITY[mk] + '"' +
+          (WIND_MODEL_DASH[mk] !== 'none' ? ' stroke-dasharray="' + WIND_MODEL_DASH[mk] + '"' : '') + '/>';
+      }).join('');
     }).join('');
 
     wrap.innerHTML = '<svg viewBox="0 0 ' + W.toFixed(1) + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">' +
@@ -4401,7 +4422,12 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
     legendEl.innerHTML = '<span><span class="swatch swatch-sustained"></span>forecast sustained</span><span><span class="swatch swatch-gust"></span>forecast gust</span>';
   }
   if (!rows.length) {
-    wrap.innerHTML = '<p class="sub">No wind data in window' + (model !== 'nws' ? ' — loading model, try again shortly.' : '.') + '</p>';
+    var noDataText = model === 'nws'
+      ? 'No NWS wind data in this chart window.'
+      : (!state.windModelSeries
+        ? 'Loading ' + (WIND_MODEL_LABELS[model] || model) + ' model data…'
+        : 'No ' + (WIND_MODEL_LABELS[model] || model) + ' provider data in this chart window.');
+    wrap.innerHTML = '<p class="sub">' + escapeHtml(noDataText) + '</p>';
     return;
   }
 
@@ -4422,14 +4448,18 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
   var gustPts = rows.filter(function (r) { return r.gust != null; }).map(function (r) { return { ms: r.ms, v: r.gust }; });
   var areaPath = '', sustainedPath = '', gustPath = '';
   if (sustainedPts.length) {
-    var lineD = smoothPathD(sustainedPts, x, y);
-    var areaD = lineD + ' L' + x(sustainedPts[sustainedPts.length - 1].ms).toFixed(1) + ',' + baseline +
-      ' L' + x(sustainedPts[0].ms).toFixed(1) + ',' + baseline + ' Z';
-    areaPath = '<path d="' + areaD + '" fill="' + accent + '" fill-opacity="0.15" stroke="none"/>';
-    sustainedPath = '<path d="' + lineD + '" fill="none" stroke="' + accent + '" stroke-width="2.5"/>';
+    splitWindPointSegments(sustainedPts).forEach(function (segment) {
+      var lineD = smoothPathD(segment, x, y);
+      var areaD = lineD + ' L' + x(segment[segment.length - 1].ms).toFixed(1) + ',' + baseline +
+        ' L' + x(segment[0].ms).toFixed(1) + ',' + baseline + ' Z';
+      areaPath += '<path d="' + areaD + '" fill="' + accent + '" fill-opacity="0.15" stroke="none"/>';
+      sustainedPath += '<path d="' + lineD + '" fill="none" stroke="' + accent + '" stroke-width="2.5"/>';
+    });
   }
   if (gustPts.length) {
-    gustPath = '<path d="' + smoothPathD(gustPts, x, y) + '" fill="none" stroke="' + inkDim + '" stroke-width="1.5" stroke-dasharray="3,2" stroke-opacity="0.8"/>';
+    gustPath = splitWindPointSegments(gustPts).map(function (segment) {
+      return '<path d="' + smoothPathD(segment, x, y) + '" fill="none" stroke="' + inkDim + '" stroke-width="1.5" stroke-dasharray="3,2" stroke-opacity="0.8"/>';
+    }).join('');
   }
 
   // Observed-now marker: the live anemometer sustained reading pinned to the now-line, so
@@ -4492,10 +4522,35 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
   }
 }
 
-function renderWindModelNote() {
+function renderWindModelNote(domStart, domEnd) {
   var el = $('windModelNote');
   if (!el) return;
-  if ((state.windModel || 'nws') === 'nws') hideEl(el); else showEl(el);
+  var model = state.windModel || 'nws';
+  if (model === 'nws') { hideEl(el); return; }
+  showEl(el);
+  if (model === 'all') {
+    el.textContent = 'Comparison models come from Open-Meteo. Go/no-go verdict always uses NWS.';
+    return;
+  }
+  var label = WIND_MODEL_LABELS[model] || model;
+  if (!state.windModelSeries) {
+    el.textContent = 'Loading ' + label + ' from Open-Meteo. Go/no-go verdict always uses NWS.';
+    return;
+  }
+  var rows = windRowsForModel(model, domStart, domEnd);
+  if (!rows.length) {
+    el.textContent = label + ' has no provider data for this chart window. Go/no-go verdict always uses NWS.';
+    return;
+  }
+  var firstMs = rows[0].ms;
+  var lastEndMs = rows[rows.length - 1].endMs;
+  var gaps = [];
+  if (firstMs > domStart + 30 * 60000) gaps.push('begins ' + fmtTime(firstMs));
+  if (rows.some(function (r, i) { return i > 0 && r.ms - rows[i - 1].ms > 90 * 60000; })) gaps.push('has internal gaps');
+  if (lastEndMs < domEnd - 30 * 60000) gaps.push('ends ' + fmtTime(lastEndMs));
+  el.textContent = label + ' via Open-Meteo. ' +
+    (gaps.length ? 'Provider coverage ' + gaps.join(' and ') + '; blank chart time is unavailable. ' : '') +
+    'Go/no-go verdict always uses NWS.';
 }
 function updateWindModelChipActive() {
   var row = $('windModelRow');
@@ -4519,8 +4574,10 @@ function rerenderWindCard() {
 // empty table. Row coloring uses windCellClass's sustained-only rule (item 1) — a 14 kt
 // sustained hour with a big gust no longer reads as REEF here either.
 
-function renderWindHourlyTable(hourlyPeriods, departureMs, returnMs, limits) {
+function renderWindHourlyTable(hourlyPeriods, departureMs, returnMs, limits, chartStart, chartEnd) {
   var winStart = departureMs - 2 * 3600000, winEnd = returnMs + 2 * 3600000;
+  chartStart = chartStart == null ? winStart : chartStart;
+  chartEnd = chartEnd == null ? winEnd : chartEnd;
   var model = state.windModel || 'nws';
   var approx = false;
   var rows = [];
@@ -4547,15 +4604,24 @@ function renderWindHourlyTable(hourlyPeriods, departureMs, returnMs, limits) {
     }
   }
 
-  var sustainedVals = rows.map(function (r) { return r.sustained; }).filter(function (v) { return v != null; });
-  var gustVals = rows.map(function (r) { return r.gust; }).filter(function (v) { return v != null; });
-  var dirVals = rows.map(function (r) { return r.dir; }).filter(function (v) { return v != null; });
+  // windSummary describes the chart directly above it, not just the narrower hourly-table
+  // slice. Using table rows here produced the contradictory “No wind data available” while
+  // the same model visibly had later data in the chart's longer domain.
+  var summaryRows = model === 'all' ? [] : windRowsForModel(model, chartStart, chartEnd);
+  if (!summaryRows.length && approx) summaryRows = rows;
+  var sustainedVals = summaryRows.map(function (r) { return r.sustained; }).filter(function (v) { return v != null; });
+  var gustVals = summaryRows.map(function (r) { return r.gust; }).filter(function (v) { return v != null; });
+  var dirVals = summaryRows.map(function (r) { return r.dir; }).filter(function (v) { return v != null; });
   var summaryParts = [];
   if (dirVals.length) summaryParts.push('Dominant ' + degToCompass(vectorMeanDirection(dirVals)));
   if (sustainedVals.length) summaryParts.push('Sustained ' + round1(Math.min.apply(null, sustainedVals)) + '–' + round1(Math.max.apply(null, sustainedVals)) + ' kt');
   if (gustVals.length) summaryParts.push('Max gust ' + round1(Math.max.apply(null, gustVals)) + ' kt');
-  $('windSummary').textContent = summaryParts.length ? summaryParts.join(' · ') :
-    (model === 'all' ? 'Pick a specific model above to see the hourly table.' : 'No wind data available.');
+  var noSummary = model === 'all'
+    ? 'Pick a specific model above to see its summary and hourly table.'
+    : (!state.windModelSeries && model !== 'nws'
+      ? 'Loading ' + (WIND_MODEL_LABELS[model] || model) + ' model data…'
+      : 'No ' + (WIND_MODEL_LABELS[model] || model) + ' provider data in the displayed chart window.');
+  $('windSummary').textContent = summaryParts.length ? summaryParts.join(' · ') : noSummary;
 
   var tbody = $('windTableBody');
   if (model === 'all') {
@@ -4572,7 +4638,8 @@ function renderWindHourlyTable(hourlyPeriods, departureMs, returnMs, limits) {
         '<td class="wind-dir-cell">' + dirHtml + '</td>' +
         '<td class="num">' + (r.sustained != null ? round1(r.sustained) : '—') + '</td>' +
         '<td class="num">' + gustHtml + '</td></tr>';
-    }).join('') || '<tr><td colspan="4">No data in window.</td></tr>';
+    }).join('') || '<tr><td colspan="4">No ' + escapeHtml(WIND_MODEL_LABELS[model] || model) +
+      ' provider data near the sail window.</td></tr>';
   }
 
   if (approx) showEl($('windApproxNote')); else hideEl($('windApproxNote'));
@@ -4583,11 +4650,11 @@ function renderWindHourlyTable(hourlyPeriods, departureMs, returnMs, limits) {
 function renderWindCard(hourlyPeriods, departureMs, returnMs, limits) {
   limits = limits || DEFAULT_LIMITS;
   renderWindNow(state.observedRaw, limits);
-  renderWindModelNote();
   var domStart = departureMs - 2 * 3600000;
   var domEnd = departureMs + 18 * 3600000;
+  renderWindModelNote(domStart, domEnd);
   renderWindChart(domStart, domEnd, departureMs, returnMs, Date.now(), limits);
-  renderWindHourlyTable(hourlyPeriods, departureMs, returnMs, limits);
+  renderWindHourlyTable(hourlyPeriods, departureMs, returnMs, limits, domStart, domEnd);
 }
 function valueAtMs(series, atMs) {
   for (var i = 0; i < series.length; i++) {
@@ -6123,7 +6190,9 @@ function parseOpenMeteoWindModels(json) {
 // itself is the "already loaded" guard, so repeat chip clicks never re-fetch.
 function loadWindModels() {
   if (state.windModelSeries) return Promise.resolve(true);
-  return loadSource('windmodels', fetchWindModels, 'windCard', function (data) {
+  // v2 adds past_days=1. A new cache namespace prevents the old current-day-only response
+  // from recreating a false leading coverage gap until the background refresh completes.
+  return loadSource('windmodels-v2', fetchWindModels, 'windCard', function (data) {
     state.windModelsRaw = data;
     state.windModelSeries = parseOpenMeteoWindModels(data);
   }).then(function () { clearCardError('windModelsError'); return true; })
