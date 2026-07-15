@@ -1072,7 +1072,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     <div class="radar-forecast-caption hidden" id="radarForecastCaption">Past radar frames, plus short-term nowcast when available.</div>
     <div class="radar-fallback hidden" id="radarFallback"></div>
     <div class="card-error hidden" id="radarError"></div>
-    <div class="source-links"><a href="https://mesonet.agron.iastate.edu/GIS/radmap.php" target="_blank" rel="noopener noreferrer">Iowa State NEXRAD</a><a href="https://www.rainviewer.com/weather-radar-map-live.html" target="_blank" rel="noopener noreferrer">RainViewer loop</a><a href="https://radar.weather.gov/station/KOKX/standard" target="_blank" rel="noopener noreferrer">NWS KOKX radar</a></div>
+    <div class="source-links"><a href="https://mesonet.agron.iastate.edu/GIS/radmap.php" target="_blank" rel="noopener noreferrer">NWS NEXRAD via Iowa Environmental Mesonet</a><a href="https://www.rainviewer.com/weather-radar-map-live.html" target="_blank" rel="noopener noreferrer">RainViewer loop</a><a href="https://radar.weather.gov/station/KOKX/standard" target="_blank" rel="noopener noreferrer">NWS KOKX radar</a></div>
   </section>
 
   <section class="card" id="advisoriesCard">
@@ -5606,7 +5606,7 @@ function showRadarFrame(idx) {
     maxNativeZoom: isForecast ? RAINVIEWER_MAX_NATIVE_ZOOM : 12,
     maxZoom: 15,
     zIndex: 5,
-    attribution: isForecast ? 'Radar loop: RainViewer' : 'NEXRAD: Iowa Environmental Mesonet / NWS'
+    attribution: isForecast ? 'Radar loop: RainViewer' : 'NWS NEXRAD via Iowa Environmental Mesonet'
   });
   layer.on('tileload', function () {
     if (generation === radarState.layerGeneration) loadedTiles += 1;
@@ -5617,7 +5617,7 @@ function showRadarFrame(idx) {
   layer.on('load', function () {
     if (generation !== radarState.layerGeneration) return;
     if (!loadedTiles && failedTiles) {
-      var sourceName = isForecast ? 'RainViewer radar' : 'Iowa State NEXRAD';
+      var sourceName = isForecast ? 'RainViewer radar' : 'NWS NEXRAD via Iowa Environmental Mesonet';
       showCardError('radarError', sourceName + ' tiles failed to load.', function () { loadRadarData(true); });
       setRadarLayerStatus(sourceName + ' failed. Showing the NWS fallback loop.', 'warn');
       showRadarFallbackGif();
