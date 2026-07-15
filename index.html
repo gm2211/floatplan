@@ -4098,18 +4098,63 @@ function interpRowsValue(rows, ms, field) {
   return prev[field] + t * (next[field] - prev[field]);
 }
 
-function windAxisTicksHtml(domStart, domEnd, xFn, windowTickItems, nowX, padT, inkDim) {
-  var out = '';
-  var suppressXs = windowTickItems.map(function (it) { return it.x; });
-  if (nowX != null) suppressXs.push(nowX);
-  for (var i = 0; i <= 4; i++) {
-    var tms = domStart + (domEnd - domStart) * i / 4;
-    var tx = xFn(tms);
-    var tickLabel = fmtTime(tms);
-    if (suppressXs.some(function (sx) { return Math.abs(tx - sx) < estimateLabelWidth(tickLabel); })) continue;
-    out += '<text x="' + tx.toFixed(1) + '" y="' + (padT - 4) + '" font-size="9" text-anchor="middle" fill="' + inkDim + '">' + escapeHtml(tickLabel) + '</text>';
+// Wind-chart markers use a consistent two-level hierarchy: the event name is the quiet
+// eyebrow and its time is the stronger value below. Keep every marker on the same two
+// baselines and spread their label centres horizontally when the exact event positions
+// are too close. The guide lines still pin each event to its exact time; avoiding vertical
+// row stacking is what keeps a short sail window from becoming a staircase of text.
+function layoutWindMarkerLabels(items, minX, maxX) {
+  var sorted = items.slice().sort(function (a, b) { return a.x - b.x; });
+  var gap = 7;
+  sorted.forEach(function (it) {
+    var eventW = estimateLabelWidth(it.event || '', 4.6);
+    var timeW = estimateLabelWidth(it.time || '', 5.2);
+    it.labelHalfW = Math.max(eventW, timeW, 18) / 2 + 2;
+    it.labelX = clamp(it.x, minX + it.labelHalfW, maxX - it.labelHalfW);
+  });
+  for (var i = 1; i < sorted.length; i++) {
+    var minCentre = sorted[i - 1].labelX + sorted[i - 1].labelHalfW + gap + sorted[i].labelHalfW;
+    sorted[i].labelX = Math.max(sorted[i].labelX, minCentre);
   }
-  return out;
+  if (sorted.length) {
+    var last = sorted[sorted.length - 1];
+    var overflow = last.labelX + last.labelHalfW - maxX;
+    if (overflow > 0) sorted.forEach(function (it) { it.labelX -= overflow; });
+    var first = sorted[0];
+    var underflow = minX - (first.labelX - first.labelHalfW);
+    if (underflow > 0) sorted.forEach(function (it) { it.labelX += underflow; });
+  }
+  return items;
+}
+
+function windMarkerLabelsHtml(items, eventY, timeY, inkDim, accent) {
+  return items.map(function (it) {
+    var color = it.isNow ? accent : inkDim;
+    var eventWeight = it.isNow ? '650' : '600';
+    var out = '<text x="' + it.labelX.toFixed(1) + '" y="' + eventY + '" font-size="7" font-weight="' + eventWeight +
+      '" letter-spacing="0.6" text-anchor="middle" fill="' + color + '">' + escapeHtml(it.event) + '</text>';
+    if (it.time) {
+      out += '<text x="' + it.labelX.toFixed(1) + '" y="' + timeY + '" font-size="9" text-anchor="middle" fill="' + inkDim + '">' +
+        escapeHtml(it.time) + '</text>';
+    }
+    return out;
+  }).join('');
+}
+
+// The general time scale belongs below the plot, not in the event-marker band. Endpoints
+// are always present for temporal context; a midpoint is added only when the card is wide
+// enough to carry it comfortably. Edge-aware anchors prevent clipping at narrow widths.
+function windAxisTicksHtml(domStart, domEnd, xFn, W, padL, padR, axisY, inkDim) {
+  var ticks = [
+    { ms: domStart, anchor: 'start' },
+    { ms: domEnd, anchor: 'end' }
+  ];
+  if (W >= 520) ticks.splice(1, 0, { ms: domStart + (domEnd - domStart) / 2, anchor: 'middle' });
+  return ticks.map(function (tick) {
+    var tx = tick.anchor === 'start' ? padL : (tick.anchor === 'end' ? W - padR : xFn(tick.ms));
+    return '<text x="' + tx.toFixed(1) + '" y="' + axisY + '" font-size="8" text-anchor="' + tick.anchor +
+      '" fill="' + inkDim + '" opacity="0.78">' + escapeHtml(fmtTime(tick.ms)) + '</text>';
+  }).join('');
 }
 
 // Fixed departureMs-2h..+18h window (same convention as renderWeatherChart) — a day-scale
@@ -4123,27 +4168,28 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
   var model = state.windModel || 'nws';
 
   var W = (wrap && wrap.getBoundingClientRect().width) || 680;
-  var H = 224, padL = 30, padR = 46, padT = 43, padB = 40;
+  var H = 232, padL = 30, padR = 46, padT = 48, padB = 49;
   function x(ms) { return padL + (ms - domStart) / (domEnd - domStart) * (W - padL - padR); }
   function xToMs(px) { return domStart + (px - padL) / (W - padL - padR) * (domEnd - domStart); }
   var accent = 'var(--accent)', inkDim = 'var(--ink-dim)';
 
   var turnMsForTicks = (state.sailSim && state.sailSim.turnMs != null && isFinite(state.sailSim.turnMs)) ? state.sailSim.turnMs : null;
   var windowTickItems = buildSailWindowTicks(departureMs, turnMsForTicks, returnMs, x);
-  var windowTickRowY = padT - 32;
+  windowTickItems.forEach(function (it, idx) {
+    it.event = idx === 0 ? 'START' : (idx === 1 ? 'TURN' : 'BACK');
+    it.time = fmtTime(it.ms);
+  });
   var nowX = (nowMs >= domStart && nowMs <= domEnd) ? x(nowMs) : null;
-  var nowItem = nowX != null ? { x: nowX, text: 'now' } : null;
-  layoutBandLabels(nowItem ? windowTickItems.concat([nowItem]) : windowTickItems, 12);
+  var nowItem = nowX != null ? { x: nowX, event: 'NOW', time: '', isNow: true } : null;
+  var windMarkerItems = nowItem ? windowTickItems.concat([nowItem]) : windowTickItems;
+  layoutWindMarkerLabels(windMarkerItems, padL, W - padR);
   var windowTickGuides = windowTickItems.map(function (it) {
     return '<line x1="' + it.x.toFixed(1) + '" y1="' + padT + '" x2="' + it.x.toFixed(1) + '" y2="' + (H - padB) + '" stroke="' + inkDim + '" stroke-width="1" stroke-dasharray="2,2" stroke-opacity="0.35"/>';
   }).join('');
-  var windowTickLabels = windowTickItems.map(function (it) {
-    return '<text x="' + it.x.toFixed(1) + '" y="' + (windowTickRowY + it.bandY).toFixed(1) + '" font-size="9" text-anchor="middle" fill="' + inkDim + '">' + escapeHtml(it.text) + '</text>';
-  }).join('');
+  var windowTickLabels = windMarkerLabelsHtml(windMarkerItems, 10, 25, inkDim, accent);
   var nowLine = '';
   if (nowItem) {
-    nowLine = '<line x1="' + nowX.toFixed(1) + '" y1="' + padT + '" x2="' + nowX.toFixed(1) + '" y2="' + (H - padB) + '" stroke="' + accent + '" stroke-width="1.5" stroke-dasharray="3,3"/>' +
-      '<text x="' + nowX.toFixed(1) + '" y="' + (windowTickRowY + nowItem.bandY).toFixed(1) + '" font-size="9" text-anchor="middle" fill="' + accent + '">now</text>';
+    nowLine = '<line x1="' + nowX.toFixed(1) + '" y1="' + padT + '" x2="' + nowX.toFixed(1) + '" y2="' + (H - padB) + '" stroke="' + accent + '" stroke-width="1.5" stroke-dasharray="3,3"/>';
   }
   var winX1 = x(clamp(departureMs, domStart, domEnd)), winX2 = x(clamp(returnMs, domStart, domEnd));
 
@@ -4169,7 +4215,7 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
     wrap.innerHTML = '<svg viewBox="0 0 ' + W.toFixed(1) + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">' +
       sailShadeAll + windYAxisHtml(yMaxAll, yAll, W, padL, padR, padT, inkDim) +
       bandsAll.shapes + windowTickGuides + lines + windowTickLabels + nowLine + bandsAll.labels +
-      windAxisTicksHtml(domStart, domEnd, x, windowTickItems, nowX, padT, inkDim) +
+      windAxisTicksHtml(domStart, domEnd, x, W, padL, padR, H - 3, inkDim) +
       '</svg>';
 
     if (legendEl) {
@@ -4271,7 +4317,7 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
   var svg = '<svg viewBox="0 0 ' + W.toFixed(1) + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">' +
     sailShade + windYAxisHtml(yMax, y, W, padL, padR, padT, inkDim) +
     bands.shapes + windowTickGuides + areaPath + sustainedPath + gustPath + arrows +
-    windowTickLabels + nowLine + obsMarker + bands.labels + windAxisTicksHtml(domStart, domEnd, x, windowTickItems, nowX, padT, inkDim) +
+    windowTickLabels + nowLine + obsMarker + bands.labels + windAxisTicksHtml(domStart, domEnd, x, W, padL, padR, H - 3, inkDim) +
     '</svg>';
   wrap.innerHTML = svg;
 
