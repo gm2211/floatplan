@@ -279,14 +279,18 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .chart-legend .legend-key-label { font-weight: 650; color: var(--ink-dim); }
 .chart-footnote { font-size: 10.5px; color: var(--ink-dim); margin-top: 4px; }
 .source-links {
-  display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px;
-  margin-top: 12px; padding-top: 9px; border-top: 1px solid var(--border);
-  color: var(--ink-dim); font-size: 11px; line-height: 1.45;
+  margin-top: 10px; padding-top: 7px; border-top: 1px solid var(--border);
+  color: var(--ink-dim); font-size: 10px; line-height: 1.4;
 }
-.source-links::before {
-  content: "Sources"; color: var(--ink-dim); font-size: 9px; font-weight: 700;
-  letter-spacing: 0.08em; text-transform: uppercase;
+.source-links summary {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer; list-style: none;
+  color: var(--ink-dim); font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; user-select: none;
 }
+.source-links summary::-webkit-details-marker { display: none; }
+.source-links summary::after { content: "\203A"; font-size: 13px; line-height: 1; transform: rotate(90deg); transition: transform 0.15s ease; }
+.source-links[open] summary::after { transform: rotate(-90deg); }
+.source-links-body { display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 9px; margin-top: 5px; }
 .source-links a { color: var(--accent); text-underline-offset: 2px; }
 .source-links a:hover { text-decoration-thickness: 2px; }
 .source-links .computed-source { color: var(--ink-dim); }
@@ -686,15 +690,15 @@ pre#marineTextContent { white-space: pre-wrap; font-family: inherit; font-size: 
   letter-spacing: 0.08em; text-transform: uppercase;
 }
 .obs-wind-station-row { margin-bottom: 8px; }
+.observed-current-source-kicker { margin-top: 10px; }
+.obs-current-station-row { margin-bottom: 5px; }
+.obs-current-station-row .chip { padding: 5px 10px; font-size: 11.5px; }
+.observed-reference-note { margin: 4px 0 8px; color: var(--ink-dim); font-size: 10.5px; line-height: 1.4; }
 .observed-primary { margin-bottom: 4px; }
-.observed-companion-source {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
-  margin: 7px 0 3px; color: var(--ink-dim); font-size: 11px;
-}
-.observed-companion-source a { color: var(--accent); text-underline-offset: 2px; white-space: nowrap; }
-.observed-more-note { font-size: 11px; color: var(--ink-dim); margin-top: 6px; }
+.observed-more-toggle { margin-top: 4px; font-size: 11px; letter-spacing: 0.06em; }
 .chip.setup-required { border-style: dashed; color: var(--ink-dim); }
 .chip.station-unavailable { border-color: color-mix(in srgb, var(--red) 45%, var(--border)); color: var(--red); }
+.chip.station-unavailable.active { border-color: var(--accent); color: var(--accent-ink); }
 .toast-container { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 200; display: flex; flex-direction: column; gap: 6px; }
 .toast { background: var(--navy); color: var(--bg-card); padding: 8px 14px; border-radius: 8px; font-size: 13px; box-shadow: var(--shadow); }
 
@@ -957,7 +961,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
         <button class="btn-secondary" id="generatePlanBtn">Regenerate proposal</button>
       </div>
     </div>
-    <div class="source-links"><span class="computed-source">Course recommendation uses</span><a id="srcPlanCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA current predictions</a></div>
+    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><span class="computed-source">Course recommendation uses</span><a id="srcPlanCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA current predictions</a></div></details>
   </section>
 
   <section class="card" id="verdictCard">
@@ -966,12 +970,12 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <div class="verdict-sub" id="verdictSub"></div>
     </div>
     <ul class="reason-list" id="verdictReasons"></ul>
-    <div class="source-links"><span class="computed-source">Computed from</span><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS wind</a><a href="https://api.weather.gov/alerts/active?zone=ANZ338" target="_blank" rel="noopener noreferrer">NWS alerts</a><a id="srcVerdictCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA currents</a></div>
+    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><span class="computed-source">Computed from</span><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS wind</a><a href="https://api.weather.gov/alerts/active?zone=ANZ338" target="_blank" rel="noopener noreferrer">NWS alerts</a><a id="srcVerdictCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA currents</a></div></details>
   </section>
 
   <section class="card" id="observedCard">
     <h2>Observed Now</h2>
-    <div class="observed-source-kicker">Wind source</div>
+    <div class="observed-source-kicker">Wind observations</div>
     <div class="chip-row obs-wind-station-row" id="obsWindStationRow">
       <button type="button" class="chip active" data-station="robbinsReef">Robbins Reef</button>
       <button type="button" class="chip" data-station="kjrb">Wall St Heliport</button>
@@ -979,18 +983,24 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     </div>
     <div class="observed-primary" id="observedPrimary">
       <div class="observed-wind-row" id="obsWindRow"></div>
-      <div class="observed-row" id="obsCurrentRow"></div>
     </div>
-    <div class="observed-companion-source"><span>Temperature, water level &amp; pressure</span><a href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">The Battery (NOAA)</a></div>
+    <div class="observed-source-kicker observed-current-source-kicker">Current reference</div>
+    <div class="chip-row obs-current-station-row" id="obsCurrentStationRow">
+      <button type="button" class="chip active" data-current-station="hudson">Hudson prediction</button>
+      <button type="button" class="chip" data-current-station="kvk">Kill Van Kull</button>
+      <button type="button" class="chip" data-current-station="newark">Newark Bay</button>
+      <button type="button" class="chip" data-current-station="narrows">The Narrows</button>
+    </div>
+    <div class="observed-row" id="obsCurrentRow"></div>
+    <p class="observed-reference-note">Measured stations are harbor references only. Planning and the sail simulator always use the Hudson River Entrance prediction.</p>
     <div class="card-error hidden" id="observedError"></div>
-    <button class="collapsible-header" id="observedMoreToggle">More <span class="chev">&#9662;</span></button>
+    <button class="collapsible-header observed-more-toggle" id="observedMoreToggle">More <span class="chev">&#9662;</span></button>
     <div class="collapsible-body hidden" id="observedMoreBody">
+      <div class="observed-source-kicker">The Battery readings</div>
       <p class="sub" id="observedAsOf"></p>
       <div id="observedBody"></div>
-      <div class="observed-row" id="obsKvkRow"></div>
-      <p class="observed-more-note">Kill Van Kull LB 14 &middot; live meter &middot; different water body &mdash; harbor phase check only, not Pier 25 current.</p>
     </div>
-    <div class="source-links"><a id="srcObservedRobbins" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8530973" target="_blank" rel="noopener noreferrer">Robbins Reef NOAA</a><a href="https://api.weather.gov/stations/KJRB/observations/latest" target="_blank" rel="noopener noreferrer">Wall St NWS</a><a href="https://www.wunderground.com/dashboard/pws/KNJNEWJE43" target="_blank" rel="noopener noreferrer">Willy Wall Wunderground</a><a id="srcObservedKvk" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n06010" target="_blank" rel="noopener noreferrer">Kill Van Kull NOAA</a><a id="srcObservedBattery" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">The Battery NOAA</a></div>
+    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a id="srcObservedRobbins" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8530973" target="_blank" rel="noopener noreferrer">Robbins Reef NOAA</a><a href="https://api.weather.gov/stations/KJRB/observations/latest" target="_blank" rel="noopener noreferrer">Wall St NWS</a><a href="https://www.wunderground.com/dashboard/pws/KNJNEWJE43" target="_blank" rel="noopener noreferrer">Willy Wall Wunderground</a><a id="srcObservedHudson" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">Hudson prediction NOAA</a><a id="srcObservedKvk" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n06010" target="_blank" rel="noopener noreferrer">Kill Van Kull NOAA</a><a id="srcObservedNewark" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n07010" target="_blank" rel="noopener noreferrer">Newark Bay NOAA</a><a id="srcObservedNarrows" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n03020" target="_blank" rel="noopener noreferrer">The Narrows NOAA</a><a id="srcObservedBattery" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">The Battery NOAA</a></div></details>
   </section>
 
   <section class="card" id="sunTwilightCard">
@@ -1012,7 +1022,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <span class="twilight-values"><span id="twilightNauticalDusk">--</span><span class="twilight-relative" id="twilightNauticalDuskRelative"></span></span>
     </div>
     <p class="twilight-note hidden" id="twilightNote"></p>
-    <div class="source-links"><span class="computed-source">Calculated locally with</span><a href="https://gml.noaa.gov/grad/solcalc/" target="_blank" rel="noopener noreferrer">NOAA solar method</a></div>
+    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><span class="computed-source">Calculated locally with</span><a href="https://gml.noaa.gov/grad/solcalc/" target="_blank" rel="noopener noreferrer">NOAA solar method</a></div></details>
   </section>
 
   <section class="card" id="directionCard">
@@ -1028,7 +1038,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       </div>
     </div>
     <div class="card-error hidden" id="directionError"></div>
-    <div class="source-links"><span class="computed-source">Recommendation computed from</span><a id="srcDirectionCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA current predictions</a></div>
+    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><span class="computed-source">Recommendation computed from</span><a id="srcDirectionCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA current predictions</a></div></details>
   </section>
 
   <section class="card" id="timelineCard">
@@ -1049,7 +1059,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     <div class="chart-footnote">Predicted current: Hudson River Entrance (NYH1927) &middot; measured phase check: Kill Van Kull LB 14 &middot; water level: The Battery (8518750)</div>
     <div class="card-error hidden" id="timelineError"></div>
     <div class="card-error hidden" id="waterError"></div>
-    <div class="source-links"><a id="srcTimelineCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">Current prediction</a><a id="srcTimelineKvk" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n06010" target="_blank" rel="noopener noreferrer">Measured phase check</a><a id="srcTimelineLevelPredicted" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Water-level prediction</a><a id="srcTimelineLevelObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Measured water level</a></div>
+    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a id="srcTimelineCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">Current prediction</a><a id="srcTimelineKvk" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n06010" target="_blank" rel="noopener noreferrer">Measured phase check</a><a id="srcTimelineLevelPredicted" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Water-level prediction</a><a id="srcTimelineLevelObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Measured water level</a></div></details>
   </section>
 
   <section class="card" id="sailSimCard">
@@ -1074,7 +1084,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     </div>
     <div class="chart-footnote">Conservative harbor estimate: each leg uses forecast wind direction and speed, a harbor-adjusted polar, sailed heading, current, cross-track limits, and time lost in tacks or jibes. T/J marks each computed maneuver; a feasible direct reach stays straight. The boat returns 15 minutes before the window ends and never sails past Robbins Reef. Planning approximation, not navigation.</div>
     <div class="card-error hidden" id="sailSimError"></div>
-    <div class="source-links"><span class="computed-source">Simulation inputs</span><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS wind</a><a id="srcSailSimCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA currents</a><a href="https://www.ussailing.org/wp-content/uploads/2018/01/Speed-Guide-Explanation.pdf" target="_blank" rel="noopener noreferrer">US Sailing speed guide</a></div>
+    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><span class="computed-source">Simulation inputs</span><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS wind</a><a id="srcSailSimCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA currents</a><a href="https://www.ussailing.org/wp-content/uploads/2018/01/Speed-Guide-Explanation.pdf" target="_blank" rel="noopener noreferrer">US Sailing speed guide</a></div></details>
   </section>
 
   <section class="card" id="windCard">
@@ -1108,7 +1118,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     </div>
     <div class="card-error hidden" id="windError"></div>
     <div class="card-error hidden" id="windModelsError"></div>
-    <div class="source-links"><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS raw forecast</a><a href="https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly" target="_blank" rel="noopener noreferrer">NWS hourly forecast</a><a href="https://api.open-meteo.com/v1/forecast?latitude=40.7203&amp;longitude=-74.0135&amp;hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m&amp;wind_speed_unit=kn&amp;timezone=America%2FNew_York&amp;past_days=1&amp;forecast_days=3&amp;models=gfs_seamless,ecmwf_ifs025,icon_seamless" target="_blank" rel="noopener noreferrer">Open-Meteo models</a><a id="srcWindObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8530973" target="_blank" rel="noopener noreferrer">Observed wind</a></div>
+    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS raw forecast</a><a href="https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly" target="_blank" rel="noopener noreferrer">NWS hourly forecast</a><a href="https://api.open-meteo.com/v1/forecast?latitude=40.7203&amp;longitude=-74.0135&amp;hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m&amp;wind_speed_unit=kn&amp;timezone=America%2FNew_York&amp;past_days=1&amp;forecast_days=3&amp;models=gfs_seamless,ecmwf_ifs025,icon_seamless" target="_blank" rel="noopener noreferrer">Open-Meteo models</a><a id="srcWindObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8530973" target="_blank" rel="noopener noreferrer">Observed wind</a></div></details>
   </section>
 
   <section class="card" id="weatherCard">
@@ -1126,7 +1136,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <div class="weather-metric-strip" id="weatherMetricStrip"></div>
     </div>
     <div class="card-error hidden" id="weatherError"></div>
-    <div class="source-links"><a href="https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly" target="_blank" rel="noopener noreferrer">NWS hourly forecast</a><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS humidity, precipitation and sky</a></div>
+    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a href="https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly" target="_blank" rel="noopener noreferrer">NWS hourly forecast</a><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS humidity, precipitation and sky</a></div></details>
   </section>
 
   <section class="card" id="radarCard">
@@ -1155,14 +1165,14 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     <div class="radar-forecast-caption hidden" id="radarForecastCaption">Past radar frames, plus short-term nowcast when available.</div>
     <div class="radar-fallback hidden" id="radarFallback"></div>
     <div class="card-error hidden" id="radarError"></div>
-    <div class="source-links"><a href="https://mesonet.agron.iastate.edu/GIS/radmap.php" target="_blank" rel="noopener noreferrer">NWS NEXRAD via Iowa Environmental Mesonet</a><a href="https://www.rainviewer.com/weather-radar-map-live.html" target="_blank" rel="noopener noreferrer">RainViewer loop</a><a href="https://radar.weather.gov/station/KOKX/standard" target="_blank" rel="noopener noreferrer">NWS KOKX radar</a><a href="https://api.weather.gov/alerts/active?area=NY%2CNJ%2CCT%2CPA%2CAN&amp;event=Tornado%20Warning%2CSevere%20Thunderstorm%20Warning%2CSpecial%20Marine%20Warning" target="_blank" rel="noopener noreferrer">NWS regional storm warnings</a></div>
+    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a href="https://mesonet.agron.iastate.edu/GIS/radmap.php" target="_blank" rel="noopener noreferrer">NWS NEXRAD via Iowa Environmental Mesonet</a><a href="https://www.rainviewer.com/weather-radar-map-live.html" target="_blank" rel="noopener noreferrer">RainViewer loop</a><a href="https://radar.weather.gov/station/KOKX/standard" target="_blank" rel="noopener noreferrer">NWS KOKX radar</a><a href="https://api.weather.gov/alerts/active?area=NY%2CNJ%2CCT%2CPA%2CAN&amp;event=Tornado%20Warning%2CSevere%20Thunderstorm%20Warning%2CSpecial%20Marine%20Warning" target="_blank" rel="noopener noreferrer">NWS regional storm warnings</a></div></details>
   </section>
 
   <section class="card" id="advisoriesCard">
     <h2>Advisories</h2>
     <div class="advisories-list" id="advisoriesList"></div>
     <div class="card-error hidden" id="advisoriesError"></div>
-    <div class="source-links"><a href="https://api.weather.gov/alerts/active?point=40.7203,-74.0135" target="_blank" rel="noopener noreferrer">NWS point alerts</a><a href="https://api.weather.gov/alerts/active?zone=ANZ338" target="_blank" rel="noopener noreferrer">NWS NY Harbor alerts</a></div>
+    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a href="https://api.weather.gov/alerts/active?point=40.7203,-74.0135" target="_blank" rel="noopener noreferrer">NWS point alerts</a><a href="https://api.weather.gov/alerts/active?zone=ANZ338" target="_blank" rel="noopener noreferrer">NWS NY Harbor alerts</a></div></details>
   </section>
 
   <section class="card" id="marineTextCard">
@@ -1190,7 +1200,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       </div>
       <div class="card-error hidden" id="marineTextError"></div>
     </div>
-    <div class="source-links"><a href="https://api.weather.gov/products/types/CWF/locations/OKX" target="_blank" rel="noopener noreferrer">NWS coastal forecast products</a><a href="https://marine.weather.gov/MapClick.php?lat=40.70&amp;lon=-74.02" target="_blank" rel="noopener noreferrer">NWS NY Harbor forecast</a></div>
+    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a href="https://api.weather.gov/products/types/CWF/locations/OKX" target="_blank" rel="noopener noreferrer">NWS coastal forecast products</a><a href="https://marine.weather.gov/MapClick.php?lat=40.70&amp;lon=-74.02" target="_blank" rel="noopener noreferrer">NWS NY Harbor forecast</a></div></details>
   </section>
 
   <div class="columns-row hidden" id="columnsRow">
@@ -1309,6 +1319,8 @@ var STATION_CURRENT = 'NYH1927';
 var STATION_TIDE = '8518750';
 var STATION_WIND_ROBBINS_REEF = '8530973'; // Battery has no wind sensor; nearest live wind obs.
 var STATION_KVK_CURRENT = 'n06010'; // Kill Van Kull LB 14 — live meter, different water body from Pier 25.
+var STATION_NEWARK_CURRENT = 'n07010'; // Newark Bay Entrance LB 18, live PORTS current meter.
+var STATION_NARROWS_CURRENT = 'n03020'; // The Narrows, active PORTS station; may report no live sample.
 var KJRB_OBS_URL = 'https://api.weather.gov/stations/KJRB/observations/latest'; // Wall St Heliport.
 var WILLY_WALL_SOURCE_URL = 'https://www.wunderground.com/dashboard/pws/KNJNEWJE43';
 // Weather Underground's own dashboard reads KNJNEWJE43 through this public, CORS-enabled
@@ -1617,7 +1629,10 @@ function refreshSourceLinks(departureMs) {
   setSourceHref('srcTimelineLevelPredicted', buildLevelPredictedUrl(departureMs));
   setSourceHref('srcTimelineLevelObserved', buildLevelObservedUrl(departureMs));
   setSourceHref('srcObservedRobbins', buildCoopsObsUrl(STATION_WIND_ROBBINS_REEF, 'wind'));
-  setSourceHref('srcObservedKvk', buildKvkCurrentUrl());
+  setSourceHref('srcObservedHudson', buildCurrentsUrl(departureMs, '30'));
+  setSourceHref('srcObservedKvk', buildMeasuredCurrentUrl(STATION_KVK_CURRENT));
+  setSourceHref('srcObservedNewark', buildMeasuredCurrentUrl(STATION_NEWARK_CURRENT));
+  setSourceHref('srcObservedNarrows', buildMeasuredCurrentUrl(STATION_NARROWS_CURRENT));
   setSourceHref('srcWindObserved', buildCoopsObsUrl(STATION_WIND_ROBBINS_REEF, 'wind'));
 }
 
@@ -1808,29 +1823,36 @@ function fetchObservedWindWillyWall() {
   });
 }
 
-// Kill Van Kull LB 14 — the only *live measured* current meter near Pier 25 (NYH1927 is
-// predictions-only). Different water body from the Hudson River Entrance; the Observed Now
-// card labels this explicitly as a harbor-phase check, not a Pier 25 current reading.
+// Kill Van Kull LB 14 and nearby PORTS current meters are useful reference readings, but
+// none measures the Hudson at Pier 25. They stay separate from the NYH1927 prediction used
+// by planning and simulation.
 // Can return HTTP 200 with a {"error":{...}} body (handled by fetchCoopsJson).
-function buildKvkCurrentUrl() {
+function buildMeasuredCurrentUrl(station) {
   return 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter' +
-    '?product=currents&station=' + STATION_KVK_CURRENT + '&date=latest' +
+    '?product=currents&station=' + station + '&date=latest' +
     '&units=english&time_zone=gmt&format=json&application=floatplan';
 }
-function fetchKvkCurrent() {
-  return fetchCoopsJson(buildKvkCurrentUrl(), 'Kill Van Kull current').then(function (json) {
-    var row = json.data && json.data[0];
-    if (!row) return null;
-    var speedKt = row.s != null ? parseFloat(row.s) : null;
-    var dirDeg = row.d != null ? parseFloat(row.d) : null;
-    return {
-      ms: parseNoaaGmt(row.t),
-      speedKt: isFinite(speedKt) ? speedKt : null,
-      dirDeg: isFinite(dirDeg) ? dirDeg : null,
-      bin: row.b || null
-    };
+function buildKvkCurrentUrl() { return buildMeasuredCurrentUrl(STATION_KVK_CURRENT); }
+function parseMeasuredCurrentRow(row) {
+  if (!row) return null;
+  var speedKt = row.s != null ? parseFloat(row.s) : null;
+  var dirDeg = row.d != null ? parseFloat(row.d) : null;
+  if (!isFinite(speedKt)) return null;
+  return {
+    ms: parseNoaaGmt(row.t),
+    speedKt: speedKt,
+    dirDeg: isFinite(dirDeg) ? ((dirDeg % 360) + 360) % 360 : null,
+    bin: row.b || null
+  };
+}
+function fetchMeasuredCurrent(station, label) {
+  return fetchCoopsJson(buildMeasuredCurrentUrl(station), label + ' current').then(function (json) {
+    return parseMeasuredCurrentRow(json.data && json.data[0]);
   }).catch(function () { return null; });
 }
+function fetchKvkCurrent() { return fetchMeasuredCurrent(STATION_KVK_CURRENT, 'Kill Van Kull'); }
+function fetchNewarkCurrent() { return fetchMeasuredCurrent(STATION_NEWARK_CURRENT, 'Newark Bay'); }
+function fetchNarrowsCurrent() { return fetchMeasuredCurrent(STATION_NARROWS_CURRENT, 'The Narrows'); }
 
 function fetchObservedScalar(product, extra) {
   return fetchCoopsJson(buildCoopsObsUrl(STATION_TIDE, product, extra), 'Observed ' + product).then(function (json) {
@@ -4136,15 +4158,61 @@ function renderObsWindRow(maxSustainedKt, maxGustKt, limits) {
     '</span>';
 }
 
-// "Current now": interpolated from the NYH1927 predicted curve at this instant — there is no
-// live Hudson River Entrance meter, so this is explicitly labeled "predicted", never implied
-// to be a live reading.
+var OBS_CURRENT_REFERENCES = {
+  kvk: { label: 'Kill Van Kull LB 14', stateKey: 'kvkCurrentRaw' },
+  newark: { label: 'Newark Bay Entrance LB 18', stateKey: 'newarkCurrentRaw' },
+  narrows: { label: 'The Narrows', stateKey: 'narrowsCurrentRaw' }
+};
+
+function updateObsCurrentStationChipActive() {
+  var row = $('obsCurrentStationRow');
+  if (!row) return;
+  row.querySelectorAll('.chip').forEach(function (chip) {
+    var station = chip.dataset.currentStation;
+    var meta = OBS_CURRENT_REFERENCES[station];
+    var unavailable = !!meta && !state[meta.stateKey];
+    chip.classList.toggle('active', station === state.obsCurrentStation);
+    chip.classList.toggle('station-unavailable', unavailable);
+    if (unavailable) chip.title = meta.label + ' has no live NOAA sample right now';
+    else chip.removeAttribute('title');
+  });
+}
+
+function selectObsCurrentStation(station) {
+  if (station !== 'hudson' && !OBS_CURRENT_REFERENCES[station]) return;
+  state.obsCurrentStation = station;
+  lsSetJSON('obsCurrentStation', station);
+  updateObsCurrentStationChipActive();
+  renderObsCurrentRow();
+}
+
+// The Hudson row is interpolated from NYH1927. NOAA has no live Hudson/Pier 25 current
+// meter, so nearby measured PORTS stations are selectable only as clearly labeled references.
 function renderObsCurrentRow() {
   var el = $('obsCurrentRow');
   if (!el) return;
+  var station = state.obsCurrentStation || 'hudson';
+  if (station !== 'hudson') {
+    var meta = OBS_CURRENT_REFERENCES[station];
+    var measured = meta && state[meta.stateKey];
+    if (!meta || !measured || measured.speedKt == null) {
+      el.innerHTML = '<span>Current reference &middot; measured &middot; ' + escapeHtml(meta ? meta.label : station) + '</span>' +
+        '<span class="observed-age">Live reading unavailable</span>';
+      return;
+    }
+    var heading = measured.dirDeg != null
+      ? (' toward ' + degToCompass(measured.dirDeg) + ' (' + Math.round(measured.dirDeg) + '&deg;)')
+      : '';
+    el.innerHTML = '<span>Current reference &middot; measured &middot; ' + escapeHtml(meta.label) + '</span>' +
+      '<span class="observed-value"><span style="color:var(--violet);font-weight:600;">' +
+      round1(measured.speedKt) + ' kt' + heading + '</span>' +
+      (measured.ms != null ? '<span class="observed-age">as of ' + fmtTime(measured.ms) + ageSuffix(measured.ms) + '</span>' : '') +
+      '</span>';
+    return;
+  }
   var v = currentVelocityAt(state.curvePoints, Date.now());
   if (v == null) {
-    el.innerHTML = '<span>Current now &middot; predicted &middot; Hudson R Entrance</span><span>&mdash;</span>';
+    el.innerHTML = '<span>Current reference &middot; predicted &middot; Hudson R Entrance</span><span>&mdash;</span>';
     return;
   }
   var cls = classifyCurrent(v);
@@ -4152,7 +4220,7 @@ function renderObsCurrentRow() {
   var color = cls === 'flood' ? 'var(--flood)' : (cls === 'ebb' ? 'var(--ebb)' : 'var(--ink-dim)');
   var word = cls === 'flood' ? 'flood' : (cls === 'ebb' ? 'ebb' : 'slack');
   el.innerHTML =
-    '<span>Current now &middot; predicted &middot; Hudson R Entrance</span>' +
+    '<span>Current reference &middot; predicted &middot; Hudson R Entrance</span>' +
     '<span class="observed-value"><span style="color:' + color + ';font-weight:600;">' +
     round1(Math.abs(v)) + ' kt ' + word + ' ' + arrow + '</span></span>';
 }
@@ -4196,25 +4264,6 @@ function renderObservedMore(data, limits) {
 
     body.innerHTML = rows.join('');
   }
-
-  renderObsKvkRow();
-}
-
-// Live measured current at Kill Van Kull LB 14 — a different water body from Pier 25, so
-// this is labeled as a harbor-phase sanity check only, never presented as "the" current.
-function renderObsKvkRow() {
-  var el = $('obsKvkRow');
-  if (!el) return;
-  var c = state.kvkCurrentRaw;
-  if (!c || c.speedKt == null) {
-    el.innerHTML = '<span>Kill Van Kull LB 14</span><span>&mdash;</span>';
-    return;
-  }
-  var dirText = c.dirDeg != null ? (Math.round(c.dirDeg) + '&deg;') : '';
-  el.innerHTML = '<span>Kill Van Kull LB 14</span><span class="observed-value">' +
-    round1(c.speedKt) + ' kt' + (dirText ? ' toward ' + dirText : '') +
-    (c.ms != null ? ' <span class="observed-age">as of ' + fmtTime(c.ms) + '</span>' : '') +
-    '</span>';
 }
 
 /* ============================== Wind card: observed-now ============================== */
@@ -6325,7 +6374,8 @@ var state = {
   levelPredictedRaw: null, levelObservedRaw: null,
   gridpointRaw: null, hourlyRaw: null, alertsRaw: null, stormAlertsRaw: null, marineTextRaw: null,
   observedRaw: null, windModelsRaw: null, windModelSeries: null, windModel: 'nws',
-  obsWindStation: 'robbinsReef', obsWindKjrbRaw: null, obsWindWeatherflowRaw: null, kvkCurrentRaw: null,
+  obsWindStation: 'robbinsReef', obsWindKjrbRaw: null, obsWindWeatherflowRaw: null,
+  obsCurrentStation: 'hudson', kvkCurrentRaw: null, newarkCurrentRaw: null, narrowsCurrentRaw: null,
   curvePoints: [], slackEvents: [], gridSeries: null,
   levelPredictedPoints: [], levelObservedPoints: [], hiloEvents: [],
   lastVerdict: null, lastDirectionRec: null, lastPreMotorAdvice: null,
@@ -6435,11 +6485,24 @@ function loadObservedKjrb() {
     state.obsWindKjrbRaw = data;
   }).then(function () { return true; }).catch(function () { return false; });
 }
-// Live measured current at Kill Van Kull LB 14, shown in the "More" panel only. Same
-// never-throws convention — a failure just leaves that row showing "--".
+// Nearby measured currents are loaded as optional reference readings. A missing PORTS
+// sample is a valid unavailable state, not a card-level failure.
 function loadKvkCurrent() {
   return loadSource('kvkCurrent', fetchKvkCurrent, 'observedCard', function (data) {
     state.kvkCurrentRaw = data;
+    updateObsCurrentStationChipActive();
+  }).then(function () { return true; }).catch(function () { return false; });
+}
+function loadNewarkCurrent() {
+  return loadSource('newarkCurrent', fetchNewarkCurrent, 'observedCard', function (data) {
+    state.newarkCurrentRaw = data;
+    updateObsCurrentStationChipActive();
+  }).then(function () { return true; }).catch(function () { return false; });
+}
+function loadNarrowsCurrent() {
+  return loadSource('narrowsCurrent', fetchNarrowsCurrent, 'observedCard', function (data) {
+    state.narrowsCurrentRaw = data;
+    updateObsCurrentStationChipActive();
   }).then(function () { return true; }).catch(function () { return false; });
 }
 // Willy Wall comes from the public KNJNEWJE43 Wunderground dashboard. It loads automatically;
@@ -6678,7 +6741,7 @@ function loadAll() {
   return Promise.all([
     loadCurrentsSlack(), loadCurrentsCurve(), loadWater(), loadGridpoint(),
     loadHourly(), loadAlerts(), loadStormAlerts(), loadMarineText(), loadRadar(true), loadObserved(),
-    loadObservedKjrb(), loadKvkCurrent(), loadWillyWall()
+    loadObservedKjrb(), loadKvkCurrent(), loadNewarkCurrent(), loadNarrowsCurrent(), loadWillyWall()
   ]).then(function (results) {
     return results.some(function (ok) { return ok === true; });
   });
@@ -8460,6 +8523,17 @@ function init() {
   document.querySelectorAll('#obsWindStationRow .chip').forEach(function (chip) {
     chip.addEventListener('click', function () {
       selectObsWindStation(chip.dataset.station);
+    });
+  });
+
+  state.obsCurrentStation = lsGetJSON('obsCurrentStation', 'hudson');
+  if (state.obsCurrentStation !== 'hudson' && !OBS_CURRENT_REFERENCES[state.obsCurrentStation]) {
+    state.obsCurrentStation = 'hudson';
+  }
+  updateObsCurrentStationChipActive();
+  document.querySelectorAll('#obsCurrentStationRow .chip').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      selectObsCurrentStation(chip.dataset.currentStation);
     });
   });
 
