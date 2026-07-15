@@ -686,70 +686,65 @@ pre#marineTextContent { white-space: pre-wrap; font-family: inherit; font-size: 
 .observed-pill { display: inline-block; padding: 2px 8px; border-radius: 6px; font-weight: 600; }
 .observed-age { font-size: 11px; color: var(--ink-dim); }
 .observed-comparison-status {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 140px; min-height: 22px; box-sizing: border-box;
-  font-size: 11px; line-height: 1.2; border-radius: 999px; padding: 2px 8px;
+  display: inline-flex; align-items: center; gap: 6px;
+  min-width: 108px; min-height: 18px; box-sizing: border-box;
+  font-size: 10.5px; line-height: 1; font-weight: 600; white-space: nowrap;
 }
-.observed-comparison-status.is-warning { background: var(--red-bg); color: var(--red); }
-.observed-comparison-status.is-positive { background: var(--green-bg); color: var(--green); }
-.observed-comparison-status.is-neutral { background: color-mix(in srgb, var(--ink-dim) 12%, transparent); color: var(--ink-dim); }
+.observed-comparison-status::before {
+  content: ""; width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: currentColor;
+}
+.observed-comparison-status.is-warning { color: var(--red); }
+.observed-comparison-status.is-positive { color: var(--green); }
+.observed-comparison-status.is-neutral { color: var(--ink-dim); }
 
-/* The selected wind station always uses the same four-slot layout. Keeping the
-   label, reading, warning and timestamp as separate grid items prevents each
-   source's optional fields from inventing a different flex-wrap pattern. */
+/* The active selector already names the station, so the reading only needs two
+   stable slots: the hazard-colored value and a quiet comparison/timestamp pair. */
 .observed-primary { container-type: inline-size; }
 .observed-wind-row {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  grid-template-areas:
-    "station reading"
-    ". meta";
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "reading meta";
   align-items: center;
-  column-gap: 12px;
-  row-gap: 4px;
-  padding: 4px 0 7px;
+  column-gap: 14px;
+  padding: 3px 0 9px;
   border-bottom: 1px dashed var(--border);
   font-size: 14px;
-}
-.observed-wind-station {
-  grid-area: station;
-  align-self: start;
-  min-width: 0;
-  white-space: nowrap;
 }
 .observed-wind-reading {
   grid-area: reading;
   display: inline-flex;
   align-items: center;
-  justify-self: end;
-  min-height: 22px;
+  justify-self: start;
+  min-height: 24px;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.observed-wind-reading.observed-pill {
+  padding: 2px 8px 2px 10px; border-radius: 3px; border-left: 3px solid currentColor;
+  background: color-mix(in srgb, currentColor 9%, transparent);
+}
 .observed-wind-meta {
   grid-area: meta;
   justify-self: end;
-  display: grid;
-  grid-template-columns: 140px 124px;
+  display: flex;
   align-items: center;
-  justify-content: end;
-  gap: 8px;
-  min-height: 22px;
+  gap: 12px;
+  min-height: 24px;
 }
-.observed-wind-meta .observed-age { min-width: 124px; text-align: right; white-space: nowrap; }
-@container (max-width: 435px) {
+.observed-wind-meta .observed-age { min-width: 112px; text-align: right; white-space: nowrap; }
+@container (max-width: 450px) {
   .observed-wind-row {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "station" "reading" "meta";
-    row-gap: 5px;
+    grid-template-areas: "reading" "meta";
+    row-gap: 3px;
   }
   .observed-wind-reading,
   .observed-wind-meta { justify-self: start; justify-content: start; }
   .observed-wind-meta {
     width: 100%;
-    grid-template-columns: minmax(0, 1fr) minmax(0, .9fr);
+    justify-content: space-between;
   }
   .observed-wind-meta .observed-comparison-status,
   .observed-wind-meta .observed-age {
@@ -765,11 +760,35 @@ pre#marineTextContent { white-space: pre-wrap; font-family: inherit; font-size: 
   letter-spacing: 0.08em; text-transform: uppercase;
 }
 .obs-wind-station-row { margin-bottom: 8px; }
-.observed-current-source-kicker { margin-top: 10px; }
+.observed-current-source-kicker { margin-top: 9px; }
 .obs-current-station-row { margin-bottom: 5px; }
-.obs-current-station-row .chip { padding: 5px 10px; font-size: 11.5px; }
+.obs-current-station-row { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 1px; }
+.obs-current-station-row::-webkit-scrollbar { display: none; }
+.obs-current-station-row .chip { flex: 0 0 auto; padding: 4px 9px; font-size: 10.5px; }
+.obs-current-station-row .chip.station-unavailable:not(.active) { border-color: var(--border); color: var(--ink-dim); }
 .observed-primary { margin-bottom: 4px; }
-.observed-more-toggle { margin-top: 4px; font-size: 11px; letter-spacing: 0.06em; }
+.observed-current-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "label value" ". meta";
+  align-items: center; column-gap: 10px; row-gap: 2px;
+  min-height: 42px; padding: 3px 0 6px; font-size: 12px;
+}
+.observed-current-label {
+  grid-area: label; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.observed-current-value { grid-area: value; font-weight: 600; white-space: nowrap; }
+.observed-current-meta {
+  grid-area: meta; min-height: 13px; color: var(--ink-dim); font-size: 10px; line-height: 1.2;
+  text-align: right; white-space: nowrap;
+}
+.observed-footer {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--border);
+}
+.observed-more-toggle { width: auto; flex: 0 0 auto; margin: 0; font-size: 9px; letter-spacing: 0.08em; gap: 5px; }
+.observed-footer .source-links { flex: 1 1 auto; margin: 0; padding: 0; border: 0; text-align: right; }
+.observed-footer .source-links-body { justify-content: flex-end; }
+.observed-footer + .collapsible-body { margin-top: 8px; }
 .chip.setup-required { border-style: dashed; color: var(--ink-dim); }
 .chip.station-unavailable { border-color: color-mix(in srgb, var(--red) 45%, var(--border)); color: var(--red); }
 .chip.station-unavailable.active { border-color: var(--accent); color: var(--accent-ink); }
@@ -1064,15 +1083,17 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <button type="button" class="chip" data-current-station="newark">Newark Bay</button>
       <button type="button" class="chip" data-current-station="narrows">The Narrows</button>
     </div>
-    <div class="observed-row" id="obsCurrentRow"></div>
+    <div class="observed-row observed-current-row" id="obsCurrentRow"></div>
     <div class="card-error hidden" id="observedError"></div>
-    <button class="collapsible-header observed-more-toggle" id="observedMoreToggle">More <span class="chev">&#9662;</span></button>
+    <div class="observed-footer">
+      <button class="collapsible-header observed-more-toggle" id="observedMoreToggle" aria-expanded="false" aria-controls="observedMoreBody">More <span class="chev">&#9662;</span></button>
+      <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a id="srcObservedRobbins" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8530973" target="_blank" rel="noopener noreferrer">Robbins Reef NOAA</a><a href="https://www.wunderground.com/dashboard/pws/KNJNEWJE43" target="_blank" rel="noopener noreferrer">Willy Wall Wunderground</a><a id="srcObservedHudson" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">Hudson prediction NOAA</a><a id="srcObservedKvk" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n06010" target="_blank" rel="noopener noreferrer">Kill Van Kull NOAA</a><a id="srcObservedNewark" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n07010" target="_blank" rel="noopener noreferrer">Newark Bay NOAA</a><a id="srcObservedNarrows" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n03020" target="_blank" rel="noopener noreferrer">The Narrows NOAA</a><a id="srcObservedBattery" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">The Battery NOAA</a></div></details>
+    </div>
     <div class="collapsible-body hidden" id="observedMoreBody">
       <div class="observed-source-kicker">The Battery readings</div>
       <p class="sub" id="observedAsOf"></p>
       <div id="observedBody"></div>
     </div>
-    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a id="srcObservedRobbins" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8530973" target="_blank" rel="noopener noreferrer">Robbins Reef NOAA</a><a href="https://www.wunderground.com/dashboard/pws/KNJNEWJE43" target="_blank" rel="noopener noreferrer">Willy Wall Wunderground</a><a id="srcObservedHudson" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">Hudson prediction NOAA</a><a id="srcObservedKvk" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n06010" target="_blank" rel="noopener noreferrer">Kill Van Kull NOAA</a><a id="srcObservedNewark" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n07010" target="_blank" rel="noopener noreferrer">Newark Bay NOAA</a><a id="srcObservedNarrows" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n03020" target="_blank" rel="noopener noreferrer">The Narrows NOAA</a><a id="srcObservedBattery" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">The Battery NOAA</a></div></details>
   </section>
 
   <section class="card" id="sunTwilightCard">
@@ -4315,7 +4336,9 @@ function updateObsWindStationChipActive() {
   var row = $('obsWindStationRow');
   if (!row) return;
   row.querySelectorAll('.chip').forEach(function (chip) {
-    chip.classList.toggle('active', chip.dataset.station === state.obsWindStation);
+    var selected = chip.dataset.station === state.obsWindStation;
+    chip.classList.toggle('active', selected);
+    chip.setAttribute('aria-pressed', selected ? 'true' : 'false');
   });
 }
 
@@ -4358,10 +4381,10 @@ function classifyObservedWindComparison(observed, forecastSustainedKt, forecastG
 
 function observedWindComparisonBadge(comparison) {
   var statuses = {
-    above: { text: 'observed above forecast', cls: 'is-warning' },
-    within: { text: 'within forecast', cls: 'is-positive' },
-    below: { text: 'below forecast', cls: 'is-positive' },
-    unavailable: { text: 'comparison unavailable', cls: 'is-neutral' }
+    above: { text: 'Above forecast', cls: 'is-warning' },
+    within: { text: 'Within forecast', cls: 'is-positive' },
+    below: { text: 'Below forecast', cls: 'is-positive' },
+    unavailable: { text: 'Forecast unavailable', cls: 'is-neutral' }
   };
   var status = statuses[comparison] || statuses.unavailable;
   return '<span class="observed-comparison-status ' + status.cls + '">' + status.text + '</span>';
@@ -4388,8 +4411,8 @@ function renderObsWindRow(limits) {
   var comparisonBadge = observedWindComparisonBadge(comparison);
 
   if (!w) {
-    el.innerHTML = '<span class="observed-wind-station">Wind &middot; ' + escapeHtml(label) + '</span>' +
-      (station === 'weatherflow'
+    el.removeAttribute('aria-label');
+    el.innerHTML = (station === 'weatherflow'
         ? '<a class="observed-wind-reading" href="' + WILLY_WALL_SOURCE_URL + '" target="_blank" rel="noopener noreferrer">Live feed unavailable &middot; check source</a>'
         : '<span class="observed-wind-reading">&mdash;</span>') +
       '<span class="observed-wind-meta">' + comparisonBadge +
@@ -4404,8 +4427,8 @@ function renderObsWindRow(limits) {
   var gustText = w.gustKt != null ? ('gusts ' + round1(w.gustKt) + ' kt') : 'no gust reported';
   var windText = (dirLabel || '--') + (w.sustainedKt != null ? ' ' + round1(w.sustainedKt) + ' kt' : ' --') + ', ' + gustText;
   var ageText = w.ms != null ? ('as of ' + fmtTime(w.ms) + ageSuffix(w.ms)) : '';
+  el.removeAttribute('aria-label');
   el.innerHTML =
-    '<span class="observed-wind-station">Wind &middot; ' + escapeHtml(label) + '</span>' +
     '<span class="observed-pill observed-wind-reading ' + cls + '">' + escapeHtml(windText) + '</span>' +
     '<span class="observed-wind-meta">' +
       comparisonBadge +
@@ -4426,7 +4449,9 @@ function updateObsCurrentStationChipActive() {
     var station = chip.dataset.currentStation;
     var meta = OBS_CURRENT_REFERENCES[station];
     var unavailable = !!meta && !state[meta.stateKey];
-    chip.classList.toggle('active', station === state.obsCurrentStation);
+    var selected = station === state.obsCurrentStation;
+    chip.classList.toggle('active', selected);
+    chip.setAttribute('aria-pressed', selected ? 'true' : 'false');
     chip.classList.toggle('station-unavailable', unavailable);
     if (unavailable) chip.title = meta.label + ' has no live NOAA sample right now';
     else chip.removeAttribute('title');
@@ -4451,23 +4476,26 @@ function renderObsCurrentRow() {
     var meta = OBS_CURRENT_REFERENCES[station];
     var measured = meta && state[meta.stateKey];
     if (!meta || !measured || measured.speedKt == null) {
-      el.innerHTML = '<span>Current reference &middot; measured &middot; ' + escapeHtml(meta ? meta.label : station) + '</span>' +
-        '<span class="observed-age">Live reading unavailable</span>';
+      el.innerHTML = '<span class="observed-current-label">Measured current</span>' +
+        '<span class="observed-current-value" style="color:var(--ink-dim);">Unavailable</span>' +
+        '<span class="observed-current-meta" aria-hidden="true">&nbsp;</span>';
       return;
     }
     var heading = measured.dirDeg != null
-      ? (' toward ' + degToCompass(measured.dirDeg) + ' (' + Math.round(measured.dirDeg) + '&deg;)')
+      ? (' &middot; ' + degToCompass(measured.dirDeg) + ' ' + Math.round(measured.dirDeg) + '&deg;')
       : '';
-    el.innerHTML = '<span>Current reference &middot; measured &middot; ' + escapeHtml(meta.label) + '</span>' +
-      '<span class="observed-value"><span style="color:var(--violet);font-weight:600;">' +
+    el.innerHTML = '<span class="observed-current-label">Measured current</span>' +
+      '<span class="observed-current-value" style="color:var(--violet);">' +
       round1(measured.speedKt) + ' kt' + heading + '</span>' +
-      (measured.ms != null ? '<span class="observed-age">as of ' + fmtTime(measured.ms) + ageSuffix(measured.ms) + '</span>' : '') +
-      '</span>';
+      '<span class="observed-current-meta">' +
+      (measured.ms != null ? fmtTime(measured.ms) + ageSuffix(measured.ms) : '&nbsp;') + '</span>';
     return;
   }
   var v = currentVelocityAt(state.curvePoints, Date.now());
   if (v == null) {
-    el.innerHTML = '<span>Current reference &middot; predicted &middot; Hudson R Entrance</span><span>&mdash;</span>';
+    el.innerHTML = '<span class="observed-current-label">Predicted current</span>' +
+      '<span class="observed-current-value">&mdash;</span>' +
+      '<span class="observed-current-meta" aria-hidden="true">&nbsp;</span>';
     return;
   }
   var cls = classifyCurrent(v);
@@ -4475,9 +4503,10 @@ function renderObsCurrentRow() {
   var color = cls === 'flood' ? 'var(--flood)' : (cls === 'ebb' ? 'var(--ebb)' : 'var(--ink-dim)');
   var word = cls === 'flood' ? 'flood' : (cls === 'ebb' ? 'ebb' : 'slack');
   el.innerHTML =
-    '<span>Current reference &middot; predicted &middot; Hudson R Entrance</span>' +
-    '<span class="observed-value"><span style="color:' + color + ';font-weight:600;">' +
-    round1(Math.abs(v)) + ' kt ' + word + ' ' + arrow + '</span></span>';
+    '<span class="observed-current-label">Predicted current</span>' +
+    '<span class="observed-current-value" style="color:' + color + ';">' +
+    round1(Math.abs(v)) + ' kt ' + word + ' ' + arrow + '</span>' +
+    '<span class="observed-current-meta" aria-hidden="true">&nbsp;</span>';
 }
 
 // ============ Observed Now: "More" collapsible (secondary metrics) ============
@@ -8810,10 +8839,12 @@ function onDepartureChanged() {
 
 function wireCollapsible(toggleId, bodyId) {
   var toggle = $(toggleId), body = $(bodyId);
+  toggle.setAttribute('aria-controls', bodyId);
+  toggle.setAttribute('aria-expanded', body.classList.contains('hidden') ? 'false' : 'true');
   toggle.addEventListener('click', function () {
     var isHidden = body.classList.contains('hidden');
-    if (isHidden) { showEl(body); toggle.classList.add('open'); }
-    else { hideEl(body); toggle.classList.remove('open'); }
+    if (isHidden) { showEl(body); toggle.classList.add('open'); toggle.setAttribute('aria-expanded', 'true'); }
+    else { hideEl(body); toggle.classList.remove('open'); toggle.setAttribute('aria-expanded', 'false'); }
   });
 }
 

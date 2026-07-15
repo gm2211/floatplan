@@ -120,11 +120,21 @@ assert.ok(html.includes('if (observedWindIsFresh(w, nowMs))'), 'comparison must 
 assert.ok(html.includes('valueAtMs(state.gridSeries.windSpeedKt, compareAtMs)'), 'comparison must use the NWS wind interval covering the observation time');
 assert.ok(html.includes('valueAtMs(state.gridSeries.windGustKt, compareAtMs)'), 'comparison must use the NWS gust interval covering the observation time');
 assert.ok(html.includes('observed-comparison-status is-warning') || html.includes("cls: 'is-warning'"), 'above status needs a warning class');
-assert.ok(html.includes("within: { text: 'within forecast', cls: 'is-positive' }"));
-assert.ok(html.includes("below: { text: 'below forecast', cls: 'is-positive' }"));
-assert.ok(html.includes("unavailable: { text: 'comparison unavailable', cls: 'is-neutral' }"));
-assert.ok(html.includes('min-width: 140px; min-height: 22px'), 'comparison slot must reserve stable dimensions');
+assert.ok(html.includes("above: { text: 'Above forecast', cls: 'is-warning' }"));
+assert.ok(html.includes("within: { text: 'Within forecast', cls: 'is-positive' }"));
+assert.ok(html.includes("below: { text: 'Below forecast', cls: 'is-positive' }"));
+assert.ok(html.includes("unavailable: { text: 'Forecast unavailable', cls: 'is-neutral' }"));
+assert.ok(html.includes('white-space: nowrap'), 'comparison cue and readings must not wrap');
+assert.ok(html.includes('.observed-comparison-status::before'), 'comparison cue must use a restrained status dot');
+assert.ok(html.includes('@container (max-width: 450px)'), 'wind row must stack before the known 436–503px failure band');
+assert.ok(html.includes('overflow-x: auto'), 'compact current controls must remain usable at 320/375/435/475px widths');
 assert.ok(html.includes("'<span class=\"observed-wind-meta\">' + comparisonBadge"), 'unavailable readings must retain the comparison/meta row');
+assert.ok(!html.includes('<span class="observed-wind-station">Wind &middot; '), 'selected station must not be repeated below its selector');
+assert.ok(html.includes('class="observed-footer"'), 'More and Sources must share a restrained footer');
+assert.ok(html.includes('aria-expanded="false" aria-controls="observedMoreBody"'), 'More control must expose its collapsed state');
+assert.ok(html.includes("chip.setAttribute('aria-pressed', selected ? 'true' : 'false')"), 'station selectors must expose their selected state');
+assert.ok(html.includes('grid-template-areas: "label value" ". meta"'), 'current states must reserve identical label/value/meta geometry');
+assert.ok(html.includes('class="observed-current-meta" aria-hidden="true">&nbsp;</span>'), 'current states without timestamps must preserve the metadata row');
 assert.ok(html.includes('Robbins Reef NOAA</a>'), 'Robbins Reef source must remain linked');
 assert.ok(html.includes('Willy Wall Wunderground</a>'), 'the original station page must remain linked');
 
