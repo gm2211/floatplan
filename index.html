@@ -2274,7 +2274,12 @@ var SAIL_COURSE_BEARING_N = 11, SAIL_COURSE_BEARING_S = 183;
 var SAIL_BEATING_THRESHOLD_DEG = 50;
 var SAIL_RUNNING_THRESHOLD_DEG = 150;
 var SAIL_STEP_MS = 60000;
-var SAIL_TURN_TOL_MIN = 2;
+var SAIL_HOME_TOLERANCE_NM = 0.05;
+// Operationally meaningful round trips need time on both legs. The return reserve is
+// separate from SAIL_RETURN_MARGIN_MS: this is sailed inbound time before the boat is
+// moored; the margin remains untouched after arrival.
+var SAIL_MIN_OUTBOUND_LEG_MS = 10 * 60000;
+var SAIL_MIN_RETURN_LEG_MS = 15 * 60000;
 var NM_PER_DEG_LAT = 60;
 // Solve the turn-around so the boat is back on the mooring this long BEFORE the window
 // ends — the schedule buffer for slow tacks, dying wind, or a foul-current surprise.
@@ -2520,38 +2525,60 @@ function simulateRoundTrip(departureMs, returnMs, turnMs, startLat, headingSign,
   return { outPath: outPath, inPath: inPath, finalLat: inPath.length ? inPath[inPath.length - 1].lat : midLat };
 }
 
-// Binary search for the turn-around instant that lands the boat back at startLat within
-// SAIL_TURN_TOL_MIN minutes-of-travel of returnMs. finalLat(turnMs) is monotonic in turnMs
-// (extending the outbound leg always shifts the final position further toward headingSign —
-// the derivative w.r.t. the moving boundary is 2*headingSign*vmg(turnMs), constant sign,
-// motor or sail) so a standard bracket-and-bisect applies. When the domain endpoints don't
-// bracket a root (current too strong to ever get home in time), clamps to whichever endpoint
-// is closer and reports converged:false so the caller can surface a warning.
+// Solve the latest turn that still reaches Pier 25 by `returnMs` (the arrival target, already
+// reduced by the mooring buffer). The 2-D integrator includes hourly wind/current changes and
+// maneuver losses, so the old assumption that finalLat(turnMs) is globally monotonic is not
+// reliable. Sample the full turn domain at the integration cadence, find the last safe-to-
+// unsafe crossing, then refine only that local bracket. If even an immediate turn cannot get
+// home, return departure with converged:false; choosing the "least bad" late endpoint would
+// fabricate a 0-minute return leg and is physically meaningless.
 function findTurnAroundMs(departureMs, returnMs, startLat, headingSign, curvePoints, windDirSeries, windSpeedSeries, boatSpeedKt, stepMs, motorFirstLeg, motorSpeedKt) {
   function errNm(turnMs) {
     var rt = simulateRoundTrip(departureMs, returnMs, turnMs, startLat, headingSign, curvePoints, windDirSeries, windSpeedSeries, boatSpeedKt, stepMs, motorFirstLeg, motorSpeedKt);
     return (rt.finalLat - startLat) * NM_PER_DEG_LAT;
   }
-  function errTimeMin(errNmVal) { return boatSpeedKt > 0 ? Math.abs(errNmVal) / boatSpeedKt * 60 : Infinity; }
+  function outboundSideError(err) { return headingSign * err; }
 
-  var lo = departureMs, hi = returnMs;
-  var fLo = errNm(lo), fHi = errNm(hi);
+  var cadence = Math.max(60000, stepMs || SAIL_STEP_MS);
+  var firstTurnMs = departureMs + SAIL_MIN_OUTBOUND_LEG_MS;
+  var lastTurnMs = returnMs - SAIL_MIN_RETURN_LEG_MS;
+  if (lastTurnMs < firstTurnMs) {
+    return { turnMs: departureMs, converged: false, errNm: errNm(departureMs), reason: 'window_too_short' };
+  }
+  var samples = [];
+  for (var t = firstTurnMs; t < lastTurnMs; t += cadence) samples.push({ ms: t, errNm: errNm(t) });
+  samples.push({ ms: lastTurnMs, errNm: errNm(lastTurnMs) });
 
-  if (errTimeMin(fLo) <= SAIL_TURN_TOL_MIN) return { turnMs: lo, converged: true, errNm: fLo };
-  if (errTimeMin(fHi) <= SAIL_TURN_TOL_MIN) return { turnMs: hi, converged: true, errNm: fHi };
-  if ((fLo > 0) === (fHi > 0)) {
-    var clampLo = Math.abs(fLo) <= Math.abs(fHi);
-    return { turnMs: clampLo ? lo : hi, converged: false, errNm: clampLo ? fLo : fHi };
+  var exact = null, bracketIdx = -1;
+  for (var i = 0; i < samples.length; i++) {
+    if (Math.abs(samples[i].errNm) <= SAIL_HOME_TOLERANCE_NM) exact = samples[i];
+    // Negative means the simulated return reached/passed the mooring instead of remaining
+    // on the outbound side. Keep the latest safe-to-unsafe crossing across the WHOLE domain;
+    // wind shifts can create more than one local crossing.
+    if (i < samples.length - 1 && outboundSideError(samples[i].errNm) <= 0 &&
+        outboundSideError(samples[i + 1].errNm) > 0) bracketIdx = i;
+  }
+  if (bracketIdx < 0) {
+    if (exact) return { turnMs: exact.ms, converged: true, errNm: exact.errNm, reason: null };
+    return { turnMs: departureMs, converged: false, errNm: errNm(departureMs), reason: 'cannot_return' };
   }
 
-  var mid = lo, fMid = fLo;
-  for (var i = 0; i < 40; i++) {
+  var safe = samples[bracketIdx];
+  var unsafe = samples[bracketIdx + 1];
+
+  var lo = safe.ms, hi = unsafe.ms, fLo = safe.errNm, mid = lo, fMid = fLo;
+  var best = { ms: lo, errNm: fLo };
+  for (var k = 0; k < 36; k++) {
     mid = (lo + hi) / 2;
     fMid = errNm(mid);
-    if (errTimeMin(fMid) <= SAIL_TURN_TOL_MIN) break;
-    if ((fMid > 0) === (fHi > 0)) { hi = mid; fHi = fMid; } else { lo = mid; fLo = fMid; }
+    if (Math.abs(fMid) < Math.abs(best.errNm)) best = { ms: mid, errNm: fMid };
+    if (Math.abs(fMid) <= SAIL_HOME_TOLERANCE_NM || hi - lo <= 1000) break;
+    if (outboundSideError(fMid) <= 0) { lo = mid; fLo = fMid; } else { hi = mid; }
   }
-  return { turnMs: mid, converged: true, errNm: fMid };
+  return {
+    turnMs: best.ms, converged: Math.abs(best.errNm) <= SAIL_HOME_TOLERANCE_NM,
+    errNm: best.errNm, reason: Math.abs(best.errNm) <= SAIL_HOME_TOLERANCE_NM ? null : 'no_root'
+  };
 }
 
 // Top-level entry point: full departure->return path (outbound + inbound stitched at the
@@ -2661,14 +2688,21 @@ function computeSailSim(departureMs, returnMs, curvePoints, windDirSeries, windS
   var path = limited
     ? limited.outPath.concat(limited.holdPath.slice(1), limited.inPath.slice(1))
     : rt.outPath.concat(rt.inPath.slice(1));
+  var arrivalPoint = path.length ? path[path.length - 1] : null;
+  var finalHomeErrNm = arrivalPoint ? (arrivalPoint.lat - PIER25.lat) * NM_PER_DEG_LAT : Infinity;
+  var hasRealReturnLeg = arriveByMs - effectiveTurnMs >= SAIL_MIN_RETURN_LEG_MS;
+  var roundTripConverged = turn.converged && hasRealReturnLeg && Math.abs(finalHomeErrNm) <= SAIL_HOME_TOLERANCE_NM;
+  var turnReason = turn.reason || null;
+  if (!roundTripConverged && !turnReason) turnReason = hasRealReturnLeg ? 'missed_mooring' : 'return_leg_too_short';
   // Moored tail: hold position from arrival to the window end so playback/scrubber still
   // cover the whole window and the margin is visible as the boat sitting at the mooring.
   if (returnMs > arriveByMs && path.length) {
     var arrivedLat = path[path.length - 1].lat;
+    var tailMode = roundTripConverged ? 'moored' : 'overdue';
     path.push({
       ms: returnMs, lat: arrivedLat, crossNm: 0, sog: 0, c: currentVelocityAt(curvePoints, returnMs),
-      courseType: 'moored', side: 0, vmg: 0, lateralKt: 0, throughWaterKt: 0,
-      headingDeg: SAIL_COURSE_BEARING_N, maneuver: null, mode: 'moored'
+      courseType: tailMode, side: 0, vmg: 0, lateralKt: 0, throughWaterKt: 0,
+      headingDeg: SAIL_COURSE_BEARING_N, maneuver: null, mode: tailMode
     });
   }
 
@@ -2682,7 +2716,7 @@ function computeSailSim(departureMs, returnMs, curvePoints, windDirSeries, windS
   return {
     headingSign: headingSign, boatSpeedKt: boatKt, motorSpeedKt: motorKt, motorFirstLeg: useMotor,
     turnMs: effectiveTurnMs, boundaryArrivalMs: limited ? limited.boundaryArrivalMs : null,
-    converged: turn.converged, turnErrNm: turn.errNm,
+    converged: roundTripConverged, turnErrNm: finalHomeErrNm, turnReason: turnReason,
     departureMs: departureMs, returnMs: returnMs, arriveByMs: arriveByMs, path: path,
     furthestLandmark: furthest.name, furthestDistNm: maxDistNm,
     furthestLabel: furthestPointLabel(maxDistLat, maxDistNm), maxDistLat: maxDistLat
@@ -3131,17 +3165,23 @@ function layoutBandLabels(items, rowDy) {
   return items;
 }
 
-// The three sail-window tick labels ("start"/"turn"/"back") shared by every time-based
-// chart (item 6). turnMs falls back to the window midpoint when the sail simulator hasn't
-// produced a turn-around time yet (still loading, or no direction rec) so the tick always
-// renders instead of silently disappearing. xFn: the chart's own ms -> viewBox-x mapper.
-function buildSailWindowTicks(departureMs, turnMs, returnMs, xFn) {
+// Sail-window status labels shared by every time-based chart. Valid plans distinguish the
+// computed turn, moored-by target, and end of the safety buffer. Failed plans explicitly say
+// "no feasible turn" and "return target" instead of drawing a fallback turn as a plan.
+function buildSailWindowTicks(departureMs, turnMs, returnMs, xFn, arriveByMs, converged) {
   var effTurnMs = (turnMs != null && isFinite(turnMs)) ? turnMs : (departureMs + returnMs) / 2;
-  return [
-    { ms: departureMs, x: xFn(departureMs), text: 'start ' + fmtTime(departureMs) },
-    { ms: effTurnMs, x: xFn(effTurnMs), text: 'turn ' + fmtTime(effTurnMs) },
-    { ms: returnMs, x: xFn(returnMs), text: 'back ' + fmtTime(returnMs) }
-  ];
+  var targetMs = arriveByMs != null && isFinite(arriveByMs) ? arriveByMs : returnMs;
+  var ticks = [{ kind: 'start', ms: departureMs, x: xFn(departureMs), text: 'start ' + fmtTime(departureMs) }];
+  if (converged === false) {
+    var statusMs = (departureMs + targetMs) / 2;
+    ticks.push({ kind: 'no feasible turn', ms: statusMs, x: xFn(statusMs), text: 'no feasible turn', guide: false });
+  } else {
+    ticks.push({ kind: 'turn', ms: effTurnMs, x: xFn(effTurnMs), text: 'turn ' + fmtTime(effTurnMs) });
+  }
+  ticks.push({ kind: converged === false ? 'return target' : 'moored', ms: targetMs, x: xFn(targetMs),
+    text: (converged === false ? 'return target ' : 'moored ') + fmtTime(targetMs) });
+  if (targetMs < returnMs) ticks.push({ kind: 'end', ms: returnMs, x: xFn(returnMs), text: 'end ' + fmtTime(returnMs) });
+  return ticks;
 }
 
 /* ============================== Current + water level timeline SVG ============================== */
@@ -3265,8 +3305,10 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
       color: e.type === 'flood' ? flood : (e.type === 'ebb' ? ebb : inkDim)
     };
   });
-  var turnMsForTicks = (state.sailSim && state.sailSim.turnMs != null && isFinite(state.sailSim.turnMs)) ? state.sailSim.turnMs : null;
-  var windowTickItems = buildSailWindowTicks(departureMs, turnMsForTicks, returnMs, x);
+  var tickSim = state.sailSim;
+  var turnMsForTicks = (tickSim && tickSim.turnMs != null && isFinite(tickSim.turnMs)) ? tickSim.turnMs : null;
+  var windowTickItems = buildSailWindowTicks(departureMs, turnMsForTicks, returnMs, x,
+    tickSim ? tickSim.arriveByMs : null, tickSim ? tickSim.converged : null);
   var nowX = (nowMs >= domStart && nowMs <= domEnd) ? x(nowMs) : null;
   var nowItem = nowX != null ? { x: nowX, text: 'now' } : null;
   var topLabelItems = slackLabelItems.concat(windowTickItems);
@@ -3283,7 +3325,7 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
 
   // Guide lines render early (behind the data curves); their labels render late (with the
   // other markers) so curve strokes crossing the top band never paint over the label text.
-  var windowTickGuides = windowTickItems.map(function (it) {
+  var windowTickGuides = windowTickItems.filter(function (it) { return it.guide !== false; }).map(function (it) {
     return '<line x1="' + it.x.toFixed(1) + '" y1="' + padT + '" x2="' + it.x.toFixed(1) + '" y2="' + (H - padB) + '" stroke="' + inkDim + '" stroke-width="1" stroke-dasharray="2,2" stroke-opacity="0.35"/>';
   }).join('');
   var windowTickLabels = windowTickItems.map(function (it) {
@@ -3523,9 +3565,8 @@ function setupSailSimControls(sim) {
   sailSimUI.rate = sailPlaybackRate(sim);
 
   if (sim.converged === false) {
-    $('sailSimWarning').textContent = 'Predicted wind + current leave no turn-around that gets you moored ' +
-      Math.round(SAIL_RETURN_MARGIN_MS / 60000) + ' min before the window ends (boat speed capped at ' +
-      round1(sim.boatSpeedKt) + ' kt) — shorten the sail or shift departure.';
+    $('sailSimWarning').textContent = 'No feasible round trip reaches Pier 25 by ' + fmtTime(sim.arriveByMs) +
+      ' with the ' + Math.round(SAIL_RETURN_MARGIN_MS / 60000) + '-minute mooring buffer. The simulator will not invent a late turn. Shorten the sail or shift departure.';
     showEl($('sailSimWarning'));
   } else {
     hideEl($('sailSimWarning'));
@@ -3592,11 +3633,14 @@ function renderSailSimSvg(sim, atMs) {
       '" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="3,2"/>';
   }
 
-  // Turn-around marker: fixed on the strip once computed, independent of playback position.
-  var turnLat = sailValueAt(sim.path, sim.turnMs, 'lat');
-  var turnY = y(turnLat);
-  svg += '<polygon points="' + (chX0 - 7) + ',' + turnY.toFixed(1) + ' ' + (chX0 - 1) + ',' + (turnY - 4).toFixed(1) +
-    ' ' + (chX0 - 1) + ',' + (turnY + 4).toFixed(1) + '" fill="var(--violet)"/>';
+  // A failed solve has no actionable turn. Keep its diagnostic path, but do not draw the
+  // fallback instant as though it were a valid maneuver.
+  if (sim.converged !== false) {
+    var turnLat = sailValueAt(sim.path, sim.turnMs, 'lat');
+    var turnY = y(turnLat);
+    svg += '<polygon points="' + (chX0 - 7) + ',' + turnY.toFixed(1) + ' ' + (chX0 - 1) + ',' + (turnY - 4).toFixed(1) +
+      ' ' + (chX0 - 1) + ',' + (turnY + 4).toFixed(1) + '" fill="var(--violet)"/>';
+  }
 
   // Current arrows: 2-3 fixed positions along the strip, length proportional to |c(t)|.
   var curKt = sailValueAt(sim.path, atMs, 'c');
@@ -3703,16 +3747,23 @@ function renderSailSimReadouts(sim, atMs) {
   var distNm = lat == null ? null : (lat - PIER25.lat) * NM_PER_DEG_LAT;
   var distLabel = distNm == null ? '--' : (round1(Math.abs(distNm)) + ' nm ' + (distNm >= 0 ? 'N' : 'S') + ' of Pier 25');
   // Item 1c: furthestLabel is already the landmark-or-area phrase computed in computeSailSim.
-  var furthestLabel = sim.furthestLabel + (sim.boundaryArrivalMs != null
-    ? ' · limit ' + fmtTime(sim.boundaryArrivalMs) + ' · head home ' + fmtTime(sim.turnMs)
-    : ' · turn ' + fmtTime(sim.turnMs)) +
-    (sim.arriveByMs != null && sim.arriveByMs < sim.returnMs ? ' · moored ' + fmtTime(sim.arriveByMs) : '');
+  var furthestLabel;
+  if (sim.converged === false) {
+    furthestLabel = 'No feasible round trip · return target ' + fmtTime(sim.arriveByMs) +
+      (isFinite(sim.turnErrNm) ? ' · miss ' + round1(Math.abs(sim.turnErrNm)) + ' nm' : '');
+  } else {
+    furthestLabel = sim.furthestLabel + (sim.boundaryArrivalMs != null
+      ? ' · limit ' + fmtTime(sim.boundaryArrivalMs) + ' · head home ' + fmtTime(sim.turnMs)
+      : ' · turn ' + fmtTime(sim.turnMs)) +
+      (sim.arriveByMs != null && sim.arriveByMs < sim.returnMs ? ' · moored ' + fmtTime(sim.arriveByMs) : '');
+  }
   var step = sailStepAt(sim.path, atMs);
   var modeLabel = (step && step.mode) ? step.mode.toUpperCase() : (sim.motorFirstLeg ? 'MOTOR' : 'SAIL');
   var courseLabel = '--';
   if (step) {
     if (step.mode === 'motor') courseLabel = 'Under power';
     else if (step.mode === 'hold') courseLabel = 'Holding · short tacks';
+    else if (step.mode === 'overdue') courseLabel = 'Return target missed';
     else if (step.courseType === 'tack') courseLabel = 'Beating · ' + (step.side < 0 ? 'port' : 'starboard') + ' tack';
     else if (step.courseType === 'jibe') courseLabel = 'Broad reach · ' + (step.side < 0 ? 'port' : 'starboard') + ' jibe';
     else courseLabel = 'Direct reach on river course';
@@ -4349,17 +4400,19 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
   function xToMs(px) { return domStart + (px - padL) / (W - padL - padR) * (domEnd - domStart); }
   var accent = 'var(--accent)', inkDim = 'var(--ink-dim)';
 
-  var turnMsForTicks = (state.sailSim && state.sailSim.turnMs != null && isFinite(state.sailSim.turnMs)) ? state.sailSim.turnMs : null;
-  var windowTickItems = buildSailWindowTicks(departureMs, turnMsForTicks, returnMs, x);
-  windowTickItems.forEach(function (it, idx) {
-    it.event = idx === 0 ? 'START' : (idx === 1 ? 'TURN' : 'BACK');
-    it.time = fmtTime(it.ms);
+  var tickSim = state.sailSim;
+  var turnMsForTicks = (tickSim && tickSim.turnMs != null && isFinite(tickSim.turnMs)) ? tickSim.turnMs : null;
+  var windowTickItems = buildSailWindowTicks(departureMs, turnMsForTicks, returnMs, x,
+    tickSim ? tickSim.arriveByMs : null, tickSim ? tickSim.converged : null);
+  windowTickItems.forEach(function (it) {
+    it.event = it.kind.toUpperCase();
+    it.time = it.kind === 'no feasible turn' ? '' : fmtTime(it.ms);
   });
   var nowX = (nowMs >= domStart && nowMs <= domEnd) ? x(nowMs) : null;
   var nowItem = nowX != null ? { x: nowX, event: 'NOW', time: '', isNow: true } : null;
   var windMarkerItems = nowItem ? windowTickItems.concat([nowItem]) : windowTickItems;
   layoutWindMarkerLabels(windMarkerItems, padL, W - padR);
-  var windowTickGuides = windowTickItems.map(function (it) {
+  var windowTickGuides = windowTickItems.filter(function (it) { return it.guide !== false; }).map(function (it) {
     return '<line x1="' + it.x.toFixed(1) + '" y1="' + padT + '" x2="' + it.x.toFixed(1) + '" y2="' + (H - padB) + '" stroke="' + inkDim + '" stroke-width="1" stroke-dasharray="2,2" stroke-opacity="0.35"/>';
   }).join('');
   var windowTickLabels = windMarkerLabelsHtml(windMarkerItems, 10, 25, inkDim, accent);
@@ -6426,6 +6479,9 @@ function saveFloatPlanFields() {
 // the first slack inside the window (the natural place to turn on the Hudson), else the
 // window midpoint.
 function computeTurnaroundMs(departureMs, returnMs) {
+  // Once the simulator has positively rejected the round trip, do not replace that result
+  // with a slack or midpoint that looks like a computed, feasible turn.
+  if (state.sailSim && state.sailSim.converged === false) return null;
   if (state.sailSim && state.sailSim.turnMs != null && isFinite(state.sailSim.turnMs)) return state.sailSim.turnMs;
   var slack = (state.slackEvents || []).find(function (e) {
     return e.type === 'slack' && e.ms > departureMs && e.ms < returnMs;
@@ -7059,6 +7115,7 @@ function buildPlanNarrativeContext() {
 
     var depDay = getNYParts(departureMs);
     var twilight = twilightTimes(Date.UTC(depDay.y, depDay.m - 1, depDay.d), PIER25.lat, PIER25.lon);
+    var turnaroundMs = computeTurnaroundMs(departureMs, returnMs);
 
     return {
       departure: fmtDateTime(departureMs),
@@ -7078,7 +7135,7 @@ function buildPlanNarrativeContext() {
       tideEvents: tideEvents,
       advisories: advisories,
       sunset: twilight.sunsetMs != null ? fmtTime(twilight.sunsetMs) : null,
-      turnaroundTime: fmtTime(computeTurnaroundMs(departureMs, returnMs)),
+      turnaroundTime: turnaroundMs != null ? fmtTime(turnaroundMs) : null,
       precipSummary: precipWindowSummaryLine(departureMs, returnMs),
       vessel: {
         name: getVesselDisplayName(),
