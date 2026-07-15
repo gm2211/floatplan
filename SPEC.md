@@ -71,6 +71,8 @@ Logic over current predictions within the window:
 - X axis: from 2 h before departure to ~2 h after return (min 8 h span). Y: current speed in kt, flood positive (up), ebb negative (down).
 - Smooth path from fine-interval predictions; zero line labeled "slack"; shaded vertical band = sail window; markers for slack / max flood / max ebb with time labels; "now" line.
 - Colors: flood one hue, ebb another; readable in both themes.
+- Remote observation context: show independent 24-hour measured-current histories for Kill Van Kull LB 14 (`n06010`, flood axis 255°) and The Narrows (`n03020`, flood axis 324°). These are reference stations only and never replace the Hudson prediction in planning or simulation. NOAA no-data/QC withholding is shown as unavailable, never filled or fabricated.
+- A compact locator map shows Pier 25 plus the exact Kill Van Kull (40.64358, -74.13889) and The Narrows (40.60639953613281, -74.03800201416016) sensor positions.
 
 ## Wind panel
 

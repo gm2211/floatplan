@@ -48,6 +48,7 @@
   --ebb: #b5562f;
   --violet: #7c3aed;
   --measured-current: #b83280;
+  --narrows-current: #9a4a12;
   --shadow: 0 1px 3px rgba(20,32,43,0.10), 0 1px 2px rgba(20,32,43,0.08);
   --track: #e5ddc8;
   --bg-inset: #0d1b26;
@@ -73,6 +74,7 @@
   --ebb: #e08a5f;
   --violet: #c4b5fd;
   --measured-current: #f08bd6;
+  --narrows-current: #f4b36f;
   --shadow: 0 1px 4px rgba(0,0,0,0.5);
   --track: #1a2c3c;
   --bg-inset: #060d16;
@@ -272,6 +274,10 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .chart-legend .swatch { display: inline-block; width: 16px; height: 3px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
 .chart-legend .swatch-current { background: linear-gradient(90deg, var(--flood) 50%, var(--ebb) 50%); }
 .chart-legend .swatch-measured-current { background: var(--measured-current); }
+.chart-legend .swatch-narrows-current {
+  height: 0; background: none; border-top: 2px dashed var(--narrows-current); border-radius: 0;
+}
+.chart-legend .legend-status { color: var(--ink-dim); font-size: 10px; }
 .chart-legend .swatch-pred { background: var(--navy); }
 .chart-legend .swatch-obs { background: var(--violet); }
 .timeline-mode-row { margin-bottom: 10px; }
@@ -487,6 +493,25 @@ th { color: var(--ink-dim); font-weight: 600; }
   width: 257px !important;
   height: 257px !important;
 }
+.timeline-sensor-map-section { margin-top: 10px; }
+.timeline-sensor-map-heading {
+  margin-bottom: 5px; color: var(--ink-dim); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+.timeline-sensor-map {
+  width: 100%; height: 132px; border: 1px solid var(--border); border-radius: 9px;
+  overflow: hidden; isolation: isolate; background: var(--bg-inset, #0b1622);
+}
+.timeline-sensor-map .timeline-sensor-base-tiles .leaflet-tile {
+  width: 257px !important;
+  height: 257px !important;
+}
+.timeline-sensor-map .leaflet-tooltip {
+  padding: 2px 5px; border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg-card); color: var(--ink); box-shadow: none; font: 9px/1.2 system-ui, sans-serif;
+}
+.timeline-sensor-map .leaflet-tooltip:before { display: none; }
+.timeline-sensor-map .leaflet-control-attribution { font-size: 7px; line-height: 1.2; }
 .radar-map .leaflet-control-recenter button {
   width: 30px; height: 30px; padding: 0; border: 0; border-radius: 2px;
   background: var(--card); color: var(--ink); font: 18px/30px system-ui, sans-serif;
@@ -1074,9 +1099,14 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     <div class="svg-wrap" id="timelineSvgWrap"></div>
     <div class="chart-legend" id="timelineLegend">
       <span><span class="swatch swatch-current"></span>predicted current</span>
-      <span class="hidden" id="timelineLegendMeasuredCurrent"><span class="swatch swatch-measured-current"></span>observed current &middot; Kill Van Kull (remote)</span>
+      <span id="timelineLegendKvk"><span class="swatch swatch-measured-current"></span>Kill Van Kull <span class="legend-status" id="timelineLegendKvkStatus">&middot; unavailable</span></span>
+      <span id="timelineLegendNarrows"><span class="swatch swatch-narrows-current"></span>The Narrows <span class="legend-status" id="timelineLegendNarrowsStatus">&middot; unavailable</span></span>
       <span class="timeline-water-legend hidden"><span class="swatch swatch-pred"></span>predicted water level</span>
       <span class="timeline-water-legend hidden" id="timelineLegendObs"><span class="swatch swatch-obs"></span>observed water level</span>
+    </div>
+    <div class="timeline-sensor-map-section">
+      <div class="timeline-sensor-map-heading">Remote current sensor locations</div>
+      <div class="timeline-sensor-map" id="timelineSensorMap" role="img" aria-label="Map showing Pier 25, Kill Van Kull LB 14, and The Narrows current sensors"></div>
     </div>
     <div class="chart-footnote hidden" id="timelineObsFootnote">Observed water level appears once the window includes elapsed time.</div>
     <div class="card-error hidden" id="timelineError"></div>
@@ -1084,9 +1114,9 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     <details class="source-links"><summary>Sources</summary><div class="source-links-body">
       <div class="source-links-notes">
         <div class="chart-footnote" id="timelineCurrentCompare"></div>
-        <div class="chart-footnote">Predicted current: Hudson River Entrance (NYH1927) &middot; observed current: Kill Van Kull LB 14 remote harbor reference, not Pier 25 &middot; water level: The Battery (8518750)</div>
+        <div class="chart-footnote">Predicted current: Hudson River Entrance (NYH1927) &middot; observed currents: Kill Van Kull LB 14 and The Narrows remote harbor references, not Pier 25 &middot; water level: The Battery (8518750)</div>
       </div>
-      <a id="srcTimelineCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">Current prediction</a><a id="srcTimelineKvk" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n06010" target="_blank" rel="noopener noreferrer">Kill Van Kull LB 14 observed current</a><a id="srcTimelineLevelPredicted" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Water-level prediction</a><a id="srcTimelineLevelObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Measured water level</a>
+      <a id="srcTimelinePorts" href="https://tidesandcurrents.noaa.gov/ports/index.html?port=ny" target="_blank" rel="noopener noreferrer">NY/NJ PORTS map</a><a id="srcTimelineCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">Current prediction</a><a id="srcTimelineKvk" href="https://tidesandcurrents.noaa.gov/cdata/DataPlot?id=n06010&amp;view=data" target="_blank" rel="noopener noreferrer">Kill Van Kull observed current</a><a id="srcTimelineNarrows" href="https://tidesandcurrents.noaa.gov/cdata/DataPlot?id=n03020&amp;view=data" target="_blank" rel="noopener noreferrer">The Narrows observed current</a><a id="srcTimelineLevelPredicted" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Water-level prediction</a><a id="srcTimelineLevelObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Measured water level</a>
     </div></details>
   </section>
 
@@ -1348,6 +1378,7 @@ var STATION_KVK_CURRENT = 'n06010'; // Kill Van Kull LB 14 — live meter, diffe
 var STATION_NEWARK_CURRENT = 'n07010'; // Newark Bay Entrance LB 18, live PORTS current meter.
 var STATION_NARROWS_CURRENT = 'n03020'; // The Narrows, active PORTS station; may report no live sample.
 var KVK_FLOOD_AXIS_DEG = 255; // LB 14 flood runs toward 255°; positive chart values mean flood-axis flow.
+var NARROWS_FLOOD_AXIS_DEG = 324; // The Narrows flood runs toward 324°; positive means its local flood axis.
 var MEASURED_CURRENT_HISTORY_HOURS = 24;
 var MEASURED_CURRENT_GAP_MS = 15 * 60000;
 var KJRB_OBS_URL = 'https://api.weather.gov/stations/KJRB/observations/latest'; // Wall St Heliport.
@@ -1391,6 +1422,10 @@ var STORM_WARNING_RE = /^(Tornado Warning|Severe Thunderstorm Warning|Special Ma
 // from filling the map with irrelevant cells. Individual scans are still freshness-checked.
 var NORTHEAST_STORM_DOMAIN = { south: 37.0, west: -82.5, north: 47.5, east: -65.0 };
 var PIER25 = { lat: 40.7203, lon: -74.0135 };
+var CURRENT_SENSOR_LOCATIONS = {
+  kvk: { name: 'Kill Van Kull LB 14', lat: 40.64358, lon: -74.13889 },
+  narrows: { name: 'The Narrows', lat: 40.60639953613281, lon: -74.03800201416016 }
+};
 var DEFAULT_RADAR_ZOOM = 10;
 var KT_PER_MPH = 0.868976;
 var COMPASS16 = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
@@ -1882,6 +1917,9 @@ function buildMeasuredCurrentHistoryUrl(station, nowMs, rangeHours) {
 function buildKvkCurrentHistoryUrl(nowMs) {
   return buildMeasuredCurrentHistoryUrl(STATION_KVK_CURRENT, nowMs, MEASURED_CURRENT_HISTORY_HOURS);
 }
+function buildNarrowsCurrentHistoryUrl(nowMs) {
+  return buildMeasuredCurrentHistoryUrl(STATION_NARROWS_CURRENT, nowMs, MEASURED_CURRENT_HISTORY_HOURS);
+}
 function parseMeasuredCurrentRow(row) {
   if (!row) return null;
   var speedKt = row.s != null ? parseFloat(row.s) : null;
@@ -1905,13 +1943,19 @@ function projectCurrentAlongAxis(speedKt, dirDeg, axisDeg) {
       !isFinite(speedKt) || !isFinite(dirDeg) || !isFinite(axisDeg)) return null;
   return speedKt * Math.cos((dirDeg - axisDeg) * Math.PI / 180);
 }
-function projectKvkCurrentSeries(points) {
+function projectMeasuredCurrentSeries(points, floodAxisDeg) {
   return (points || []).map(function (p) {
-    var v = projectCurrentAlongAxis(p.speedKt, p.dirDeg, KVK_FLOOD_AXIS_DEG);
+    var v = projectCurrentAlongAxis(p.speedKt, p.dirDeg, floodAxisDeg);
     return v == null ? null : { ms: p.ms, v: v, speedKt: p.speedKt, dirDeg: p.dirDeg, bin: p.bin };
   }).filter(function (p) {
     return p && p.ms != null && isFinite(p.ms) && p.v != null && isFinite(p.v);
   }).sort(function (a, b) { return a.ms - b.ms; });
+}
+function projectKvkCurrentSeries(points) {
+  return projectMeasuredCurrentSeries(points, KVK_FLOOD_AXIS_DEG);
+}
+function projectNarrowsCurrentSeries(points) {
+  return projectMeasuredCurrentSeries(points, NARROWS_FLOOD_AXIS_DEG);
 }
 function buildMeasuredCurrentSegments(points, nowMs, gapMs) {
   var cutoff = nowMs != null && isFinite(nowMs) ? nowMs : Date.now();
@@ -1959,6 +2003,9 @@ function fetchMeasuredCurrentHistory(station, label, nowMs, rangeHours) {
 }
 function fetchKvkCurrentHistory(nowMs) {
   return fetchMeasuredCurrentHistory(STATION_KVK_CURRENT, 'Kill Van Kull LB 14', nowMs, MEASURED_CURRENT_HISTORY_HOURS);
+}
+function fetchNarrowsCurrentHistory(nowMs) {
+  return fetchMeasuredCurrentHistory(STATION_NARROWS_CURRENT, 'The Narrows', nowMs, MEASURED_CURRENT_HISTORY_HOURS);
 }
 
 function fetchObservedScalar(product, extra) {
@@ -3471,22 +3518,31 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   function xToMs(px) { return domStart + (px - padL) / (W - padL - padR) * (domEnd - domStart); }
 
   var ptsInDomain = curvePoints.filter(function (p) { return p.ms >= domStart && p.ms <= domEnd; });
-  // NOAA does not operate a current meter at Pier 25. Keep the measured LB 14 series
-  // visibly separate as a remote harbor reference, and merge its newest standalone sample
-  // so the endpoint remains visible if the two NOAA requests land a few minutes apart.
+  // NOAA does not operate a current meter at Pier 25. Keep both PORTS observations visibly
+  // separate as remote harbor references. Merge each newest standalone sample into its
+  // history so an endpoint remains visible when the two NOAA requests land minutes apart.
+  function mergeLatestSample(history, latest) {
+    var samples = (history || []).slice();
+    if (latest && latest.ms != null && !samples.some(function (p) { return p.ms === latest.ms; })) samples.push(latest);
+    return samples;
+  }
   var kvkSamples = (state.kvkCurrentHistoryRaw || []).slice();
   var kvkLatest = state.kvkCurrentRaw;
-  if (kvkLatest && kvkLatest.ms != null && !kvkSamples.some(function (p) { return p.ms === kvkLatest.ms; })) {
-    kvkSamples.push(kvkLatest);
-  }
-  var measuredAll = projectKvkCurrentSeries(kvkSamples).filter(function (p) { return p.ms <= nowMs; });
-  var measuredInDomain = measuredAll.filter(function (p) { return p.ms >= domStart && p.ms <= domEnd; });
-  var measuredSegments = buildMeasuredCurrentSegments(measuredInDomain, nowMs, MEASURED_CURRENT_GAP_MS);
-  var latestMeasured = measuredInDomain.length ? measuredInDomain[measuredInDomain.length - 1] : null;
-  var latestMeasuredAll = measuredAll.length ? measuredAll[measuredAll.length - 1] : null;
+  kvkSamples = mergeLatestSample(kvkSamples, kvkLatest);
+  var narrowsSamples = mergeLatestSample(state.narrowsCurrentHistoryRaw, state.narrowsCurrentRaw);
+  var kvkAll = projectKvkCurrentSeries(kvkSamples).filter(function (p) { return p.ms <= nowMs; });
+  var narrowsAll = projectNarrowsCurrentSeries(narrowsSamples).filter(function (p) { return p.ms <= nowMs; });
+  var kvkInDomain = kvkAll.filter(function (p) { return p.ms >= domStart && p.ms <= domEnd; });
+  var narrowsInDomain = narrowsAll.filter(function (p) { return p.ms >= domStart && p.ms <= domEnd; });
+  var kvkSegments = buildMeasuredCurrentSegments(kvkInDomain, nowMs, MEASURED_CURRENT_GAP_MS);
+  var narrowsSegments = buildMeasuredCurrentSegments(narrowsInDomain, nowMs, MEASURED_CURRENT_GAP_MS);
+  var latestKvk = kvkInDomain.length ? kvkInDomain[kvkInDomain.length - 1] : null;
+  var latestNarrows = narrowsInDomain.length ? narrowsInDomain[narrowsInDomain.length - 1] : null;
+  var latestKvkAll = kvkAll.length ? kvkAll[kvkAll.length - 1] : null;
+  var latestNarrowsAll = narrowsAll.length ? narrowsAll[narrowsAll.length - 1] : null;
   var maxAbs = 1;
   ptsInDomain.forEach(function (p) { maxAbs = Math.max(maxAbs, Math.abs(p.v)); });
-  measuredInDomain.forEach(function (p) { maxAbs = Math.max(maxAbs, Math.abs(p.v)); });
+  kvkInDomain.concat(narrowsInDomain).forEach(function (p) { maxAbs = Math.max(maxAbs, Math.abs(p.v)); });
   maxAbs = Math.ceil((maxAbs + 0.3) * 2) / 2; // small headroom, rounded to 0.5kt
 
   function yCur(v) { return padT + (H - padT - padB) / 2 - (v / maxAbs) * ((H - padT - padB) / 2); }
@@ -3503,7 +3559,8 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   function yLvl(v) { return padT + (H - padT - padB) - (v - levelMin) / (levelMax - levelMin) * (H - padT - padB); }
 
   var flood = 'var(--flood)', ebb = 'var(--ebb)', inkDim = 'var(--ink-dim)', accent = 'var(--accent)';
-  var levelPredColor = 'var(--navy)', levelObsColor = 'var(--violet)', measuredCurrentColor = 'var(--measured-current)';
+  var levelPredColor = 'var(--navy)', levelObsColor = 'var(--violet)';
+  var kvkCurrentColor = 'var(--measured-current)', narrowsCurrentColor = 'var(--narrows-current)';
   var zeroY = yCur(0);
 
   // Split the current curve into flood/ebb-colored segments, interpolating the
@@ -3535,18 +3592,29 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
 
   // Draw only observed samples at or before now. Each discontinuity over 15 minutes starts
   // a new SVG path so a NOAA outage never looks like a measured current bridge.
-  var measuredCurrentHtml = measuredSegments.map(function (segment) {
-    if (segment.length < 2) return '';
-    var d = segment.map(function (p, i) {
-      return (i ? 'L' : 'M') + x(p.ms).toFixed(1) + ',' + yCur(p.v).toFixed(1);
-    }).join(' ');
-    return '<path d="' + d + '" fill="none" stroke="' + measuredCurrentColor + '" stroke-width="2"/>';
-  }).join('');
-  if (latestMeasured) {
-    measuredCurrentHtml += '<circle cx="' + x(latestMeasured.ms).toFixed(1) + '" cy="' + yCur(latestMeasured.v).toFixed(1) +
-      '" r="3.5" fill="' + measuredCurrentColor + '" stroke="var(--bg-card)" stroke-width="1.5"/>';
+  function observedCurrentPathHtml(seriesSegments, color, dash) {
+    return seriesSegments.map(function (segment) {
+      if (segment.length < 2) return '';
+      var d = segment.map(function (p, i) {
+        return (i ? 'L' : 'M') + x(p.ms).toFixed(1) + ',' + yCur(p.v).toFixed(1);
+      }).join(' ');
+      return '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="2"' +
+        (dash ? ' stroke-dasharray="5,3"' : '') + '/>';
+    }).join('');
   }
-  var measuredSignedKt = latestMeasuredAll ? latestMeasuredAll.v : null;
+  function observedCurrentEndpointHtml(point, color, square) {
+    if (!point) return '';
+    if (square) {
+      return '<rect x="' + (x(point.ms) - 3).toFixed(1) + '" y="' + (yCur(point.v) - 3).toFixed(1) +
+        '" width="6" height="6" rx="1" fill="' + color + '" stroke="var(--bg-card)" stroke-width="1"/>';
+    }
+    return '<circle cx="' + x(point.ms).toFixed(1) + '" cy="' + yCur(point.v).toFixed(1) +
+      '" r="3.5" fill="' + color + '" stroke="var(--bg-card)" stroke-width="1.5"/>';
+  }
+  var observedCurrentHtml = observedCurrentPathHtml(kvkSegments, kvkCurrentColor, false) +
+    observedCurrentEndpointHtml(latestKvk, kvkCurrentColor, false) +
+    observedCurrentPathHtml(narrowsSegments, narrowsCurrentColor, true) +
+    observedCurrentEndpointHtml(latestNarrows, narrowsCurrentColor, true);
 
   function levelPathD(points) {
     var d = '';
@@ -3669,7 +3737,7 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
     '<line x1="' + padL + '" y1="' + zeroY.toFixed(1) + '" x2="' + (W - padR).toFixed(1) + '" y2="' + zeroY.toFixed(1) + '" stroke="' + inkDim + '" stroke-width="1"/>' +
     '<text x="' + (padL - 4) + '" y="' + (zeroY - 3).toFixed(1) + '" font-size="9" text-anchor="end" fill="' + inkDim + '">slack</text>' +
     predPath + obsPath +
-    pathsHtml + measuredCurrentHtml +
+    pathsHtml + observedCurrentHtml +
     nowLine + markers + hiloMarkers + windowTickLabels + axisTicks + unitLabels +
     '</svg>';
 
@@ -3685,37 +3753,40 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
     el.classList.toggle('hidden', !showWater || (el.id === 'timelineLegendObs' && !hasObs));
   });
   if (obsFootnoteEl) obsFootnoteEl.classList.toggle('hidden', !showWater || hasObs);
-  var measuredLegend = $('timelineLegendMeasuredCurrent');
-  if (measuredLegend) measuredLegend.classList.toggle('hidden', measuredInDomain.length === 0);
+  var kvkLegendStatus = $('timelineLegendKvkStatus');
+  var narrowsLegendStatus = $('timelineLegendNarrowsStatus');
+  if (kvkLegendStatus) kvkLegendStatus.textContent = kvkAll.length ? (kvkInDomain.length ? '· observed' : '· outside window') : '· unavailable';
+  if (narrowsLegendStatus) narrowsLegendStatus.textContent = narrowsAll.length ? (narrowsInDomain.length ? '· observed' : '· outside window') : '· unavailable';
   var compareEl = $('timelineCurrentCompare');
   if (compareEl) {
-    if (measuredSignedKt == null || !latestMeasuredAll) {
-      compareEl.textContent = 'Kill Van Kull LB 14 observed current is unavailable. This remote harbor reference is not a Pier 25 measurement; the Hudson curve is harmonic prediction only.';
-    } else {
-      var predictedAtMeasure = currentVelocityAt(curvePoints, latestMeasuredAll.ms);
-      var measuredPhase = measuredSignedKt >= 0 ? 'flood-axis' : 'ebb-axis';
-      var predictedPhase = predictedAtMeasure == null ? 'unavailable' : ((predictedAtMeasure >= 0 ? 'north-flowing ' : 'south-flowing ') + round1(Math.abs(predictedAtMeasure)) + ' kt');
-      compareEl.textContent = 'Observed Kill Van Kull LB 14 remote harbor reference: ' + measuredPhase + ' ' +
-        round1(Math.abs(measuredSignedKt)) + ' kt at ' + fmtTime(latestMeasuredAll.ms) +
-        '; Hudson prediction then: ' + predictedPhase + '. This is not a Pier 25 measurement.';
+    function stationObservationSummary(name, latest) {
+      if (!latest) return name + ': unavailable';
+      return name + ': ' + round1(Math.abs(latest.v)) + ' kt ' + (latest.v >= 0 ? 'flood-axis' : 'ebb-axis') +
+        ' at ' + fmtTime(latest.ms);
     }
+    compareEl.textContent = stationObservationSummary('Kill Van Kull LB 14', latestKvkAll) + ' · ' +
+      stationObservationSummary('The Narrows', latestNarrowsAll) +
+      '. Both are remote harbor references, not Pier 25 measurements; the Hudson curve is harmonic prediction only.';
   }
+  updateCurrentSensorMap();
 
   var svgEl = wrapEl.querySelector('svg');
   if (svgEl) {
     attachChartScrub(svgEl, xToMs, function (ms) {
       var vCur = currentVelocityAt(curvePoints, ms);
-      var vMeasured = measuredCurrentValueAt(measuredInDomain, ms, MEASURED_CURRENT_GAP_MS);
+      var vKvk = measuredCurrentValueAt(kvkInDomain, ms, MEASURED_CURRENT_GAP_MS);
+      var vNarrows = measuredCurrentValueAt(narrowsInDomain, ms, MEASURED_CURRENT_GAP_MS);
       var vPred = showWater ? levelValueAt(levelPredictedPoints, ms) : null;
       // Observations stop at now; never extend the last measured value into the future.
       var vObs = (showWater && ms <= nowMs) ? levelValueAt(levelObservedPoints, ms) : null;
-      if (vCur == null && vMeasured == null && vPred == null && vObs == null) return null;
+      if (vCur == null && vKvk == null && vNarrows == null && vPred == null && vObs == null) return null;
       var curState = classifyCurrent(vCur);
       var phaseWord = curState === 'unknown' ? '' : (curState.charAt(0).toUpperCase() + curState.slice(1));
       var rows = [];
       rows.push('<div class="scrub-time">' + escapeHtml(fmtTime(ms)) + '</div>');
       if (vCur != null) rows.push('<div>' + escapeHtml(phaseWord) + ' ' + round1(Math.abs(vCur)) + ' kt' + (vCur !== 0 ? (vCur > 0 ? ' (N)' : ' (S)') : '') + '</div>');
-      if (vMeasured != null) rows.push('<div>Kill Van Kull LB 14 remote ref (not Pier 25) ' + round1(Math.abs(vMeasured)) + ' kt ' + (vMeasured >= 0 ? 'flood-axis' : 'ebb-axis') + '</div>');
+      if (vKvk != null) rows.push('<div>Kill Van Kull LB 14 (remote) ' + round1(Math.abs(vKvk)) + ' kt ' + (vKvk >= 0 ? 'flood-axis' : 'ebb-axis') + '</div>');
+      if (vNarrows != null) rows.push('<div>The Narrows (remote) ' + round1(Math.abs(vNarrows)) + ' kt ' + (vNarrows >= 0 ? 'flood-axis' : 'ebb-axis') + '</div>');
       if (vPred != null) rows.push('<div>Level ' + vPred.toFixed(1) + ' ft (pred)</div>');
       if (vObs != null) rows.push('<div>Level ' + vObs.toFixed(1) + ' ft (obs)</div>');
       // Pin a dot on each curve where the scrub line crosses it, matching each series'
@@ -3724,7 +3795,8 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
       var dots = [];
       var sx = x(ms);
       if (vCur != null) dots.push({ x: sx, y: yCur(vCur), color: vCur >= 0 ? flood : ebb });
-      if (vMeasured != null) dots.push({ x: sx, y: yCur(vMeasured), color: measuredCurrentColor });
+      if (vKvk != null) dots.push({ x: sx, y: yCur(vKvk), color: kvkCurrentColor });
+      if (vNarrows != null) dots.push({ x: sx, y: yCur(vNarrows), color: narrowsCurrentColor });
       if (vPred != null) dots.push({ x: sx, y: yLvl(vPred), color: levelPredColor });
       if (vObs != null) dots.push({ x: sx, y: yLvl(vObs), color: levelObsColor });
       return { html: rows.join(''), dots: dots };
@@ -6049,6 +6121,101 @@ function renderMarineText(text) {
 
 /* ============================== Radar / Leaflet ============================== */
 
+var currentSensorMapState = { map: null, baseLayer: null, markers: {}, fitted: false };
+
+function cartoBaseTileUrl() {
+  return resolvedTheme() === 'dark' ?
+    'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png' :
+    'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png';
+}
+
+function cssColor(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function latestProjectedObservation(history, latest, axisDeg) {
+  var samples = (history || []).slice();
+  if (latest && latest.ms != null && !samples.some(function (p) { return p.ms === latest.ms; })) samples.push(latest);
+  var projected = projectMeasuredCurrentSeries(samples, axisDeg).filter(function (p) { return p.ms <= Date.now(); });
+  return projected.length ? projected[projected.length - 1] : null;
+}
+
+function currentSensorPopup(name, observation) {
+  if (!observation) return '<strong>' + escapeHtml(name) + '</strong><br>Observed current unavailable';
+  return '<strong>' + escapeHtml(name) + '</strong><br>' + round1(Math.abs(observation.v)) + ' kt ' +
+    (observation.v >= 0 ? 'flood-axis' : 'ebb-axis') + ' · ' + escapeHtml(fmtTime(observation.ms));
+}
+
+function addCurrentSensorBaseLayer() {
+  if (!currentSensorMapState.map) return;
+  if (currentSensorMapState.baseLayer) currentSensorMapState.map.removeLayer(currentSensorMapState.baseLayer);
+  currentSensorMapState.baseLayer = L.tileLayer(cartoBaseTileUrl(), {
+    attribution: '&copy; OpenStreetMap contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    className: 'timeline-sensor-base-tiles', maxZoom: 18
+  }).addTo(currentSensorMapState.map);
+  currentSensorMapState.baseLayer.bringToBack();
+}
+
+function fitCurrentSensorMap() {
+  var el = $('timelineSensorMap');
+  if (!currentSensorMapState.map || !el || el.getBoundingClientRect().width <= 0) return false;
+  currentSensorMapState.map.invalidateSize(false);
+  currentSensorMapState.map.fitBounds([
+    [PIER25.lat, PIER25.lon],
+    [CURRENT_SENSOR_LOCATIONS.kvk.lat, CURRENT_SENSOR_LOCATIONS.kvk.lon],
+    [CURRENT_SENSOR_LOCATIONS.narrows.lat, CURRENT_SENSOR_LOCATIONS.narrows.lon]
+  ], { padding: [16, 16], animate: false, maxZoom: 11 });
+  currentSensorMapState.fitted = true;
+  return true;
+}
+
+function initCurrentSensorMap() {
+  if (currentSensorMapState.map) return true;
+  var el = $('timelineSensorMap');
+  if (!el || el.getBoundingClientRect().width <= 0 || typeof L === 'undefined') return false;
+  currentSensorMapState.map = L.map(el, {
+    zoomControl: false, attributionControl: true, scrollWheelZoom: false,
+    doubleClickZoom: false, boxZoom: false, keyboard: false, dragging: false,
+    touchZoom: false, zoomSnap: 1, maxZoom: 14
+  });
+  addCurrentSensorBaseLayer();
+  var pierColor = cssColor('--accent');
+  var kvkColor = cssColor('--measured-current');
+  var narrowsColor = cssColor('--narrows-current');
+  currentSensorMapState.markers.pier = L.circleMarker([PIER25.lat, PIER25.lon], {
+    radius: 5, color: pierColor, weight: 2, fillColor: pierColor, fillOpacity: 0.9
+  }).addTo(currentSensorMapState.map).bindTooltip('Pier 25', { permanent: true, direction: 'top', offset: [0, -4] })
+    .bindPopup('<strong>Pier 25</strong><br>Home reference; no current meter');
+  currentSensorMapState.markers.kvk = L.circleMarker([CURRENT_SENSOR_LOCATIONS.kvk.lat, CURRENT_SENSOR_LOCATIONS.kvk.lon], {
+    radius: 6, color: kvkColor, weight: 2, fillColor: kvkColor, fillOpacity: 0.85
+  }).addTo(currentSensorMapState.map).bindTooltip('Kill Van Kull', { permanent: true, direction: 'left', offset: [-5, 0] });
+  currentSensorMapState.markers.narrows = L.circleMarker([CURRENT_SENSOR_LOCATIONS.narrows.lat, CURRENT_SENSOR_LOCATIONS.narrows.lon], {
+    radius: 6, color: narrowsColor, weight: 2, fillColor: narrowsColor, fillOpacity: 0.85
+  }).addTo(currentSensorMapState.map).bindTooltip('The Narrows', { permanent: true, direction: 'right', offset: [5, 0] });
+  fitCurrentSensorMap();
+  updateCurrentSensorMap();
+  return true;
+}
+
+function updateCurrentSensorMap() {
+  if (!currentSensorMapState.map && !initCurrentSensorMap()) return;
+  var kvk = latestProjectedObservation(state.kvkCurrentHistoryRaw, state.kvkCurrentRaw, KVK_FLOOD_AXIS_DEG);
+  var narrows = latestProjectedObservation(state.narrowsCurrentHistoryRaw, state.narrowsCurrentRaw, NARROWS_FLOOD_AXIS_DEG);
+  var kvkColor = cssColor('--measured-current');
+  var narrowsColor = cssColor('--narrows-current');
+  currentSensorMapState.markers.pier.setStyle({ color: cssColor('--accent'), fillColor: cssColor('--accent') });
+  currentSensorMapState.markers.kvk.setStyle({ color: kvkColor, fillColor: kvkColor, fillOpacity: kvk ? 0.85 : 0.18, dashArray: kvk ? null : '3,3' });
+  currentSensorMapState.markers.narrows.setStyle({ color: narrowsColor, fillColor: narrowsColor, fillOpacity: narrows ? 0.85 : 0.18, dashArray: narrows ? null : '3,3' });
+  currentSensorMapState.markers.kvk.bindPopup(currentSensorPopup(CURRENT_SENSOR_LOCATIONS.kvk.name, kvk));
+  currentSensorMapState.markers.narrows.bindPopup(currentSensorPopup(CURRENT_SENSOR_LOCATIONS.narrows.name, narrows));
+  if (!currentSensorMapState.fitted) fitCurrentSensorMap();
+}
+
+function refreshCurrentSensorMapLayout() {
+  if (!currentSensorMapState.map && !initCurrentSensorMap()) return;
+  fitCurrentSensorMap();
+}
+
 var radarState = {
   map: null, baseLayer: null, currentLayer: null, warningLayer: null, stormCellLayer: null, frames: [], index: 0,
   playing: false, playTimer: null, lastFetchMs: 0, mode: 'live', pierMarker: null,
@@ -6122,10 +6289,8 @@ function initLeafletMap() {
 }
 function addBaseTileLayer() {
   if (!radarState.map) return;
-  var isDark = resolvedTheme() === 'dark';
-  var url = isDark ? 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png' : 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png';
   if (radarState.baseLayer) radarState.map.removeLayer(radarState.baseLayer);
-  radarState.baseLayer = L.tileLayer(url, {
+  radarState.baseLayer = L.tileLayer(cartoBaseTileUrl(), {
     attribution: '&copy; OpenStreetMap contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
     className: 'radar-base-tiles',
     maxZoom: 18
@@ -6741,7 +6906,8 @@ var state = {
   gridpointRaw: null, hourlyRaw: null, alertsRaw: null, stormAlertsRaw: null, stormCellsRaw: null, marineTextRaw: null,
   observedRaw: null, windModelsRaw: null, windModelSeries: null, windModel: 'nws',
   obsWindStation: 'robbinsReef', obsWindKjrbRaw: null, obsWindWeatherflowRaw: null,
-  obsCurrentStation: 'hudson', kvkCurrentRaw: null, kvkCurrentHistoryRaw: [], newarkCurrentRaw: null, narrowsCurrentRaw: null,
+  obsCurrentStation: 'hudson', kvkCurrentRaw: null, kvkCurrentHistoryRaw: [], newarkCurrentRaw: null,
+  narrowsCurrentRaw: null, narrowsCurrentHistoryRaw: [],
   curvePoints: [], slackEvents: [], gridSeries: null,
   levelPredictedPoints: [], levelObservedPoints: [], hiloEvents: [],
   lastVerdict: null, lastDirectionRec: null, lastPreMotorAdvice: null,
@@ -6862,6 +7028,11 @@ function loadKvkCurrent() {
 function loadKvkCurrentHistory() {
   return loadSource('kvkCurrentHistory', function () { return fetchKvkCurrentHistory(Date.now()); }, 'timelineCard', function (data) {
     state.kvkCurrentHistoryRaw = data || [];
+  }).then(function () { return true; }).catch(function () { return false; });
+}
+function loadNarrowsCurrentHistory() {
+  return loadSource('narrowsCurrentHistory', function () { return fetchNarrowsCurrentHistory(Date.now()); }, 'timelineCard', function (data) {
+    state.narrowsCurrentHistoryRaw = data || [];
   }).then(function () { return true; }).catch(function () { return false; });
 }
 function loadNewarkCurrent() {
@@ -7127,7 +7298,8 @@ function loadAll() {
   return Promise.all([
     loadCurrentsSlack(), loadCurrentsCurve(), loadWater(), loadGridpoint(),
     loadHourly(), loadAlerts(), loadStormAlerts(), loadStormCells(), loadMarineText(), loadRadar(true), loadObserved(),
-    loadObservedKjrb(), loadKvkCurrent(), loadKvkCurrentHistory(), loadNewarkCurrent(), loadNarrowsCurrent(), loadWillyWall()
+    loadObservedKjrb(), loadKvkCurrent(), loadKvkCurrentHistory(), loadNewarkCurrent(), loadNarrowsCurrent(),
+    loadNarrowsCurrentHistory(), loadWillyWall()
   ]).then(function (results) {
     return results.some(function (ok) { return ok === true; });
   });
@@ -8259,6 +8431,8 @@ function applyTheme() {
   document.documentElement.setAttribute('data-theme', resolved);
   syncThemeColorMeta(resolved);
   addBaseTileLayer();
+  addCurrentSensorBaseLayer();
+  updateCurrentSensorMap();
   if (radarState.map) renderStormOverlays(state.stormAlertsRaw || [], state.stormCellsRaw || []);
   if (state.lastDirectionRec) drawCompassArrow(state.lastDirectionRec);
 }
@@ -8725,6 +8899,7 @@ function relayoutForViewport() {
 // layout-only re-render never changes any of those, so an in-progress playback survives.
 function afterLayoutChange() {
   if (radarState.map) radarState.map.invalidateSize();
+  refreshCurrentSensorMapLayout();
   recomputeWindowDependentUI();
 }
 
@@ -9026,6 +9201,7 @@ function init() {
   });
 
   initLeafletMap();
+  initCurrentSensorMap();
   initMobileTabs();
 
   // Render any cached data immediately, then kick off live fetches for everything
