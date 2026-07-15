@@ -170,5 +170,10 @@ assert.equal(selectedCells[0].id, 'near', 'a visible NYC cell must not be hidden
 
 assert.ok(html.includes('Radar storm cells, warnings &amp; tracks'));
 assert.ok(html.includes('NEXRAD storm cells and motion'));
+assert.ok(html.includes('Tornado warning area'), 'legend must describe a warning polygon, not imply a detected tornado');
+assert.ok(html.includes('Severe thunderstorm warning area'));
+assert.ok(html.includes('Special marine warning area'));
+assert.ok(html.includes('NWS warning motion'));
+assert.ok(!html.includes('storm-key-tornado">Tornado</span>'), 'misleading bare Tornado label must not return');
 
 console.log('warning and radar-cell storm track assertions passed');
