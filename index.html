@@ -439,6 +439,15 @@ th { color: var(--ink-dim); font-weight: 600; }
 .radar-controls { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .radar-controls input[type="range"] { flex: 1; }
 .radar-frame-label { font-size: 12px; color: var(--ink-dim); min-width: 90px; text-align: right; }
+.radar-layer-status {
+  min-height: 18px;
+  margin-top: 6px;
+  color: var(--ink-dim);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.radar-layer-status[data-tone="ok"] { color: var(--ok); }
+.radar-layer-status[data-tone="warn"] { color: var(--warn); }
 .radar-forecast-caption { font-size: 11px; color: var(--ink-dim); margin-top: 6px; }
 .radar-fallback img { display: block; margin-top: 8px; border-radius: 8px; }
 
@@ -1054,6 +1063,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <button type="button" class="chip" data-mode="forecast">Animated &middot; Radar loop</button>
     </div>
     <div class="radar-map" id="radarMap"></div>
+    <div class="radar-layer-status" id="radarLayerStatus" role="status" aria-live="polite">Loading radar imagery&hellip;</div>
     <div class="radar-controls" id="radarControls">
       <button class="btn-secondary" id="radarPlayBtn">&#9654;</button>
       <input type="range" id="radarSlider" min="0" max="0" value="0">
@@ -1244,6 +1254,10 @@ var RADAR_FALLBACK_GIF = 'https://radar.weather.gov/ridge/standard/KOKX_loop.gif
 // RainViewer supplies transparent radar nowcast tiles. Unlike the former HRRR tile source,
 // these preserve the basemap and do not draw opaque tile-sized black squares or grid seams.
 var RAINVIEWER_URL = 'https://api.rainviewer.com/public/weather-maps.json';
+// RainViewer's public v2 tile service returns a branded placeholder image (with HTTP 200)
+// above native zoom 7. Leaflet must therefore fetch z7 tiles and upscale them when the map
+// is zoomed closer, rather than treating those placeholder tiles as valid radar imagery.
+var RAINVIEWER_MAX_NATIVE_ZOOM = 7;
 var WARNING_ALERT_RE = /warning/i;
 var PIER25 = { lat: 40.7203, lon: -74.0135 };
 var DEFAULT_RADAR_ZOOM = 10;
@@ -5428,8 +5442,16 @@ function renderMarineText(text) {
 
 var radarState = {
   map: null, baseLayer: null, currentLayer: null, warningLayer: null, frames: [], index: 0,
-  playing: false, playTimer: null, lastFetchMs: 0, mode: 'live', pierMarker: null
+  playing: false, playTimer: null, lastFetchMs: 0, mode: 'live', pierMarker: null,
+  layerGeneration: 0
 };
+
+function setRadarLayerStatus(message, tone) {
+  var el = $('radarLayerStatus');
+  if (!el) return;
+  el.textContent = message || '';
+  if (tone) el.setAttribute('data-tone', tone); else el.removeAttribute('data-tone');
+}
 
 function resolvedTheme() {
   return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
@@ -5531,6 +5553,7 @@ function loadRadarData(force) {
     return Promise.resolve(true); // frame URLs still fresh enough
   }
   var isForecast = radarState.mode === 'forecast';
+  setRadarLayerStatus(isForecast ? 'Loading animated radar frames…' : 'Loading live NEXRAD scan…');
   var source = isForecast ? fetchRainViewerFrames() : fetchNexradHealthcheck(fiveMinBucketMs(nowMs));
   return source.then(function (payload) {
     radarState.lastFetchMs = nowMs;
@@ -5541,6 +5564,7 @@ function loadRadarData(force) {
   }).catch(function (e) {
     var label = isForecast ? 'Radar loop' : 'NEXRAD radar';
     showCardError('radarError', label + ' unavailable: ' + e.message, function () { loadRadarData(true); });
+    setRadarLayerStatus(label + ' failed to load. Showing the NWS fallback loop.', 'warn');
     showRadarFallbackGif();
     return false;
   });
@@ -5551,9 +5575,20 @@ function buildRadarFrames(nowMs, nowcastPayload) {
   radarState.frames = frames;
   var slider = $('radarSlider');
   slider.max = Math.max(0, frames.length - 1);
-  // Live: last frame (index length-1) is "now" — default to it. Forecast: first frame
-  // (index 0, offset 0) is "now" — the list runs forward into the future from there.
-  radarState.index = isForecast ? 0 : frames.length - 1;
+  // Both source lists are chronological. RainViewer can return only past frames (its
+  // nowcast array is commonly empty), so choose the frame closest to now instead of
+  // incorrectly defaulting to the oldest frame in the loop.
+  radarState.index = frames.length - 1;
+  if (isForecast) {
+    var nearestDistance = Infinity;
+    frames.forEach(function (frame, index) {
+      var distance = Math.abs(frame.timeMs - nowMs);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        radarState.index = index;
+      }
+    });
+  }
   showRadarFrame(radarState.index);
 }
 function showRadarFrame(idx) {
@@ -5562,13 +5597,43 @@ function showRadarFrame(idx) {
   if (radarState.currentLayer) radarState.map.removeLayer(radarState.currentLayer);
   var f = radarState.frames[idx];
   var isForecast = radarState.mode === 'forecast';
-  radarState.currentLayer = L.tileLayer(f.url, {
+  var generation = ++radarState.layerGeneration;
+  var loadedTiles = 0;
+  var failedTiles = 0;
+  setRadarLayerStatus(isForecast ? 'Loading radar loop frame…' : 'Loading live NEXRAD tiles…');
+  var layer = L.tileLayer(f.url, {
     opacity: 0.72,
-    maxNativeZoom: isForecast ? 12 : 12,
+    maxNativeZoom: isForecast ? RAINVIEWER_MAX_NATIVE_ZOOM : 12,
     maxZoom: 15,
     zIndex: 5,
     attribution: isForecast ? 'Radar loop: RainViewer' : 'NEXRAD: Iowa Environmental Mesonet / NWS'
-  }).addTo(radarState.map);
+  });
+  layer.on('tileload', function () {
+    if (generation === radarState.layerGeneration) loadedTiles += 1;
+  });
+  layer.on('tileerror', function () {
+    if (generation === radarState.layerGeneration) failedTiles += 1;
+  });
+  layer.on('load', function () {
+    if (generation !== radarState.layerGeneration) return;
+    if (!loadedTiles && failedTiles) {
+      var sourceName = isForecast ? 'RainViewer radar' : 'Iowa State NEXRAD';
+      showCardError('radarError', sourceName + ' tiles failed to load.', function () { loadRadarData(true); });
+      setRadarLayerStatus(sourceName + ' failed. Showing the NWS fallback loop.', 'warn');
+      showRadarFallbackGif();
+      return;
+    }
+    hideEl($('radarFallback'));
+    hideEl($('radarError'));
+    if (failedTiles) {
+      setRadarLayerStatus('Radar loaded with ' + failedTiles + ' missing tile' + (failedTiles === 1 ? '' : 's') + '.', 'warn');
+    } else if (isForecast) {
+      setRadarLayerStatus(radarState.frames.length + ' radar frames loaded · clear areas are transparent.', 'ok');
+    } else {
+      setRadarLayerStatus('Live NEXRAD scan loaded · clear areas are transparent.', 'ok');
+    }
+  });
+  radarState.currentLayer = layer.addTo(radarState.map);
   radarState.index = idx;
   $('radarSlider').value = idx;
   // "≈" is deliberate — the label marks an approximate lag/offset bucket, not an exact
@@ -5616,8 +5681,20 @@ function toggleRadarPlay() {
 // more often.
 function showRadarFallbackGif() {
   var bust = Math.floor(Date.now() / 120000);
-  $('radarFallback').innerHTML = '<img src="' + RADAR_FALLBACK_GIF + '?_=' + bust + '" alt="NWS radar loop" style="max-width:100%;border-radius:8px;">';
-  showEl($('radarFallback'));
+  var container = $('radarFallback');
+  container.innerHTML = '';
+  var image = document.createElement('img');
+  image.src = RADAR_FALLBACK_GIF + '?_=' + bust;
+  image.alt = 'NWS KOKX radar fallback loop';
+  image.style.maxWidth = '100%';
+  image.style.borderRadius = '8px';
+  image.addEventListener('error', function () {
+    container.innerHTML = '';
+    hideEl(container);
+    setRadarLayerStatus('Radar imagery is unavailable. Use the NWS KOKX source link below.', 'warn');
+  });
+  container.appendChild(image);
+  showEl(container);
 }
 
 /* ============================== Warning polygons ============================== */
