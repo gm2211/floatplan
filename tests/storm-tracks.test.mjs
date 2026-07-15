@@ -168,12 +168,28 @@ const selectedCells = selectRadarStormCells(
 );
 assert.equal(selectedCells[0].id, 'near', 'a visible NYC cell must not be hidden by stronger distant cells');
 
-assert.ok(html.includes('Radar storm cells, warnings &amp; tracks'));
+assert.deepEqual(buildStormLegendItems(0, [], 0), [], 'empty overlays must not show a legend');
+const severeLegend = buildStormLegendItems(0, [alert], 1);
+assert.deepEqual(
+  severeLegend.map(item => item.label),
+  ['Severe thunderstorm warning area', 'NWS warning motion'],
+  'the key must list only the active warning type and its drawn motion'
+);
+assert.ok(!severeLegend.some(item => item.label.includes('Tornado')), 'tornado key must stay hidden without a tornado warning');
+assert.deepEqual(buildStormLegendItems(1, [], 0).map(item => item.label), ['Radar cell track']);
+const tornadoAlert = structuredClone(alert);
+tornadoAlert.properties.event = 'Tornado Warning';
+assert.deepEqual(buildStormLegendItems(0, [tornadoAlert], 0).map(item => item.label), ['Tornado warning area']);
+
+assert.ok(html.includes('Storm cells &amp; NWS warnings'));
 assert.ok(html.includes('NEXRAD storm cells and motion'));
-assert.ok(html.includes('Tornado warning area'), 'legend must describe a warning polygon, not imply a detected tornado');
-assert.ok(html.includes('Severe thunderstorm warning area'));
-assert.ok(html.includes('Special marine warning area'));
-assert.ok(html.includes('NWS warning motion'));
-assert.ok(!html.includes('storm-key-tornado">Tornado</span>'), 'misleading bare Tornado label must not return');
+assert.ok(html.includes('<details class="radar-storm-legend hidden" id="radarStormLegend">'), 'overlay key must start hidden and collapsed');
+assert.ok(html.includes('<summary>Overlay key</summary>'));
+assert.ok(html.includes('storm-key-warning::before'), 'warning areas need outlined swatches distinct from reflectivity colors');
+assert.ok(html.includes('<span class="radar-storm-status hidden"'), 'empty storm status must not occupy a row');
+assert.ok(html.includes('if (body.innerHTML !== nextHtml) body.innerHTML = nextHtml;'), 'unchanged key content must preserve disclosure state');
+assert.ok(!html.includes("clearStormTrackLayer();\n  setRadarStormStatus('');"), 'map movement must not transiently clear live regions');
+assert.ok(!html.includes('No radar-tracked storm cells or active NWS warnings'), 'normal no-data state must stay silent');
+assert.ok(!html.includes('Storm cell and warning overlay is off.'), 'unchecked state must stay silent');
 
 console.log('warning and radar-cell storm track assertions passed');
