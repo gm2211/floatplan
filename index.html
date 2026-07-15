@@ -269,6 +269,8 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .timeline-mode-row { margin-bottom: 10px; }
 .chart-legend .swatch-sustained { background: var(--accent); }
 .chart-legend .swatch-gust { background: var(--ink-dim); opacity: 0.8; }
+.chart-legend .line-key { width: 24px; height: 8px; margin-right: 4px; vertical-align: middle; overflow: visible; }
+.chart-legend .legend-key-label { font-weight: 650; color: var(--ink-dim); }
 .chart-footnote { font-size: 10.5px; color: var(--ink-dim); margin-top: 4px; }
 .source-links {
   display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px;
@@ -4123,6 +4125,8 @@ var WIND_MODEL_ORDER = ['nws', 'gfs_seamless', 'ecmwf_ifs025', 'icon_seamless'];
 var WIND_MODEL_LABELS = { nws: 'NWS', gfs_seamless: 'GFS', ecmwf_ifs025: 'ECMWF', icon_seamless: 'ICON' };
 var WIND_MODEL_DASH = { nws: 'none', gfs_seamless: '5,3', ecmwf_ifs025: '2,2', icon_seamless: '1,3' };
 var WIND_MODEL_OPACITY = { nws: 1, gfs_seamless: 0.85, ecmwf_ifs025: 0.85, icon_seamless: 0.85 };
+var WIND_MODEL_COLOR = { nws: 'var(--accent)', gfs_seamless: 'var(--violet)', ecmwf_ifs025: 'var(--orange)', icon_seamless: 'var(--navy)' };
+var WIND_GUST_DASH = '7,3,1,3';
 
 // Pure: one row PER HOUR boundary in [domStart,domEnd), NOT one row per NWS validTime span
 // start. A gridpoint quantitative-value layer packs consecutive identical-value hours into
@@ -4183,6 +4187,12 @@ function splitWindPointSegments(points) {
   });
   if (current.length) segments.push(current);
   return segments;
+}
+
+function windLegendLineSvg(color, dash, width, opacity) {
+  return '<svg class="line-key" viewBox="0 0 24 8" aria-hidden="true">' +
+    '<line x1="1" y1="4" x2="23" y2="4" stroke="' + color + '" stroke-width="' + width + '" stroke-opacity="' + opacity + '"' +
+    (dash && dash !== 'none' ? ' stroke-dasharray="' + dash + '"' : '') + '/></svg>';
 }
 
 /* ============================== Wind card: chart SVG ============================== */
@@ -4362,36 +4372,56 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
   if (model === 'all') {
     var seriesByModel = {}, allVals = [];
     WIND_MODEL_ORDER.forEach(function (mk) {
-      var rows = windRowsForModel(mk, domStart, domEnd).filter(function (r) { return r.sustained != null; });
+      var rows = windRowsForModel(mk, domStart, domEnd).filter(function (r) { return r.sustained != null || r.gust != null; });
       seriesByModel[mk] = rows;
-      rows.forEach(function (r) { allVals.push(r.sustained); });
+      rows.forEach(function (r) {
+        if (r.sustained != null) allVals.push(r.sustained);
+        if (r.gust != null) allVals.push(r.gust);
+      });
     });
     var yMaxAll = Math.max(limits.noGoGust, allVals.length ? Math.max.apply(null, allVals) : 0) + 3;
     var yAll = function (v) { return padT + (H - padT - padB) - (v / yMaxAll) * (H - padT - padB); };
     var bandsAll = windRefBandsHtml(limits, yMaxAll, W, padL, padR, yAll);
     var sailShadeAll = '<rect x="' + winX1.toFixed(1) + '" y="' + padT + '" width="' + Math.max(0, winX2 - winX1).toFixed(1) + '" height="' + (H - padT - padB) + '" fill="' + accent + '" fill-opacity="0.10"/>';
-    var lines = WIND_MODEL_ORDER.map(function (mk) {
+    // Gust companions are rendered first so the heavier sustained paths remain the visual
+    // foreground. Model color is shared by the pair; sustained keeps the model-specific
+    // dash, while every gust uses the same thin dash-dot treatment.
+    var gustLines = WIND_MODEL_ORDER.map(function (mk) {
       var rows = seriesByModel[mk];
-      if (rows.length < 2) return '';
-      var points = rows.map(function (r) { return { ms: r.ms, v: r.sustained }; });
+      var points = rows.filter(function (r) { return r.gust != null; })
+        .map(function (r) { return { ms: r.ms, v: r.gust }; });
       return splitWindPointSegments(points).map(function (segment) {
         if (segment.length < 2) return '';
         var pathD = smoothPathD(segment, x, yAll);
-        return '<path d="' + pathD + '" fill="none" stroke="' + accent + '" stroke-width="2" stroke-opacity="' + WIND_MODEL_OPACITY[mk] + '"' +
+        return '<path d="' + pathD + '" fill="none" stroke="' + WIND_MODEL_COLOR[mk] +
+          '" stroke-width="1.1" stroke-opacity="0.48" stroke-dasharray="' + WIND_GUST_DASH + '"/>';
+      }).join('');
+    }).join('');
+    var sustainedLines = WIND_MODEL_ORDER.map(function (mk) {
+      var rows = seriesByModel[mk];
+      var points = rows.filter(function (r) { return r.sustained != null; })
+        .map(function (r) { return { ms: r.ms, v: r.sustained }; });
+      return splitWindPointSegments(points).map(function (segment) {
+        if (segment.length < 2) return '';
+        var pathD = smoothPathD(segment, x, yAll);
+        return '<path d="' + pathD + '" fill="none" stroke="' + WIND_MODEL_COLOR[mk] + '" stroke-width="2" stroke-opacity="' + WIND_MODEL_OPACITY[mk] + '"' +
           (WIND_MODEL_DASH[mk] !== 'none' ? ' stroke-dasharray="' + WIND_MODEL_DASH[mk] + '"' : '') + '/>';
       }).join('');
     }).join('');
 
     wrap.innerHTML = '<svg viewBox="0 0 ' + W.toFixed(1) + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">' +
       sailShadeAll + windYAxisHtml(yMaxAll, yAll, W, padL, padR, padT, inkDim) +
-      bandsAll.shapes + windowTickGuides + lines + windowTickLabels + nowLine + bandsAll.labels +
+      bandsAll.shapes + windowTickGuides + gustLines + sustainedLines + windowTickLabels + nowLine + bandsAll.labels +
       windAxisTicksHtml(domStart, domEnd, x, W, padL, padR, H - 3, inkDim) +
       '</svg>';
 
     if (legendEl) {
-      legendEl.innerHTML = WIND_MODEL_ORDER.map(function (mk) {
-        return '<span><span class="swatch" style="background:' + accent + ';opacity:' + WIND_MODEL_OPACITY[mk] + '"></span>' + WIND_MODEL_LABELS[mk] + '</span>';
-      }).join('');
+      legendEl.innerHTML = '<span class="legend-key-label">Models</span>' + WIND_MODEL_ORDER.map(function (mk) {
+        return '<span>' + windLegendLineSvg(WIND_MODEL_COLOR[mk], WIND_MODEL_DASH[mk], 2, WIND_MODEL_OPACITY[mk]) +
+          WIND_MODEL_LABELS[mk] + '</span>';
+      }).join('') + '<span class="legend-key-label">Series</span>' +
+        '<span>' + windLegendLineSvg('var(--ink)', 'none', 2, 0.85) + 'sustained</span>' +
+        '<span>' + windLegendLineSvg('var(--ink)', WIND_GUST_DASH, 1.1, 0.5) + 'gust</span>';
     }
     var svgElAll = wrap.querySelector('svg');
     if (svgElAll) {
@@ -4399,16 +4429,15 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
         var lines = [], dots = [];
         WIND_MODEL_ORDER.forEach(function (mk) {
           var row = findWindRowForMs(seriesByModel[mk], ms);
-          if (!row || row.sustained == null) return;
-          var line = WIND_MODEL_LABELS[mk] + ' ' + round1(row.sustained) + ' kt';
+          if (!row || (row.sustained == null && row.gust == null)) return;
+          var line = WIND_MODEL_LABELS[mk] + ' ' + (row.sustained != null ? round1(row.sustained) + ' kt' : 'sustained unavailable');
           if (row.gust != null) line += ' · gust ' + round1(row.gust);
           lines.push('<div>' + escapeHtml(line) + '</div>');
-          // Only the sustained series is actually plotted as a line in "All" mode (see
-          // `lines` above) — a dot per model pins to that same visible curve; gust is shown
-          // in the text only, since there's no gust line here to pin it to. Interpolated at
-          // the exact scrubbed instant so the dot tracks the crosshair without hourly snap.
-          var vInterp = interpRowsValue(seriesByModel[mk], ms, 'sustained');
-          if (vInterp != null) dots.push({ x: x(ms), y: yAll(vInterp), color: accent });
+          // Both visible companion lines get a scrub dot at the exact scrubbed instant.
+          var sustainedInterp = interpRowsValue(seriesByModel[mk], ms, 'sustained');
+          var gustInterp = interpRowsValue(seriesByModel[mk], ms, 'gust');
+          if (sustainedInterp != null) dots.push({ x: x(ms), y: yAll(sustainedInterp), color: WIND_MODEL_COLOR[mk] });
+          if (gustInterp != null) dots.push({ x: x(ms), y: yAll(gustInterp), color: WIND_MODEL_COLOR[mk] });
         });
         if (!lines.length) return null;
         return { html: '<div class="scrub-time">' + escapeHtml(fmtTime(ms)) + '</div>' + lines.join(''), dots: dots };
