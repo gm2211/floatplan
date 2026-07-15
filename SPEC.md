@@ -75,6 +75,14 @@ Logic over current predictions within the window:
 - A compact locator map shows Pier 25 plus the exact Kill Van Kull (40.64358, -74.13889) and The Narrows (40.60639953613281, -74.03800201416016) sensor positions.
 - Timeline legends and scrub readouts always identify the location, measurement type, and whether values are forecast or measured. Current values use knots and flood/ebb wording; Battery water levels use feet. Station-bin and axis-projection metadata stays out of the user-facing readout.
 
+## Sail simulator
+
+- Integrate the boat in one-minute steps using the N 11° / S 183° Hudson course, forecast wind, the conservative harbor wind-shadow calibration, and location-adjusted Hudson Entrance current.
+- Choose a sailed strategy by comparing velocity vectors, not by applying a decorative angle threshold. Score the direct river heading and paired close-hauled/broad-reach headings by their along-route component; a pair is valid only when its legs cancel cross-route drift and neither leg makes negative route progress. Prefer direct unless the paired strategy is at least 3% faster.
+- A WNW wind on the northbound course is approximately 79° off the bow and is therefore an honest direct reach: keep that track straight and explicitly show its true wind angle and `Direct reach · tacking is slower`. Do not invent tacks solely to make the route look nautical.
+- When a paired strategy wins, integrate its alternating headings and cross-route velocity. The wake must visibly zigzag, tack/jibe markers must correspond to actual heading changes and maneuver losses, and the readout must show both planned headings and completed/planned maneuver counts.
+- Never hide an invalid strategy by clamping a meaningfully negative VMG to zero. A selected sailing leg must make non-negative route progress, and a genuine beating fixture must make positive progress on every leg.
+
 ## Wind panel
 
 - Hourly rows (or compact chart + rows) covering window ±2 h: time, wind dir arrow + cardinal, sustained kt, gust kt, colored per limits (green/yellow/red cell backgrounds).

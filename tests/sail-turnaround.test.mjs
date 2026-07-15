@@ -70,6 +70,60 @@ assert.ok(Math.max(...directReach.path.map(p => Math.abs(p.crossNm))) < 0.03);
 assert.ok(directReach.furthestDistNm > 1.2);
 assert.ok(directReach.furthestDistNm < 3.0, `direct-reach range was ${directReach.furthestDistNm.toFixed(2)} nm`);
 
+// Screenshot regression: WNW wind on the N 11° Hudson course is about 78.5° off the bow.
+// That is an honest direct reach, so the wake should stay straight and the simulator should
+// explicitly preserve the angle/reason that proves why decorative tacks would be wrong.
+const screenshotReach = computeSailSim(
+  departureMs, 180 * minute, [{ ms: departureMs, v: -0.96 }],
+  series(292.5), series(14), 5, { initialHeading: 'N' }, false, 6
+);
+const screenshotSail = screenshotReach.path.filter(p => p.mode === 'sail' && p.ms <= screenshotReach.turnMs);
+assert.ok(screenshotSail.length > 1);
+assert.equal(screenshotSail.some(p => p.maneuver), false);
+assert.ok(Math.max(...screenshotSail.map(p => Math.abs(p.crossNm))) < 0.03);
+assert.ok(screenshotSail.every(p => p.courseType === 'reach'));
+assert.ok(screenshotSail.every(p => p.strategyReason === 'direct-faster'));
+assert.ok(screenshotSail.every(p => Math.abs(p.windAngleDeg - 78.5) < 0.01));
+assert.ok(screenshotSail.every(p => Math.abs(p.headingDeg - SAIL_COURSE_BEARING_N) < 0.01));
+
+// Exact headwind must choose two positive-progress close-hauled vectors whose lateral
+// components cancel over time. Both sides of the river-axis zigzag must be visible.
+const exactHeadwind = computeSailSim(
+  departureMs, 180 * minute, [{ ms: departureMs, v: 0 }],
+  series(SAIL_COURSE_BEARING_N), series(14), 5, { initialHeading: 'N' }, false, 6
+);
+const headwindSail = exactHeadwind.path.filter(p => p.mode === 'sail');
+const headwindCross = headwindSail.map(p => p.crossNm);
+assert.ok(exactHeadwind.path.filter(p => p.maneuver === 'tack').length >= 2,
+  'exact headwind should generate multiple computed tacks');
+assert.ok(headwindSail.every(p => p.vmg > 0), 'every selected sailing leg must make positive route progress');
+assert.ok(headwindCross.some(v => v < -0.02) && headwindCross.some(v => v > 0.02),
+  'computed tacks must draw a zigzag on both sides of the route axis');
+assert.ok(Math.max(...headwindCross) - Math.min(...headwindCross) >= 0.18,
+  'computed tack geometry must be visibly scaled');
+
+// At 49° off the route the old threshold invented a pair with one heading 96° off course,
+// then silently clamped that leg to zero VMG. The vector solver keeps the valid direct leg.
+const thresholdEdge = chooseSailStrategy(60, SAIL_COURSE_BEARING_N);
+assert.equal(thresholdEdge.type, 'reach');
+assert.equal(thresholdEdge.reason, 'direct-faster');
+assert.ok(thresholdEdge.score > 0);
+
+// Fractional wind bearings around a safely paired beating case must never flicker to
+// infeasible because a generated 47° heading rounded to 46.999999999° internally.
+for (let windFrom = 16.5; windFrom <= 17.5; windFrom += 0.01) {
+  const strategy = chooseSailStrategy(windFrom, 0);
+  assert.notEqual(strategy.type, 'infeasible', `strategy flickered at ${windFrom.toFixed(1)}°`);
+  assert.ok(strategy.score > 0, `strategy lost forward progress at ${windFrom.toFixed(1)}°`);
+}
+
+// Dead downwind is the opposite case: paired broad reaches make more along-route progress
+// than the slow polar at 180°, so a real jibe strategy should win.
+const deadDownwind = chooseSailStrategy(SAIL_COURSE_BEARING_N + 180, SAIL_COURSE_BEARING_N);
+assert.equal(deadDownwind.type, 'jibe');
+assert.ok(deadDownwind.negative.along > 0 && deadDownwind.positive.along > 0);
+assert.ok(deadDownwind.negative.cross < 0 && deadDownwind.positive.cross > 0);
+
 // A southbound course into a southerly cannot be sailed on the river axis. It must produce
 // real alternating headings and lateral displacement, not a straight line with decorative
 // T/J labels laid on top.
@@ -121,5 +175,7 @@ assert.equal(harborCurrentAt([{ ms: 0, v: 2 }], 0, PIER25.lat), 2 * harborCurren
 assert.match(html, /wide:\s*\{[\s\S]*?colB:\s*\[[^\]]*'sailSimCard'/);
 assert.match(html, /\.sailsim-top\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:/);
 assert.doesNotMatch(physics, /mode:\s*['"]hold['"]/);
+assert.match(html, /True wind angle/);
+assert.match(html, /Direct reach · tacking is slower/);
 
 console.log('sail turnaround assertions passed');

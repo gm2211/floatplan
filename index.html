@@ -2683,54 +2683,108 @@ function harborCurrentAt(curvePoints, atMs, lat) {
   var entranceKt = currentVelocityAt(curvePoints, atMs);
   return (entranceKt == null || !isFinite(entranceKt)) ? 0 : entranceKt * harborCurrentFactor(lat);
 }
-function pointOfSail(windFromDeg, courseBearingDeg) {
-  if (windFromDeg == null || !isFinite(windFromDeg)) return { type: 'reach', factor: 0.72, angle: null };
-  var angle = angularDistance(windFromDeg, courseBearingDeg);
-  if (angle < SAIL_BEATING_THRESHOLD_DEG) return { type: 'tack', factor: 0.48, angle: angle };
-  if (angle > SAIL_RUNNING_THRESHOLD_DEG) return { type: 'jibe', factor: 0.60, angle: angle };
-  // Best progress is on a beam/broad reach; close reaches and deep reaches lose VMG.
-  var reachFactor = angle <= 95
-    ? 0.70 + (angle - SAIL_BEATING_THRESHOLD_DEG) / 45 * 0.18
-    : 0.88 - (angle - 95) / (SAIL_RUNNING_THRESHOLD_DEG - 95) * 0.16;
-  return { type: 'reach', factor: clamp(reachFactor, 0.70, 0.88), angle: angle };
-}
 function normalizeBearing(deg) { return ((deg % 360) + 360) % 360; }
 function signedBearingDelta(fromDeg, toDeg) {
   return ((normalizeBearing(toDeg) - normalizeBearing(fromDeg) + 540) % 360) - 180;
 }
 
-// Returns an actual sailed heading, not just a discounted speed on the river axis. When the
-// desired river course lies in the no-go zone, the two candidates are close-hauled headings;
-// when it is nearly dead downwind, they are broad reaches. `side` selects the candidate to
-// port/starboard of the desired course, so integrating its lateral component produces the
-// visible tack/jibe track.
-function sailedHeading(windFromDeg, desiredBearingDeg, courseType, side) {
-  if (windFromDeg == null || !isFinite(windFromDeg) || courseType === 'reach') return desiredBearingDeg;
-  var base = courseType === 'tack' ? windFromDeg : windFromDeg + 180;
-  var offset = courseType === 'tack' ? SAIL_CLOSE_HAULED_DEG : SAIL_BROAD_REACH_DEG;
-  var candidates = [normalizeBearing(base - offset), normalizeBearing(base + offset)];
-  candidates.sort(function (a, b) {
-    return signedBearingDelta(desiredBearingDeg, a) - signedBearingDelta(desiredBearingDeg, b);
-  });
-  return side < 0 ? candidates[0] : candidates[1];
+// Conservative polar used by every strategy candidate. Below 47 degrees the boat is in the
+// no-go zone; a beam reach is fastest; a dead run is possible but slower than broad reaches.
+function sailPolarFactor(trueWindAngleDeg) {
+  if (trueWindAngleDeg == null || !isFinite(trueWindAngleDeg)) return 0.72;
+  // Bearings constructed as windFrom ± 47° can land a few quadrillionths below 47 due to
+  // floating-point modulo arithmetic. Treat only a meaningful shortfall as inside no-go.
+  if (trueWindAngleDeg < SAIL_CLOSE_HAULED_DEG - 1e-7) return 0;
+  trueWindAngleDeg = Math.max(SAIL_CLOSE_HAULED_DEG, trueWindAngleDeg);
+  if (trueWindAngleDeg <= 95) {
+    return 0.76 + (trueWindAngleDeg - SAIL_CLOSE_HAULED_DEG) / (95 - SAIL_CLOSE_HAULED_DEG) * 0.12;
+  }
+  if (trueWindAngleDeg <= 152) return 0.88 - (trueWindAngleDeg - 95) / (152 - 95) * 0.06;
+  return 0.82 - (trueWindAngleDeg - 152) / (180 - 152) * 0.22;
+}
+
+function sailStrategyCandidate(windFromDeg, desiredBearingDeg, headingDeg) {
+  var windAngleDeg = angularDistance(windFromDeg, headingDeg);
+  var factor = sailPolarFactor(windAngleDeg);
+  var deltaDeg = signedBearingDelta(desiredBearingDeg, headingDeg);
+  var deltaRad = deltaDeg * Math.PI / 180;
+  return {
+    headingDeg: normalizeBearing(headingDeg), windAngleDeg: windAngleDeg, factor: factor,
+    deltaDeg: deltaDeg, along: factor * Math.cos(deltaRad), cross: factor * Math.sin(deltaRad)
+  };
+}
+
+function pairedSailStrategy(type, negative, positive) {
+  if (!negative || !positive || !(negative.along > 0) || !(positive.along > 0) ||
+      !(negative.cross < 0) || !(positive.cross > 0)) return null;
+  var negativeWeight = positive.cross / (positive.cross - negative.cross);
+  var score = negativeWeight * negative.along + (1 - negativeWeight) * positive.along;
+  return {
+    type: type, negative: negative, positive: positive, score: score,
+    reason: type === 'tack' ? 'paired-upwind-faster' : 'paired-downwind-faster'
+  };
+}
+
+// Compare the actual along/cross-route vectors instead of switching modes at one arbitrary
+// wind-angle threshold. A paired strategy is valid only when both legs move forward and
+// their weighted lateral components cancel. Direct wins unless a pair is at least 3% faster.
+function chooseSailStrategy(windFromDeg, desiredBearingDeg) {
+  if (windFromDeg == null || !isFinite(windFromDeg)) {
+    var fallback = sailStrategyCandidate(desiredBearingDeg + 90, desiredBearingDeg, desiredBearingDeg);
+    return { type: 'reach', direct: fallback, score: fallback.along, windAngleDeg: null, reason: 'wind-unavailable' };
+  }
+  var windAngleDeg = angularDistance(windFromDeg, desiredBearingDeg);
+  var direct = sailStrategyCandidate(windFromDeg, desiredBearingDeg, desiredBearingDeg);
+  var directStrategy = direct.factor > 0 && direct.along > 0
+    ? { type: 'reach', direct: direct, score: direct.along, windAngleDeg: windAngleDeg, reason: 'direct-faster' }
+    : null;
+
+  function makePair(type, baseDeg, offsetDeg) {
+    var candidates = [
+      sailStrategyCandidate(windFromDeg, desiredBearingDeg, baseDeg - offsetDeg),
+      sailStrategyCandidate(windFromDeg, desiredBearingDeg, baseDeg + offsetDeg)
+    ].sort(function (a, b) { return a.cross - b.cross; });
+    var pair = pairedSailStrategy(type, candidates[0], candidates[1]);
+    if (pair) pair.windAngleDeg = windAngleDeg;
+    return pair;
+  }
+
+  var upwind = makePair('tack', windFromDeg, SAIL_CLOSE_HAULED_DEG);
+  var downwind = makePair('jibe', windFromDeg + 180, SAIL_BROAD_REACH_DEG);
+  var bestPair = !upwind ? downwind : (!downwind || upwind.score >= downwind.score ? upwind : downwind);
+  if (directStrategy && (!bestPair || bestPair.score <= directStrategy.score * 1.03)) return directStrategy;
+  if (bestPair) return bestPair;
+  return { type: 'infeasible', score: 0, windAngleDeg: windAngleDeg, reason: 'no-positive-paired-course' };
+}
+
+// Compatibility wrapper for pre-motor advice: use the same scored strategy and VMG factor.
+function pointOfSail(windFromDeg, courseBearingDeg) {
+  var strategy = chooseSailStrategy(windFromDeg, courseBearingDeg);
+  return { type: strategy.type, factor: strategy.score, angle: strategy.windAngleDeg };
 }
 
 function sailingSample(atMs, lat, headingSign, side, windDirSeries, windSpeedSeries, maxBoatKt, maneuvering) {
   var windDir = nearestSeriesValue(windDirSeries, atMs);
   var windKt = nearestSeriesValue(windSpeedSeries, atMs);
   var desiredBearing = courseBearingForHeading(headingSign);
-  var pos = pointOfSail(windDir, desiredBearing);
-  var activeSide = (pos.type === 'tack' || pos.type === 'jibe') ? (side || -1) : 0;
-  var headingDeg = sailedHeading(windDir, desiredBearing, pos.type, activeSide);
+  var strategy = chooseSailStrategy(windDir, desiredBearing);
+  var paired = strategy.type === 'tack' || strategy.type === 'jibe';
+  var activeSide = paired ? (side || -1) : 0;
+  var candidate = strategy.direct || (activeSide < 0 ? strategy.negative : strategy.positive);
+  var headingDeg = candidate ? candidate.headingDeg : desiredBearing;
   var deltaRad = signedBearingDelta(desiredBearing, headingDeg) * Math.PI / 180;
-  var polarFactor = pos.type === 'tack' ? 0.76 : (pos.type === 'jibe' ? 0.82 : pos.factor);
+  var polarFactor = candidate ? candidate.factor : 0;
   var throughWaterKt = maxBoatKt * windPowerFactor(windKt) * harborWindFactor(lat) * polarFactor;
-  if (maneuvering) throughWaterKt *= pos.type === 'tack' ? SAIL_TACK_LOSS_FACTOR : SAIL_JIBE_LOSS_FACTOR;
-  var vmg = Math.max(0, throughWaterKt * Math.cos(deltaRad));
+  if (maneuvering) throughWaterKt *= strategy.type === 'tack' ? SAIL_TACK_LOSS_FACTOR : SAIL_JIBE_LOSS_FACTOR;
+  var vmg = throughWaterKt * Math.cos(deltaRad);
+  if (vmg < -1e-9) throw new Error('Sail strategy selected a negative-progress heading');
+  if (vmg < 0) vmg = 0;
   var lateralKt = throughWaterKt * Math.sin(deltaRad);
+  var strategyHeadings = paired ? [strategy.negative.headingDeg, strategy.positive.headingDeg] : [headingDeg];
   return {
     vmg: vmg, lateralKt: lateralKt, throughWaterKt: throughWaterKt,
-    courseType: pos.type, side: activeSide, windKt: windKt, windDir: windDir,
+    courseType: strategy.type, side: activeSide, windKt: windKt, windDir: windDir,
+    windAngleDeg: strategy.windAngleDeg, strategyReason: strategy.reason, strategyHeadings: strategyHeadings,
     headingDeg: headingDeg, desiredBearing: desiredBearing, mode: 'sail'
   };
 }
@@ -2765,7 +2819,11 @@ function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, windDir
   var previousCourseType = null;
 
   function sample(atMs, lat, maneuvering) {
-    if (motor) return { vmg: boatSpeedKt, lateralKt: 0, throughWaterKt: boatSpeedKt, courseType: 'motor', side: 0, headingDeg: desiredBearing, mode: 'motor' };
+    if (motor) return {
+      vmg: boatSpeedKt, lateralKt: 0, throughWaterKt: boatSpeedKt,
+      courseType: 'motor', side: 0, headingDeg: desiredBearing, mode: 'motor',
+      windAngleDeg: null, strategyReason: 'motor', strategyHeadings: [desiredBearing]
+    };
     return sailingSample(atMs, lat, headingSign, side, windDirSeries, windSpeedSeries, boatSpeedKt, maneuvering);
   }
   // The leg's first point carries the instantaneous SOG/current/course state at startMs —
@@ -2780,7 +2838,9 @@ function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, windDir
   var path = [{
     ms: startMs, lat: startLat, crossNm: crossNm, sog: sog0, c: c0, sourceC: sourceC0,
     courseType: s0.courseType, side: s0.side, vmg: s0.vmg, lateralKt: s0.lateralKt,
-    throughWaterKt: s0.throughWaterKt, headingDeg: s0.headingDeg, maneuver: null, mode: s0.mode
+    throughWaterKt: s0.throughWaterKt, headingDeg: s0.headingDeg,
+    windAngleDeg: s0.windAngleDeg, strategyReason: s0.strategyReason, strategyHeadings: s0.strategyHeadings,
+    maneuver: null, mode: s0.mode
   }];
   if (endMs <= startMs) return path;
   var lat = startLat, t = startMs;
@@ -2827,7 +2887,9 @@ function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, windDir
     path.push({
       ms: t, lat: lat, crossNm: crossNm, sog: sog, c: c, sourceC: sourceC,
       courseType: s.courseType, side: s.side, vmg: s.vmg, lateralKt: s.lateralKt,
-      throughWaterKt: s.throughWaterKt, headingDeg: s.headingDeg, maneuver: maneuver, mode: s.mode
+      throughWaterKt: s.throughWaterKt, headingDeg: s.headingDeg,
+      windAngleDeg: s.windAngleDeg, strategyReason: s.strategyReason, strategyHeadings: s.strategyHeadings,
+      maneuver: maneuver, mode: s.mode
     });
   }
   return path;
@@ -3032,7 +3094,9 @@ function computeSailSim(departureMs, returnMs, curvePoints, windDirSeries, windS
       ms: returnMs, lat: arrivedLat, crossNm: 0, sog: 0, c: harborCurrentAt(curvePoints, returnMs, arrivedLat),
       sourceC: currentVelocityAt(curvePoints, returnMs),
       courseType: tailMode, side: 0, vmg: 0, lateralKt: 0, throughWaterKt: 0,
-      headingDeg: SAIL_COURSE_BEARING_N, maneuver: null, mode: tailMode
+      headingDeg: SAIL_COURSE_BEARING_N, windAngleDeg: null,
+      strategyReason: tailMode, strategyHeadings: [SAIL_COURSE_BEARING_N],
+      maneuver: null, mode: tailMode
     });
   }
 
@@ -4138,6 +4202,7 @@ function renderSailSimReadouts(sim, atMs) {
     else if (step.mode === 'overdue') courseLabel = 'Return target missed';
     else if (step.courseType === 'tack') courseLabel = 'Beating · ' + (step.side < 0 ? 'port' : 'starboard') + ' tack';
     else if (step.courseType === 'jibe') courseLabel = 'Broad reach · ' + (step.side < 0 ? 'port' : 'starboard') + ' jibe';
+    else if (step.courseType === 'infeasible') courseLabel = 'No positive-progress sailing course';
     else courseLabel = 'Direct reach on river course';
   }
   var vmgLabel = step && step.vmg != null ? round1(step.vmg) + ' kt' : '--';
@@ -4153,7 +4218,25 @@ function renderSailSimReadouts(sim, atMs) {
   var maneuverParts = [];
   if (plannedTacks) maneuverParts.push(tackCount + '/' + plannedTacks + ' tacks');
   if (plannedJibes) maneuverParts.push(jibeCount + '/' + plannedJibes + ' jibes');
-  var maneuverLabel = maneuverParts.length ? maneuverParts.join(' · ') : 'Direct reach, no tack/jibe required';
+  var strategyHeadings = step && Array.isArray(step.strategyHeadings) ? step.strategyHeadings : [];
+  var strategyHeadingLabel = strategyHeadings.length > 1
+    ? strategyHeadings.map(function (deg) { return Math.round(normalizeBearing(deg)) + '°'; }).join(' / ')
+    : '';
+  var strategyLabel;
+  if (!step) strategyLabel = '--';
+  else if (step.mode === 'motor') strategyLabel = 'Under power';
+  else if (step.mode === 'moored' || step.mode === 'overdue') strategyLabel = '--';
+  else if (step.courseType === 'infeasible') strategyLabel = 'No positive-progress sailing course';
+  else if (maneuverParts.length) {
+    strategyLabel = maneuverParts.join(' · ') + (strategyHeadingLabel ? ' · ' + strategyHeadingLabel : '');
+  } else if (step.strategyReason === 'wind-unavailable') {
+    strategyLabel = 'Direct course · wind direction unavailable';
+  } else {
+    strategyLabel = 'Direct reach · tacking is slower';
+  }
+  var windAngleLabel = step && step.windAngleDeg != null && isFinite(step.windAngleDeg)
+    ? Math.round(step.windAngleDeg) + '°'
+    : '--';
 
   // Item 1d: compact 2-column label/value grid — the last row (furthest/turn) runs long, so
   // it spans both columns instead of wrapping awkwardly in a half-width cell.
@@ -4162,8 +4245,9 @@ function renderSailSimReadouts(sim, atMs) {
     ['Mode', modeLabel],
     ['Course', courseLabel],
     ['Sailed heading', headingLabel],
+    ['True wind angle', windAngleLabel],
     ['Sailing VMG', vmgLabel],
-    ['Maneuvers', maneuverLabel],
+    ['Strategy', strategyLabel],
     ['Current (local est.)', curLabel],
     ['SOG', sogLabel],
     ['Distance', distLabel],
@@ -4196,6 +4280,9 @@ function sailSimPathsEqual(pathA, pathB) {
     if (pathA[i].courseType !== pathB[i].courseType || pathA[i].side !== pathB[i].side || pathA[i].mode !== pathB[i].mode) return false;
     if (pathA[i].maneuver !== pathB[i].maneuver) return false;
     if (Math.abs((pathA[i].headingDeg || 0) - (pathB[i].headingDeg || 0)) > 1e-5) return false;
+    if (pathA[i].strategyReason !== pathB[i].strategyReason) return false;
+    if (Math.abs((pathA[i].windAngleDeg || 0) - (pathB[i].windAngleDeg || 0)) > 1e-5) return false;
+    if (JSON.stringify(pathA[i].strategyHeadings || []) !== JSON.stringify(pathB[i].strategyHeadings || [])) return false;
     if (Math.abs((pathA[i].vmg || 0) - (pathB[i].vmg || 0)) > 1e-6) return false;
   }
   return true;
