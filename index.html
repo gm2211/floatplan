@@ -684,8 +684,15 @@ pre#marineTextContent { white-space: pre-wrap; font-family: inherit; font-size: 
 .observed-row:last-child { border-bottom: none; }
 .observed-value { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .observed-pill { display: inline-block; padding: 2px 8px; border-radius: 6px; font-weight: 600; }
-.observed-warn { font-size: 11px; background: var(--red-bg); color: var(--red); border-radius: 999px; padding: 2px 8px; }
 .observed-age { font-size: 11px; color: var(--ink-dim); }
+.observed-comparison-status {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 140px; min-height: 22px; box-sizing: border-box;
+  font-size: 11px; line-height: 1.2; border-radius: 999px; padding: 2px 8px;
+}
+.observed-comparison-status.is-warning { background: var(--red-bg); color: var(--red); }
+.observed-comparison-status.is-positive { background: var(--green-bg); color: var(--green); }
+.observed-comparison-status.is-neutral { background: color-mix(in srgb, var(--ink-dim) 12%, transparent); color: var(--ink-dim); }
 
 /* The selected wind station always uses the same four-slot layout. Keeping the
    label, reading, warning and timestamp as separate grid items prevents each
@@ -712,18 +719,26 @@ pre#marineTextContent { white-space: pre-wrap; font-family: inherit; font-size: 
 }
 .observed-wind-reading {
   grid-area: reading;
+  display: inline-flex;
+  align-items: center;
   justify-self: end;
+  min-height: 22px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .observed-wind-meta {
   grid-area: meta;
   justify-self: end;
-  display: flex;
+  display: grid;
+  grid-template-columns: 140px 124px;
   align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 4px 8px;
+  justify-content: end;
+  gap: 8px;
+  min-height: 22px;
 }
+.observed-wind-meta .observed-age { min-width: 124px; text-align: right; white-space: nowrap; }
 @container (max-width: 435px) {
   .observed-wind-row {
     grid-template-columns: minmax(0, 1fr);
@@ -731,7 +746,18 @@ pre#marineTextContent { white-space: pre-wrap; font-family: inherit; font-size: 
     row-gap: 5px;
   }
   .observed-wind-reading,
-  .observed-wind-meta { justify-self: start; justify-content: flex-start; }
+  .observed-wind-meta { justify-self: start; justify-content: start; }
+  .observed-wind-meta {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) minmax(0, .9fr);
+  }
+  .observed-wind-meta .observed-comparison-status,
+  .observed-wind-meta .observed-age {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 .observed-source-kicker {
@@ -1026,7 +1052,6 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     <div class="observed-source-kicker">Wind observations</div>
     <div class="chip-row obs-wind-station-row" id="obsWindStationRow">
       <button type="button" class="chip active" data-station="robbinsReef">Robbins Reef</button>
-      <button type="button" class="chip" data-station="kjrb">Wall St Heliport</button>
       <button type="button" class="chip station-unavailable" data-station="weatherflow" id="obsStationWeatherflowChip">Willy Wall</button>
     </div>
     <div class="observed-primary" id="observedPrimary">
@@ -1047,7 +1072,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <p class="sub" id="observedAsOf"></p>
       <div id="observedBody"></div>
     </div>
-    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a id="srcObservedRobbins" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8530973" target="_blank" rel="noopener noreferrer">Robbins Reef NOAA</a><a href="https://api.weather.gov/stations/KJRB/observations/latest" target="_blank" rel="noopener noreferrer">Wall St NWS</a><a href="https://www.wunderground.com/dashboard/pws/KNJNEWJE43" target="_blank" rel="noopener noreferrer">Willy Wall Wunderground</a><a id="srcObservedHudson" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">Hudson prediction NOAA</a><a id="srcObservedKvk" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n06010" target="_blank" rel="noopener noreferrer">Kill Van Kull NOAA</a><a id="srcObservedNewark" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n07010" target="_blank" rel="noopener noreferrer">Newark Bay NOAA</a><a id="srcObservedNarrows" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n03020" target="_blank" rel="noopener noreferrer">The Narrows NOAA</a><a id="srcObservedBattery" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">The Battery NOAA</a></div></details>
+    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a id="srcObservedRobbins" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8530973" target="_blank" rel="noopener noreferrer">Robbins Reef NOAA</a><a href="https://www.wunderground.com/dashboard/pws/KNJNEWJE43" target="_blank" rel="noopener noreferrer">Willy Wall Wunderground</a><a id="srcObservedHudson" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">Hudson prediction NOAA</a><a id="srcObservedKvk" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n06010" target="_blank" rel="noopener noreferrer">Kill Van Kull NOAA</a><a id="srcObservedNewark" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n07010" target="_blank" rel="noopener noreferrer">Newark Bay NOAA</a><a id="srcObservedNarrows" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n03020" target="_blank" rel="noopener noreferrer">The Narrows NOAA</a><a id="srcObservedBattery" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">The Battery NOAA</a></div></details>
   </section>
 
   <section class="card" id="sunTwilightCard">
@@ -1379,7 +1404,6 @@ var KVK_FLOOD_AXIS_DEG = 255; // LB 14 flood runs toward 255°; positive chart v
 var NARROWS_FLOOD_AXIS_DEG = 324; // The Narrows flood runs toward 324°; positive means its local flood axis.
 var MEASURED_CURRENT_HISTORY_HOURS = 24;
 var MEASURED_CURRENT_GAP_MS = 15 * 60000;
-var KJRB_OBS_URL = 'https://api.weather.gov/stations/KJRB/observations/latest'; // Wall St Heliport.
 var WILLY_WALL_SOURCE_URL = 'https://www.wunderground.com/dashboard/pws/KNJNEWJE43';
 // Weather Underground's own dashboard reads KNJNEWJE43 through this public, CORS-enabled
 // browser endpoint. The key is WU's published web-client key (not a sailor credential), so
@@ -1795,30 +1819,6 @@ function fetchObservedWind() {
       gustKt: isFinite(gustKt) ? gustKt : null,
       dirDeg: isFinite(dirDeg) ? dirDeg : null,
       dirCardinal: row.dr || null
-    };
-  }).catch(function () { return null; });
-}
-
-// Wall St Heliport (KJRB) — alternate live wind station for the Observed Now picker.
-// windSpeed/windGust come back in km/h (wmoUnit:km_h-1); windGust is very often null —
-// that must render as "no gust reported", never coerced to 0. Observation can lag 15-25 min.
-function fetchObservedWindKjrb() {
-  return fetchWithRetry(KJRB_OBS_URL).then(function (res) {
-    if (!res.ok) throw new Error('KJRB observations: HTTP ' + res.status);
-    return res.json();
-  }).then(function (json) {
-    var props = json && json.properties;
-    if (!props) return null;
-    var speedKmh = props.windSpeed && props.windSpeed.value;
-    var gustKmh = props.windGust && props.windGust.value;
-    var dirDeg = props.windDirection && props.windDirection.value;
-    var tsMs = props.timestamp ? Date.parse(props.timestamp) : NaN;
-    return {
-      ms: isFinite(tsMs) ? tsMs : null,
-      sustainedKt: speedKmh != null ? kmhToKt(speedKmh) : null,
-      gustKt: gustKmh != null ? kmhToKt(gustKmh) : null,
-      dirDeg: dirDeg != null ? dirDeg : null,
-      dirCardinal: null
     };
   }).catch(function () { return null; });
 }
@@ -4295,16 +4295,15 @@ function observedNewestMs(o) {
 // wind (from a chosen station) and predicted current — per spec. Everything else (temps,
 // water level, pressure, the Kill Van Kull live current) lives behind the "More" collapsible.
 
-var OBS_WIND_STATION_LABELS = { robbinsReef: 'Robbins Reef', kjrb: 'Wall St Heliport (KJRB)', weatherflow: 'Willy Wall' };
+var OBS_WIND_STATION_LABELS = { robbinsReef: 'Robbins Reef', weatherflow: 'Willy Wall' };
 
 function observedWindDataForStation(station) {
-  if (station === 'kjrb') return state.obsWindKjrbRaw;
   if (station === 'weatherflow') return state.obsWindWeatherflowRaw;
   return state.observedRaw ? state.observedRaw.wind : null;
 }
 
-// Minutes-ago suffix so a laggy station (KJRB can lag 15-25 min) is visibly stale rather
-// than silently presented as "now".
+// Minutes-ago suffix makes a delayed observation visibly stale rather than silently
+// presenting it as "now".
 function ageSuffix(ms) {
   if (ms == null) return '';
   var minutes = Math.round((Date.now() - ms) / 60000);
@@ -4323,10 +4322,11 @@ function updateObsWindStationChipActive() {
 // Single entry point for changing the selected wind station: persists the choice, updates
 // chip state, and re-renders the wind row immediately.
 function selectObsWindStation(station) {
+  if (!Object.prototype.hasOwnProperty.call(OBS_WIND_STATION_LABELS, station)) station = 'robbinsReef';
   state.obsWindStation = station;
   lsSetJSON('obsWindStation', station);
   updateObsWindStationChipActive();
-  renderObsWindRow(state.lastMaxSustainedKt, state.lastMaxGustKt, (state.settings && state.settings.limits) || DEFAULT_LIMITS);
+  renderObsWindRow((state.settings && state.settings.limits) || DEFAULT_LIMITS);
 }
 
 function updateWillyWallChipState(available) {
@@ -4339,7 +4339,35 @@ function updateWillyWallChipState(available) {
   chip.setAttribute('aria-label', chip.title);
 }
 
-function renderObsWindRow(maxSustainedKt, maxGustKt, limits) {
+// Compares like-for-like measured and forecast values. A three-knot tolerance avoids
+// presenting routine station/model noise as a meaningful disagreement.
+function classifyObservedWindComparison(observed, forecastSustainedKt, forecastGustKt) {
+  var toleranceKt = 3;
+  var deltas = [];
+  if (observed && observed.sustainedKt != null && forecastSustainedKt != null) {
+    deltas.push(observed.sustainedKt - forecastSustainedKt);
+  }
+  if (observed && observed.gustKt != null && forecastGustKt != null) {
+    deltas.push(observed.gustKt - forecastGustKt);
+  }
+  if (!deltas.length) return 'unavailable';
+  if (deltas.some(function (delta) { return delta >= toleranceKt; })) return 'above';
+  if (deltas.every(function (delta) { return delta <= -toleranceKt; })) return 'below';
+  return 'within';
+}
+
+function observedWindComparisonBadge(comparison) {
+  var statuses = {
+    above: { text: 'observed above forecast', cls: 'is-warning' },
+    within: { text: 'within forecast', cls: 'is-positive' },
+    below: { text: 'below forecast', cls: 'is-positive' },
+    unavailable: { text: 'comparison unavailable', cls: 'is-neutral' }
+  };
+  var status = statuses[comparison] || statuses.unavailable;
+  return '<span class="observed-comparison-status ' + status.cls + '">' + status.text + '</span>';
+}
+
+function renderObsWindRow(limits) {
   var el = $('obsWindRow');
   if (!el) return;
   el.className = 'observed-wind-row';
@@ -4347,30 +4375,41 @@ function renderObsWindRow(maxSustainedKt, maxGustKt, limits) {
   var station = state.obsWindStation || 'robbinsReef';
   var label = OBS_WIND_STATION_LABELS[station] || station;
   var w = observedWindDataForStation(station);
+  var comparison = 'unavailable';
+  var nowMs = Date.now();
+  if (observedWindIsFresh(w, nowMs)) {
+    var compareAtMs = w.ms != null ? w.ms : nowMs;
+    var forecastSustainedKt = state.gridSeries && state.gridSeries.windSpeedKt
+      ? valueAtMs(state.gridSeries.windSpeedKt, compareAtMs) : null;
+    var forecastGustKt = state.gridSeries && state.gridSeries.windGustKt
+      ? valueAtMs(state.gridSeries.windGustKt, compareAtMs) : null;
+    comparison = classifyObservedWindComparison(w, forecastSustainedKt, forecastGustKt);
+  }
+  var comparisonBadge = observedWindComparisonBadge(comparison);
 
   if (!w) {
     el.innerHTML = '<span class="observed-wind-station">Wind &middot; ' + escapeHtml(label) + '</span>' +
       (station === 'weatherflow'
         ? '<a class="observed-wind-reading" href="' + WILLY_WALL_SOURCE_URL + '" target="_blank" rel="noopener noreferrer">Live feed unavailable &middot; check source</a>'
-        : '<span class="observed-wind-reading">&mdash;</span>');
+        : '<span class="observed-wind-reading">&mdash;</span>') +
+      '<span class="observed-wind-meta">' + comparisonBadge +
+        '<span class="observed-age" aria-hidden="true">&nbsp;</span>' +
+      '</span>';
     return;
   }
 
   var cls = windCellClass(w.sustainedKt, w.gustKt, limits);
   var dirLabel = w.dirCardinal || (w.dirDeg != null ? degToCompass(w.dirDeg) : null);
-  // Gust is very often absent at KJRB — an explicit "no gust reported" rather than a
-  // silently-omitted/zero gust value, per spec.
+  // Missing gusts are explicit rather than silently omitted or coerced to zero.
   var gustText = w.gustKt != null ? ('gusts ' + round1(w.gustKt) + ' kt') : 'no gust reported';
   var windText = (dirLabel || '--') + (w.sustainedKt != null ? ' ' + round1(w.sustainedKt) + ' kt' : ' --') + ', ' + gustText;
-  var aboveForecast = (maxSustainedKt != null && w.sustainedKt != null && w.sustainedKt > maxSustainedKt) ||
-    (maxGustKt != null && w.gustKt != null && w.gustKt > maxGustKt);
   var ageText = w.ms != null ? ('as of ' + fmtTime(w.ms) + ageSuffix(w.ms)) : '';
   el.innerHTML =
     '<span class="observed-wind-station">Wind &middot; ' + escapeHtml(label) + '</span>' +
     '<span class="observed-pill observed-wind-reading ' + cls + '">' + escapeHtml(windText) + '</span>' +
     '<span class="observed-wind-meta">' +
-      (aboveForecast ? '<span class="observed-warn">observed above forecast</span>' : '') +
-      (ageText ? '<span class="observed-age">' + escapeHtml(ageText) + '</span>' : '') +
+      comparisonBadge +
+      '<span class="observed-age">' + (ageText ? escapeHtml(ageText) : '&nbsp;') + '</span>' +
     '</span>';
 }
 
@@ -6903,7 +6942,7 @@ var state = {
   levelPredictedRaw: null, levelObservedRaw: null,
   gridpointRaw: null, hourlyRaw: null, alertsRaw: null, stormAlertsRaw: null, stormCellsRaw: null, marineTextRaw: null,
   observedRaw: null, windModelsRaw: null, windModelSeries: null, windModel: 'nws',
-  obsWindStation: 'robbinsReef', obsWindKjrbRaw: null, obsWindWeatherflowRaw: null,
+  obsWindStation: 'robbinsReef', obsWindWeatherflowRaw: null,
   obsCurrentStation: 'hudson', kvkCurrentRaw: null, kvkCurrentHistoryRaw: [], newarkCurrentRaw: null,
   narrowsCurrentRaw: null, narrowsCurrentHistoryRaw: [],
   curvePoints: [], slackEvents: [], gridSeries: null,
@@ -7006,15 +7045,6 @@ function loadObserved() {
   }).then(function () { clearCardError('observedError'); return true; })
     .catch(function (err) { showCardError('observedError', 'Observed now: ' + err.message, loadObserved); return false; });
 }
-// Secondary wind station for the Observed Now picker — preloaded alongside Robbins Reef so
-// switching the station chip is instant. Its own fetcher already resolves null on failure
-// (never throws), so a bad round never touches observedCard's shared error banner; the wind
-// row itself just renders "--" for that station (see renderObsWindRow).
-function loadObservedKjrb() {
-  return loadSource('observedKjrb', fetchObservedWindKjrb, 'observedCard', function (data) {
-    state.obsWindKjrbRaw = data;
-  }).then(function () { return true; }).catch(function () { return false; });
-}
 // Nearby measured currents are loaded as optional reference readings. A missing PORTS
 // sample is a valid unavailable state, not a card-level failure.
 function loadKvkCurrent() {
@@ -7053,7 +7083,7 @@ function loadWillyWall() {
     state.obsWindWeatherflowRaw = data;
     updateWillyWallChipState(!!data);
     if (state.obsWindStation === 'weatherflow') {
-      renderObsWindRow(state.lastMaxSustainedKt, state.lastMaxGustKt, (state.settings && state.settings.limits) || DEFAULT_LIMITS);
+      renderObsWindRow((state.settings && state.settings.limits) || DEFAULT_LIMITS);
     }
     return !!data;
   });
@@ -7279,7 +7309,7 @@ function recomputeWindowDependentUI() {
   renderWeatherCard(state.hourlyRaw, state.gridSeries, departureMs, returnMs, limits);
   renderAdvisories(state.alertsRaw, departureMs, returnMs);
   renderStormOverlays(state.stormAlertsRaw, state.stormCellsRaw);
-  renderObsWindRow(maxSustainedKt, maxGustKt, limits);
+  renderObsWindRow(limits);
   renderObsCurrentRow();
   renderObservedMore(state.observedRaw, limits);
   renderSunTwilightCard(departureMs, returnMs);
@@ -7296,7 +7326,7 @@ function loadAll() {
   return Promise.all([
     loadCurrentsSlack(), loadCurrentsCurve(), loadWater(), loadGridpoint(),
     loadHourly(), loadAlerts(), loadStormAlerts(), loadStormCells(), loadMarineText(), loadRadar(true), loadObserved(),
-    loadObservedKjrb(), loadKvkCurrent(), loadKvkCurrentHistory(), loadNewarkCurrent(), loadNarrowsCurrent(),
+    loadKvkCurrent(), loadKvkCurrentHistory(), loadNewarkCurrent(), loadNarrowsCurrent(),
     loadNarrowsCurrentHistory(), loadWillyWall()
   ]).then(function (results) {
     return results.some(function (ok) { return ok === true; });
@@ -9079,6 +9109,11 @@ function init() {
   $('customDurationInput').addEventListener('input', onCustomDurationInput);
 
   state.obsWindStation = lsGetJSON('obsWindStation', 'robbinsReef');
+  if (state.obsWindStation !== 'robbinsReef' && state.obsWindStation !== 'weatherflow') {
+    state.obsWindStation = 'robbinsReef';
+    lsSetJSON('obsWindStation', state.obsWindStation);
+  }
+  try { localStorage.removeItem(cacheKey('observedKjrb')); } catch (e) { /* obsolete cache cleanup is best-effort */ }
   updateObsWindStationChipActive();
   document.querySelectorAll('#obsWindStationRow .chip').forEach(function (chip) {
     chip.addEventListener('click', function () {

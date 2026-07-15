@@ -78,6 +78,7 @@ Logic over current predictions within the window:
 
 - Hourly rows (or compact chart + rows) covering window ±2 h: time, wind dir arrow + cardinal, sustained kt, gust kt, colored per limits (green/yellow/red cell backgrounds).
 - Above it: window summary — dominant direction, range sustained, max gust.
+- Observed Now offers the Hudson-relevant Robbins Reef NOAA station and Willy Wall. Do not offer East River stations. Keep the observed row geometry fixed across selections and unavailable states; its reserved comparison badge classifies like-for-like measured versus forecast wind with a 3 kt tolerance as above, within, below, or unavailable.
 
 ## Weather strip + radar
 

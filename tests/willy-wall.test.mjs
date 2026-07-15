@@ -69,6 +69,21 @@ assert.ok(Math.abs(fallbackParsed.gustKt - 14 * KT_PER_MPH) < 1e-9);
 assert.equal(fallbackParsed.dirCardinal, 'W');
 assert.equal(parseWillyWallText('## Station Summary\nOffline'), null);
 
+const classifierStart = html.indexOf('function classifyObservedWindComparison');
+const classifierEnd = html.indexOf('function observedWindComparisonBadge', classifierStart);
+assert.ok(classifierStart >= 0 && classifierEnd > classifierStart, 'wind comparison classifier not found');
+(0, eval)(html.slice(classifierStart, classifierEnd));
+
+assert.equal(classifyObservedWindComparison({ sustainedKt: 14, gustKt: 18 }, 11, 16), 'above', 'any comparable value at least 3 kt high is above');
+assert.equal(classifyObservedWindComparison({ sustainedKt: 10, gustKt: 20 }, 11, 17), 'above', 'gust alone can classify above');
+assert.equal(classifyObservedWindComparison({ sustainedKt: 8, gustKt: 12 }, 11, 15), 'below', 'all comparable values at least 3 kt low are below');
+assert.equal(classifyObservedWindComparison({ sustainedKt: 8, gustKt: 14 }, 11, 15), 'within', 'one value inside the deadband prevents below');
+assert.equal(classifyObservedWindComparison({ sustainedKt: 13.9, gustKt: null }, 11, null), 'within', 'a 2.9 kt difference stays within');
+assert.equal(classifyObservedWindComparison({ sustainedKt: 8.1, gustKt: null }, 11, null), 'within', 'a -2.9 kt difference stays within');
+assert.equal(classifyObservedWindComparison({ sustainedKt: 12, gustKt: null }, 11, 18), 'within', 'a single comparable sustained value can be within');
+assert.equal(classifyObservedWindComparison({ sustainedKt: 12, gustKt: null }, null, 18), 'unavailable', 'no like-for-like pair is unavailable');
+assert.equal(classifyObservedWindComparison(null, 11, 18), 'unavailable');
+
 let requested = [];
 globalThis.fetchWithRetry = async (url) => {
   requested.push(url);
@@ -90,6 +105,27 @@ assert.equal(fallback.dirCardinal, 'W');
 
 assert.ok(html.includes('stationId=KNJNEWJE43'), 'production endpoint must target Willy Wall');
 assert.ok(html.includes('Live feed unavailable &middot; check source'), 'failure copy must not claim the station itself is offline');
+assert.ok(html.includes('data-station="robbinsReef">Robbins Reef</button>'), 'Robbins Reef must remain selectable');
+assert.ok(html.includes('data-station="weatherflow"'), 'Willy Wall must remain selectable');
+assert.ok(!html.includes('data-station="kjrb"'), 'East River station must not remain selectable');
+assert.ok(!html.includes('/stations/KJRB'), 'East River observation endpoint must be removed');
+assert.ok(!html.includes('function fetchObservedWindKjrb'), 'East River fetcher must be removed');
+assert.ok(!html.includes('obsWindKjrbRaw'), 'East River state slot must be removed');
+assert.ok(!html.includes('loadObservedKjrb'), 'East River loader must be removed');
+assert.ok(!html.includes('Wall St Heliport'), 'East River station labels must be removed');
+assert.ok(html.includes("state.obsWindStation !== 'robbinsReef' && state.obsWindStation !== 'weatherflow'"), 'legacy or invalid station selections must fall back');
+assert.ok(html.includes("lsSetJSON('obsWindStation', state.obsWindStation)"), 'fallback station selection must be persisted');
+assert.ok(html.includes("localStorage.removeItem(cacheKey('observedKjrb'))"), 'obsolete East River cache must be removed');
+assert.ok(html.includes('if (observedWindIsFresh(w, nowMs))'), 'comparison must reject stale observations');
+assert.ok(html.includes('valueAtMs(state.gridSeries.windSpeedKt, compareAtMs)'), 'comparison must use the NWS wind interval covering the observation time');
+assert.ok(html.includes('valueAtMs(state.gridSeries.windGustKt, compareAtMs)'), 'comparison must use the NWS gust interval covering the observation time');
+assert.ok(html.includes('observed-comparison-status is-warning') || html.includes("cls: 'is-warning'"), 'above status needs a warning class');
+assert.ok(html.includes("within: { text: 'within forecast', cls: 'is-positive' }"));
+assert.ok(html.includes("below: { text: 'below forecast', cls: 'is-positive' }"));
+assert.ok(html.includes("unavailable: { text: 'comparison unavailable', cls: 'is-neutral' }"));
+assert.ok(html.includes('min-width: 140px; min-height: 22px'), 'comparison slot must reserve stable dimensions');
+assert.ok(html.includes("'<span class=\"observed-wind-meta\">' + comparisonBadge"), 'unavailable readings must retain the comparison/meta row');
+assert.ok(html.includes('Robbins Reef NOAA</a>'), 'Robbins Reef source must remain linked');
 assert.ok(html.includes('Willy Wall Wunderground</a>'), 'the original station page must remain linked');
 
 console.log('Willy Wall live observation and fallback assertions passed');
