@@ -8948,6 +8948,30 @@ function buildPreMotorContext() {
   } catch (e) { return null; }
 }
 
+function windowAdvisorySummaries(alerts, windowStartMs, windowEndMs) {
+  var unique = {};
+  (alerts || []).forEach(function (alert) {
+    if (!alert || !alert.properties || !alertOverlapsWindow(alert, windowStartMs, windowEndMs)) return;
+    var props = alert.properties;
+    var event = String(props.event || 'Advisory').trim();
+    var startMs = alertStartMs(props);
+    var endMs = alertEndMs(props);
+    var isWarning = /warning/i.test(event);
+    var key = isWarning
+      ? [event.toLowerCase(), startMs, endMs, props.headline || '', props.areaDesc || ''].join('|')
+      : event.toLowerCase();
+    if (!unique[key] || (endMs != null && (unique[key].endMs == null || endMs > unique[key].endMs))) {
+      unique[key] = {
+        event: event,
+        startMs: startMs,
+        endMs: endMs,
+        endsTime: endMs != null ? fmtTime(endMs) : null
+      };
+    }
+  });
+  return Object.keys(unique).map(function (key) { return unique[key]; });
+}
+
 // Compact structured snapshot of everything already on screen — reused for both the AI
 // prompt and the template composer so the two paths never disagree on the underlying facts.
 function buildPlanNarrativeContext() {
@@ -8983,7 +9007,7 @@ function buildPlanNarrativeContext() {
     var currentEvents = (state.slackEvents || []).filter(function (e) {
       return e.ms >= departureMs && e.ms <= returnMs;
     }).map(function (e) {
-      return { time: fmtTime(e.ms), type: e.type || 'unknown', speedKt: e.v != null ? round1(Math.abs(e.v)) : null };
+      return { ms: e.ms, time: fmtTime(e.ms), type: e.type || 'unknown', speedKt: e.v != null ? round1(Math.abs(e.v)) : null };
     });
 
     var tideEvents = (state.tidesRaw || []).map(function (p) {
@@ -8991,11 +9015,7 @@ function buildPlanNarrativeContext() {
     }).filter(function (p) { return isFinite(p.ms) && p.ms >= winStart && p.ms <= winEnd; })
       .map(function (p) { return { time: fmtTime(p.ms), type: p.type, ft: isFinite(p.v) ? round1(p.v) : null }; });
 
-    var advisories = (state.alertsRaw || []).map(function (a) {
-      var props = a.properties || {};
-      var end = alertEndMs(props);
-      return { event: props.event || 'Advisory', endsTime: end != null ? fmtTime(end) : 'n/a' };
-    });
+    var advisories = windowAdvisorySummaries(state.alertsRaw, departureMs, returnMs);
 
     function vesselField(id) {
       var el = $(id);
@@ -9021,10 +9041,12 @@ function buildPlanNarrativeContext() {
       reefBandLow: limits.reefLow, reefBandHigh: limits.reefHigh,
       currentEvents: currentEvents,
       currentPhase: direction.stateDep || null,
+      initialHeading: direction.initialHeading || null,
       directionHeadline: direction.headline || null,
       tideEvents: tideEvents,
       advisories: advisories,
       sunset: twilight.sunsetMs != null ? fmtTime(twilight.sunsetMs) : null,
+      turnaroundMs: turnaroundMs,
       turnaroundTime: turnaroundMs != null ? fmtTime(turnaroundMs) : null,
       precipSummary: precipWindowSummaryLine(departureMs, returnMs),
       vessel: {
@@ -9040,14 +9062,14 @@ function buildPlanNarrativeContext() {
       departure: null, returnTime: null, sailWindowHours: null, verdictLevel: null, verdictReasons: [],
       windDirection: null, windSustainedMinKt: null, windSustainedMaxKt: null, windGustMaxKt: null, windGustMaxTime: null,
       reefBandLow: DEFAULT_LIMITS.reefLow, reefBandHigh: DEFAULT_LIMITS.reefHigh,
-      currentEvents: [], currentPhase: null, directionHeadline: null, tideEvents: [], advisories: [],
-      sunset: null, turnaroundTime: null, precipSummary: null, vessel: {},
+      currentEvents: [], currentPhase: null, initialHeading: null, directionHeadline: null, tideEvents: [], advisories: [],
+      sunset: null, turnaroundMs: null, turnaroundTime: null, precipSummary: null, vessel: {},
       observed_now: null, pre_motor: null
     };
   }
 }
 
-// Deterministic fallback — always available, always produces the four required sections.
+// Deterministic fallback — concise, action-first, and assigns each fact to one section.
 function composeTemplateNarrative(ctx) {
   try {
     ctx = ctx || {};
@@ -9055,48 +9077,48 @@ function composeTemplateNarrative(ctx) {
     var retStr = ctx.returnTime || 'return time TBD';
 
     var routeParts = [];
-    routeParts.push('Depart Pier 25 ' + depStr + ', return by ' + retStr +
-      (ctx.sailWindowHours ? ' (' + ctx.sailWindowHours + 'h sail window)' : '') + '.');
-    if (ctx.turnaroundTime) routeParts.push('Plan the turn-around near ' + ctx.turnaroundTime + '.');
-    if (ctx.directionHeadline) routeParts.push(ctx.directionHeadline);
-    if (ctx.sunset) routeParts.push('Sunset ' + ctx.sunset + '.');
+    routeParts.push('Depart Pier 25 ' + depStr + '; return by ' + retStr + '.');
+    var headingWord = ctx.initialHeading === 'N' ? 'north' : ctx.initialHeading === 'S' ? 'south' : null;
+    var phaseWord = ctx.currentPhase === 'flood' || ctx.currentPhase === 'ebb' ? ctx.currentPhase : null;
+    var currentRunsNorth = phaseWord === 'flood';
+    var headingRunsNorth = ctx.initialHeading === 'N';
+    var currentRelation = phaseWord && headingWord
+      ? (currentRunsNorth === headingRunsNorth ? ' on the ' : ' against the ') + phaseWord
+      : '';
+    var routeAction = headingWord ? 'Head ' + headingWord + currentRelation : null;
+    if (ctx.turnaroundTime) {
+      routeAction = (routeAction ? routeAction + '; ' : '') + 'turn near ' + ctx.turnaroundTime;
+    }
     if (ctx.currentEvents && ctx.currentEvents.length) {
-      var turns = ctx.currentEvents.map(function (e) {
-        var label = e.type === 'slack' ? 'slack' : e.type;
-        return label + ' at ' + e.time + (e.speedKt != null ? ' (' + e.speedKt + ' kt)' : '');
-      }).join('; ');
-      routeParts.push('Current turns in window: ' + turns + '.');
-    } else if (ctx.currentPhase === 'flood' || ctx.currentPhase === 'ebb') {
-      // No slack/turn falls inside the window itself — stay consistent with the direction
-      // headline (which already describes this as one continuous phase for the whole window)
-      // instead of a generic "no data" line that would read as contradicting it.
-      routeParts.push('No current turn expected inside the window — ' +
-        (ctx.currentPhase === 'flood' ? 'flooding' : 'ebbing') + ' holds for the whole window.');
-    } else if (ctx.currentPhase === 'slack') {
-      routeParts.push('No current turn expected inside the window — current stays near slack for the whole window.');
-    } else {
-      routeParts.push('No current turn data available for this window — plan the turn-around conservatively.');
+      var turnEvent = ctx.currentEvents.find(function (event) { return event.type === 'slack'; });
+      if (turnEvent) {
+        var timingRelation = '';
+        if (ctx.turnaroundMs != null && turnEvent.ms != null) {
+          timingRelation = ctx.turnaroundMs < turnEvent.ms ? ' before ' : ctx.turnaroundMs > turnEvent.ms ? ' after ' : ' at ';
+        } else {
+          timingRelation = ' near ';
+        }
+        routeAction = (routeAction || 'Turn conservatively') + timingRelation + 'slack at ' + turnEvent.time;
+      }
     }
-    if (ctx.tideEvents && ctx.tideEvents.length) {
-      routeParts.push('Battery tide: ' + ctx.tideEvents.map(function (t) { return t.type + ' ' + t.time; }).join(', ') + '.');
-    }
+    if (routeAction) routeParts.push(routeAction + ', then return to Pier 25.');
 
     var sailParts = [];
     var reefLow = ctx.reefBandLow != null ? ctx.reefBandLow : DEFAULT_LIMITS.reefLow;
     var reefHigh = ctx.reefBandHigh != null ? ctx.reefBandHigh : DEFAULT_LIMITS.reefHigh;
     if (ctx.windSustainedMaxKt != null) {
-      sailParts.push('Sustained wind ' + (ctx.windSustainedMinKt != null ? ctx.windSustainedMinKt + '–' : '') + ctx.windSustainedMaxKt + ' kt' +
-        (ctx.windDirection ? ' from the ' + ctx.windDirection : '') +
-        (ctx.windGustMaxKt != null ? ', gusting to ' + ctx.windGustMaxKt + ' kt' + (ctx.windGustMaxTime ? ' near ' + ctx.windGustMaxTime : '') : '') + '.');
+      var windFacts = (ctx.windDirection ? ctx.windDirection + ' ' : '') +
+        (ctx.windSustainedMinKt != null ? ctx.windSustainedMinKt + '–' : '') + ctx.windSustainedMaxKt + ' kt' +
+        (ctx.windGustMaxKt != null ? ', gusts ' + ctx.windGustMaxKt + ' kt near ' + (ctx.windGustMaxTime || 'departure') : '');
       if (ctx.windSustainedMaxKt > reefHigh || (ctx.windGustMaxKt != null && ctx.windGustMaxKt > reefHigh)) {
-        sailParts.push('Reef before departure and reassess before committing to the window.');
+        sailParts.push('Reef before departure; ' + windFacts + '.');
       } else if (ctx.windSustainedMaxKt >= reefLow) {
-        sailParts.push('Plan to reef within the ' + reefLow + '–' + reefHigh + ' kt band; shake it out only if wind eases.');
+        sailParts.push('Plan to reef; ' + windFacts + '.');
       } else {
-        sailParts.push('Full sail plan supported by the forecast; keep an eye on gusts.');
+        sailParts.push('Full sail; ' + windFacts + '.');
       }
     } else {
-      sailParts.push('Wind data unavailable for this window — check conditions on-site before deciding full sail vs. reef.');
+      sailParts.push('Check wind at the pier before choosing full sail or reef.');
     }
     if (ctx.observed_now && ctx.observed_now.windSustainedKt != null && ctx.windSustainedMaxKt != null &&
         ctx.observed_now.windSustainedKt > ctx.windSustainedMaxKt) {
@@ -9104,41 +9126,40 @@ function composeTemplateNarrative(ctx) {
         (ctx.observed_now.windGustKt != null ? ' (gusts ' + ctx.observed_now.windGustKt + ' kt)' : '') +
         ' — already running above the forecast max; recheck before departing.');
     }
-    if (ctx.pre_motor && ctx.pre_motor.sentence) {
-      sailParts.push(ctx.pre_motor.sentence);
-    }
-
-    var safetyParts = [];
-    var advisoryText = (ctx.advisories && ctx.advisories.length)
-      ? ctx.advisories.map(function (a) { return a.event + ' (ends ' + a.endsTime + ')'; }).join(', ')
-      : 'none';
-    safetyParts.push('Advisories: ' + advisoryText + '.');
-    if (ctx.precipSummary) safetyParts.push('Precipitation: ' + ctx.precipSummary);
-    if (ctx.windGustMaxKt != null) {
-      safetyParts.push('Watch for gusts to ' + ctx.windGustMaxKt + ' kt' + (ctx.windGustMaxTime ? ' near ' + ctx.windGustMaxTime : '') + '.');
-    }
-    if (ctx.verdictReasons && ctx.verdictReasons.length) {
-      safetyParts.push(ctx.verdictReasons.join(' '));
+    if (ctx.pre_motor) {
+      sailParts.push('Progress is poor against the ' + round1(ctx.pre_motor.opposingCurrentKt) + ' kt ' +
+        ctx.pre_motor.currentPhase + '; consider motoring ' +
+        (ctx.pre_motor.direction === 'S' ? 'south' : 'north') + ' ~' + Math.round(ctx.pre_motor.durationMin) +
+        ' min to the ' + ctx.pre_motor.target + ', then sail home.');
     }
 
     var checkinParts = [];
-    checkinParts.push('Expected return ' + retStr + '.');
-    checkinParts.push('Notify your contact ashore on return; call if delayed beyond the window.');
-    if (ctx.vessel && ctx.vessel.name) {
-      checkinParts.push('Vessel ' + ctx.vessel.name +
-        (ctx.vessel.crewCount ? ', ' + ctx.vessel.crewCount + ' crew + 1 skipper' : '') +
-        (ctx.vessel.phone ? ', phone ' + ctx.vessel.phone : '') + '.');
+    if (ctx.advisories && ctx.advisories.length) {
+      checkinParts.push(ctx.advisories.map(function (a) {
+        return a.event + (a.endsTime ? ' through ' + a.endsTime : '');
+      }).join('; ') + '.');
     }
+    var thunderReasons = (ctx.verdictReasons || []).filter(function (reason) {
+      return /thunder/i.test(String(reason));
+    });
+    if (thunderReasons.length) checkinParts.push(thunderReasons.join(' '));
+    if (ctx.verdictLevel === 'NO-GO' && !thunderReasons.length) {
+      checkinParts.push('NO-GO: forecast exceeds configured safety limits.');
+    }
+    if (ctx.vessel && ctx.vessel.name) {
+      var aboard = ctx.vessel.crewCount != null ? Number(ctx.vessel.crewCount) + 1 : null;
+      checkinParts.push(ctx.vessel.name + (aboard != null ? ' · ' + aboard + ' aboard' : '') +
+        (ctx.vessel.phone ? ' · ' + ctx.vessel.phone : '') + '.');
+    }
+    checkinParts.push('Notify your shore contact if overdue.');
 
     return 'ROUTE & TIMING\n' + routeParts.join(' ') +
       '\n\nSAIL PLAN\n' + sailParts.join(' ') +
-      '\n\nSAFETY NOTES\n' + safetyParts.join(' ') +
-      '\n\nCHECK-IN\n' + checkinParts.join(' ');
+      '\n\nSAFETY & CHECK-IN\n' + checkinParts.join(' ');
   } catch (e) {
-    return 'ROUTE & TIMING\nUnable to generate proposed plan automatically — fill in manually.\n\n' +
-      'SAIL PLAN\nCheck current conditions on-site before deciding full sail vs. reef.\n\n' +
-      'SAFETY NOTES\nReview advisories before departure.\n\n' +
-      'CHECK-IN\nFile your plan with a contact ashore and confirm your expected return time.';
+    return 'ROUTE & TIMING\nConfirm departure, turn, and return times.\n\n' +
+      'SAIL PLAN\nCheck wind and current at the pier.\n\n' +
+      'SAFETY & CHECK-IN\nReview active advisories and notify your shore contact if overdue.';
   }
 }
 
@@ -9147,11 +9168,12 @@ function buildNarrativePromptText(ctx) {
     var reefLow = (ctx && ctx.reefBandLow != null) ? ctx.reefBandLow : DEFAULT_LIMITS.reefLow;
     var reefHigh = (ctx && ctx.reefBandHigh != null) ? ctx.reefBandHigh : DEFAULT_LIMITS.reefHigh;
     var intro = 'You are helping a recreational sailor write a float plan for a day sail on the Hudson River from the Pier 25 mooring field (New York Harbor). ' +
-      'Using ONLY the data below, write a concise proposed float plan narrative (max ~220 words) with these sections: ' +
-      'ROUTE & TIMING (tie leg directions and turn-around to the current turns), ' +
+      'Using ONLY the data below, write a concise proposed float plan narrative (max 120 words) with exactly these sections: ' +
+      'ROUTE & TIMING (departure, turn, return, and current strategy), ' +
       'SAIL PLAN (full sail or reef, based on the wind numbers and the reef band ' + reefLow + '–' + reefHigh + ' kt; ' +
       'if pre_motor is present, work its recommendation to motor the first leg into this section), ' +
-      'SAFETY NOTES (advisories, gusts, thunder if any), CHECK-IN (return time and who to notify). ' +
+      'SAFETY & CHECK-IN (only active exceptional hazards, vessel/aboard, and who to notify). ' +
+      'State each time, speed, gust, alert, and action only once. Omit inactive alerts, empty categories, tide facts that do not change the plan, and generic boilerplate such as "within limits." ' +
       'Plain text, no markdown headers other than the section words in caps. Do not invent data not present below.\n\nDATA:\n';
     return intro + JSON.stringify(ctx, null, 1);
   } catch (e) { return ''; }
