@@ -10022,12 +10022,13 @@ function init() {
     });
   });
 
-  // Wind model switcher (item 2): NWS is the default and the only model the go/no-go verdict
-  // ever uses (renderWindModelNote surfaces that whenever a different chip is active). GFS/
-  // ECMWF/ICON share one lazily-fetched Open-Meteo source (loadWindModels) — first click on
-  // any of those (or "All") triggers the fetch; state.windModelSeries itself guards against
-  // re-fetching on later clicks.
-  state.windModel = lsGetJSON('windModel', 'nws');
+  // Wind model switcher (item 2): every page load starts on NWS, the only model used by the
+  // go/no-go verdict. Comparison-model data is intentionally fetched only after a user picks
+  // GFS/ECMWF/ICON/All; restoring a saved comparison choice before that fetch made the active
+  // chip say "All" while the chart could initially contain only NWS. Keep this choice
+  // session-only so the selected chip and rendered series can never disagree after refresh.
+  state.windModel = 'nws';
+  try { localStorage.removeItem(cacheKey('windModel')); } catch (e) { /* legacy preference cleanup is best-effort */ }
   updateWindModelChipActive();
   wireCollapsible('windHourlyToggle', 'windHourlyBody');
   document.querySelectorAll('#windModelRow .chip').forEach(function (chip) {
@@ -10035,7 +10036,6 @@ function init() {
       var model = chip.dataset.model;
       if (model === state.windModel) return;
       state.windModel = model;
-      lsSetJSON('windModel', model);
       updateWindModelChipActive();
       rerenderWindCard();
       if (model !== 'nws' && !state.windModelSeries) loadWindModels();
