@@ -7805,18 +7805,36 @@ function markSourceFresh(cardElId, sourceName) {
   renderCardStaleChip(cardElId);
 }
 
+// Startup hydrates many independent cached sources synchronously, and their live refreshes
+// often settle together. Recomputing the entire dashboard after every individual apply used
+// to perform the same SVG/map/card work dozens of times before the browser could paint.
+// Coalesce source-driven updates into one render per animation frame; direct user actions
+// still call recomputeWindowDependentUI() synchronously so controls remain immediate.
+var sourceRecomputeScheduled = false;
+function scheduleSourceRecompute() {
+  if (sourceRecomputeScheduled) return;
+  sourceRecomputeScheduled = true;
+  var enqueue = typeof requestAnimationFrame === 'function'
+    ? requestAnimationFrame
+    : function (callback) { setTimeout(callback, 0); };
+  enqueue(function () {
+    sourceRecomputeScheduled = false;
+    recomputeWindowDependentUI();
+  });
+}
+
 function loadSource(name, fetcherFn, cardElId, applyFn) {
   var cached = cacheGet(name);
   if (cached) {
     applyFn(cached.data);
     markSourceStale(cardElId, name, cached.fetchedAtMs);
-    recomputeWindowDependentUI();
+    scheduleSourceRecompute();
   }
   return fetcherFn().then(function (data) {
     cacheSet(name, data);
     applyFn(data);
     markSourceFresh(cardElId, name);
-    recomputeWindowDependentUI();
+    scheduleSourceRecompute();
     return data;
   }).catch(function (err) {
     throw err;
