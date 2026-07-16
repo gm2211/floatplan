@@ -32,8 +32,22 @@ const northVector = sailBearingVector(0);
 const eastVector = sailBearingVector(90);
 assert.ok(Math.abs(northVector.x) < 1e-12 && Math.abs(northVector.y + 1) < 1e-12);
 assert.ok(Math.abs(eastVector.x - 1) < 1e-12 && Math.abs(eastVector.y) < 1e-12);
-assert.equal(sailNoSailSectorPath(0, 0, 0, 47, 10),
-  'M0.0,0.0 L-7.3,-6.8 A10,10 0 0 1 7.3,-6.8 Z');
+assert.equal(sailProjectedBearing(0, 4, 1, 1), 0, 'north stays screen-up');
+assert.equal(sailProjectedBearing(4, 0, 1, 1), 90, 'east stays screen-right');
+assert.equal(sailProjectedBearing(0, -4, 1, 1), 180, 'south stays screen-down');
+assert.ok(Math.abs(sailProjectedBearing(Math.sin(12 * Math.PI / 180), Math.cos(12 * Math.PI / 180), 4, 1) - 40.35) < 0.1,
+  'a 12-degree heading must be projected through the strip\'s horizontal stretch');
+assert.equal(sailProjectedCompassBearing(SAIL_COURSE_BEARING_N, 4, 1), 0,
+  'the N11 Hudson course is screen-up');
+assert.ok(Math.abs(sailProjectedCompassBearing(SAIL_COURSE_BEARING_N + 12, 4, 1) - 40.35) < 0.1,
+  'a working reach is projected relative to the Hudson axis');
+assert.ok(Math.abs(sailProjectedCompassBearing(SAIL_COURSE_BEARING_S, 4, 1) - 180) < 1e-9,
+  'the reciprocal S191 Hudson course is screen-down');
+assert.ok(sailProjectedCompassBearing(SAIL_COURSE_BEARING_N - 12, 4, 1) > 300,
+  'the west working reach stays on the west side of the strip');
+const projectedSector = sailProjectedSectorPath(0, 0, 270, 47, 10, 4, 1);
+assert.match(projectedSector, /^M0\.0,0\.0 L/);
+assert.ok(projectedSector.split(' L').length >= 13, 'the projected cone samples its curved boundary');
 const hour = 3600000;
 const minute = 60000;
 const departureMs = 0;
@@ -124,6 +138,24 @@ assert.ok(screenshotSail.every(p => p.strategyReason === 'working-reach'));
 assert.ok(new Set(screenshotSail.map(p => Math.round(p.headingDeg))).size >= 2);
 assert.ok(screenshotSail.every(p => p.vmg >= Math.max(...screenshotSail.map(q => q.vmg)) * 0.80),
   'working-reach legs must not hide a severely inefficient heading');
+
+function bearingGap(a, b) {
+  return Math.abs(((a - b + 540) % 360) - 180);
+}
+const zeroCurrentStep = directReach.path.find(p => p.mode === 'sail' && Math.abs(p.lateralKt) > 0.01);
+const zeroCurrentWaterBearing = sailProjectedCompassBearing(zeroCurrentStep.headingDeg, 4, 1);
+const zeroCurrentGroundBearing = sailProjectedBearing(zeroCurrentStep.lateralKt, zeroCurrentStep.sog, 4, 1);
+assert.ok(bearingGap(zeroCurrentWaterBearing, zeroCurrentGroundBearing) < 1e-6,
+  'without current the projected hull and ground track must align');
+const adverseCurrentStep = screenshotSail.find(p => Math.abs(p.lateralKt) > 0.01);
+const adverseWaterBearing = sailProjectedCompassBearing(adverseCurrentStep.headingDeg, 4, 1);
+const adverseGroundBearing = sailProjectedBearing(adverseCurrentStep.lateralKt, adverseCurrentStep.sog, 4, 1);
+assert.ok(bearingGap(adverseWaterBearing, adverseGroundBearing) > 1,
+  'adverse current must preserve a visible physical set between hull heading and ground track');
+const exactTurnStep = sailStepAt(screenshotReach.path, screenshotReach.turnMs);
+const exactTurnAlong = Math.cos(signedBearingDelta(SAIL_COURSE_BEARING_N, exactTurnStep.headingDeg) * Math.PI / 180);
+assert.ok(exactTurnAlong * screenshotReach.headingSign > 0,
+  'the exact turn timestamp still carries the final outbound record and must not be schedule-flipped');
 
 // Exact headwind must choose two positive-progress close-hauled vectors whose lateral
 // components cancel over time. Both sides of the river-axis zigzag must be visible.
@@ -266,10 +298,12 @@ assert.match(html, /\.sailsim-readout-row\s*\{[^}]*height:\s*52px/);
 // a heading-oriented top-down hull, the polar's exact no-sail cone centered on true wind
 // FROM. Current is a separate filled, semantic-colored vector field.
 assert.match(html, /class="sailsim-boat-hull"[^>]*d="M0,-10\.5 C4\.2,-7\.1/);
-assert.match(html, /class="sailsim-boat"[^>]*rotate\(' \+ boatDeg\.toFixed\(1\)/);
-assert.match(html, /sailNoSailSectorPath\(boatX, boatY, windDir, SAIL_CLOSE_HAULED_DEG, 32\)/);
-assert.match(html, /windFromDeg - halfAngleDeg/);
-assert.match(html, /windFromDeg \+ halfAngleDeg/);
+assert.match(html, /var boatDeg = sailProjectedCompassBearing\(rawBoatDeg, xPixelsPerNm, yPixelsPerNm\)/);
+assert.doesNotMatch(html, /waterNorthKt|waterAlongKt = headingNow/);
+assert.match(html, /data-water-bearing=/);
+assert.match(html, /data-ground-bearing=/);
+assert.match(html, /sailProjectedSectorPath\(boatX, boatY, windDir, SAIL_CLOSE_HAULED_DEG, 32, xPixelsPerNm, yPixelsPerNm\)/);
+assert.match(html, /sailProjectedCompassBearing\(windFlowTowardDeg, xPixelsPerNm, yPixelsPerNm\)/);
 assert.match(html, /windFlowTowardDeg = windAvailable \? normalizeBearing\(windDir \+ 180\)/);
 assert.match(html, /NWS ['"] \+ fmtTime\(atMs\) \+ ['"] &middot; WIND FROM ['"] \+ degToCompass\(windDir\)/);
 assert.match(html, /var windDir = step && isFinite\(step\.windDir\)/);

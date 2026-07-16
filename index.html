@@ -4423,19 +4423,45 @@ function sailBearingVector(bearingDeg) {
   return { x: Math.sin(rad), y: -Math.cos(rad) };
 }
 
-function sailNoSailSectorPath(cx, cy, windFromDeg, halfAngleDeg, radius) {
-  var start = sailBearingVector(windFromDeg - halfAngleDeg);
-  var end = sailBearingVector(windFromDeg + halfAngleDeg);
-  return 'M' + cx.toFixed(1) + ',' + cy.toFixed(1) +
-    ' L' + (cx + start.x * radius).toFixed(1) + ',' + (cy + start.y * radius).toFixed(1) +
-    ' A' + radius + ',' + radius + ' 0 0 1 ' +
-    (cx + end.x * radius).toFixed(1) + ',' + (cy + end.y * radius).toFixed(1) + ' Z';
-}
-
 function sailCrossTrackBounds(path) {
   var routeExtentNm = Math.max.apply(null, (path || []).map(function (p) { return Math.abs(p.crossNm || 0); }).concat([0]));
   var extentNm = clamp(routeExtentNm + 0.06, 0.34, 1.05);
   return { min: -extentNm, max: extentNm };
+}
+
+// Convert the simulated through-water vector into the strip's stretched screen space.
+// The route plot intentionally gives cross-river motion more pixels per mile than along-
+// river motion; rotating the hull by a raw compass bearing made a correctly integrated
+// boat look sideways against its wake. Keep current out of this vector so any remaining
+// angle between hull and ground track is the real ebb/flood set, not a rendering artifact.
+function sailProjectedBearing(lateralKt, alongKt, xPixelsPerNm, yPixelsPerNm) {
+  if (![lateralKt, alongKt, xPixelsPerNm, yPixelsPerNm].every(isFinite)) return null;
+  var screenX = lateralKt * xPixelsPerNm;
+  var screenAlong = alongKt * yPixelsPerNm;
+  if (Math.hypot(screenX, screenAlong) < 1e-9) return null;
+  return normalizeBearing(Math.atan2(screenX, screenAlong) * 180 / Math.PI);
+}
+
+// Convert an earth-referenced bearing into the strip's course-relative, stretched display
+// bearing. The strip's vertical axis follows the Hudson (N11/S191), not geographic north.
+function sailProjectedCompassBearing(bearingDeg, xPixelsPerNm, yPixelsPerNm) {
+  if (![bearingDeg, xPixelsPerNm, yPixelsPerNm].every(isFinite)) return null;
+  var deltaRad = signedBearingDelta(SAIL_COURSE_BEARING_N, bearingDeg) * Math.PI / 180;
+  return sailProjectedBearing(Math.sin(deltaRad), Math.cos(deltaRad), xPixelsPerNm, yPixelsPerNm);
+}
+
+// Sample the projected angular sector rather than drawing a circular raw-compass arc. This
+// keeps the no-sail cone, wind arrow, hull, and stretched wake in one honest visual frame.
+function sailProjectedSectorPath(cx, cy, windFromDeg, halfAngleDeg, radius, xPixelsPerNm, yPixelsPerNm) {
+  var points = [];
+  for (var i = 0; i <= 12; i++) {
+    var bearing = windFromDeg - halfAngleDeg + (2 * halfAngleDeg * i / 12);
+    var projected = sailProjectedCompassBearing(bearing, xPixelsPerNm, yPixelsPerNm);
+    if (projected == null) continue;
+    var vector = sailBearingVector(projected);
+    points.push((cx + vector.x * radius).toFixed(1) + ',' + (cy + vector.y * radius).toFixed(1));
+  }
+  return points.length ? 'M' + cx.toFixed(1) + ',' + cy.toFixed(1) + ' L' + points.join(' L') + ' Z' : '';
 }
 
 function renderSailSimSvg(sim, atMs) {
@@ -4449,6 +4475,8 @@ function renderSailSimSvg(sim, atMs) {
   // visually magnify tiny numerical drift.
   var crossBounds = sailCrossTrackBounds(sim.path);
   var crossMinNm = crossBounds.min, crossMaxNm = crossBounds.max;
+  var xPixelsPerNm = (chX1 - chX0) / (crossMaxNm - crossMinNm);
+  var yPixelsPerNm = innerH / Math.max(0.01, (bounds.latMax - bounds.latMin) * NM_PER_DEG_LAT);
   function x(crossNm) {
     return chX0 + clamp(((crossNm || 0) - crossMinNm) / (crossMaxNm - crossMinNm), 0, 1) * (chX1 - chX0);
   }
@@ -4475,7 +4503,8 @@ function renderSailSimSvg(sim, atMs) {
   // the air moves; the caption says where it comes from. Current uses filled, colored arrows
   // below, so the two physical inputs cannot be confused at a glance.
   if (windAvailable) {
-    var flowVector = sailBearingVector(windFlowTowardDeg);
+    var projectedWindFlowDeg = sailProjectedCompassBearing(windFlowTowardDeg, xPixelsPerNm, yPixelsPerNm);
+    var flowVector = sailBearingVector(projectedWindFlowDeg);
     var windCx = chX0 + 21, windCy = padTop + 26;
     var windTailX = windCx - flowVector.x * 10, windTailY = windCy - flowVector.y * 10;
     var windHeadX = windCx + flowVector.x * 10, windHeadY = windCy + flowVector.y * 10;
@@ -4603,20 +4632,25 @@ function renderSailSimSvg(sim, atMs) {
   // uses the exact same close-hauled limit as the polar. It sits behind the hull so the
   // boat's current heading can be checked visually against the prohibited sector.
   if (lat != null) {
-    var boatDeg = step && isFinite(step.headingDeg) ? step.headingDeg : (headingNow > 0 ? 0 : 180);
+    var rawBoatDeg = step && isFinite(step.headingDeg) ? step.headingDeg : (headingNow > 0 ? 0 : 180);
+    var boatDeg = sailProjectedCompassBearing(rawBoatDeg, xPixelsPerNm, yPixelsPerNm);
+    if (boatDeg == null) boatDeg = rawBoatDeg;
+    var groundDeg = step ? sailProjectedBearing(step.lateralKt, step.sog, xPixelsPerNm, yPixelsPerNm) : null;
     var boatX = x(crossNm);
     var boatY = y(lat);
     var showNoSailSector = windAvailable && step && step.mode !== 'moored' && step.mode !== 'overdue' &&
       step.mode !== 'no-trip' && step.mode !== 'docking';
     if (showNoSailSector) {
-      var noSailPath = sailNoSailSectorPath(boatX, boatY, windDir, SAIL_CLOSE_HAULED_DEG, 32);
+      var noSailPath = sailProjectedSectorPath(boatX, boatY, windDir, SAIL_CLOSE_HAULED_DEG, 32, xPixelsPerNm, yPixelsPerNm);
       svg += '<path class="sailsim-no-sail-sector" d="' + noSailPath + '"/>' +
         '<path class="sailsim-no-sail-boundary" d="' + noSailPath + '"/>';
     }
 
     // Compact top-down hull: pointed bow, fuller stern, centerline/mast, and a short bow
-    // cue. The whole glyph rotates to the actual sailed heading carried by this path step.
-    svg += '<g class="sailsim-boat" transform="translate(' + boatX + ',' + boatY.toFixed(1) + ') rotate(' + boatDeg.toFixed(1) + ')">' +
+    // cue. Rotation is the through-water heading projected through this chart's scales;
+    // data-ground-bearing exposes COG so tests can preserve a genuine current-set angle.
+    svg += '<g class="sailsim-boat" data-water-bearing="' + boatDeg.toFixed(1) + '" data-ground-bearing="' +
+      (groundDeg == null ? '' : groundDeg.toFixed(1)) + '" transform="translate(' + boatX + ',' + boatY.toFixed(1) + ') rotate(' + boatDeg.toFixed(1) + ')">' +
       '<path class="sailsim-boat-hull" d="M0,-10.5 C4.2,-7.1 5.2,-1.8 3.9,7.2 Q0,9 -3.9,7.2 C-5.2,-1.8 -4.2,-7.1 0,-10.5 Z"/>' +
       '<line class="sailsim-boat-centerline" x1="0" y1="-8" x2="0" y2="6.1"/>' +
       '<circle cx="0" cy="0" r="1.3" fill="var(--accent)"/>' +
