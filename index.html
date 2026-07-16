@@ -329,6 +329,12 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
   fill: none; stroke: var(--ink-dim); stroke-linecap: round; stroke-width: 1.15px;
 }
 .sailsim-wind-streak-head { fill: var(--ink-dim); }
+.sailsim-ferry-route {
+  fill: none; stroke: var(--ink-dim); stroke-opacity: 0.28; stroke-width: 1px;
+  stroke-dasharray: 3 3;
+}
+.sailsim-ferry path { fill: var(--bg-card); stroke: var(--ink); stroke-width: 1px; }
+.sailsim-ferry line { stroke: var(--ink); stroke-width: 1px; }
 .sailsim-no-sail-sector { fill: var(--red); fill-opacity: 0.12; }
 .sailsim-no-sail-boundary {
   fill: none; stroke: var(--red); stroke-opacity: 0.62; stroke-width: 1px;
@@ -2695,6 +2701,7 @@ var NM_PER_DEG_LAT = 60;
 // Solve the turn-around so the boat is back on the mooring this long BEFORE the window
 // ends — the schedule buffer for slow tacks, dying wind, or a foul-current surprise.
 var SAIL_RETURN_MARGIN_MS = 15 * 60000;
+var SAIL_DOCKING_SOG_KT = 2;
 // Displacement-boat wind response: under ~11 kt of true wind the boat can't make hull
 // speed — through-water speed scales at ~0.45 kt per kt of wind, capped at the configured
 // boat speed (which acts as the hull-speed ceiling). The 1 kt floor keeps the turn-around
@@ -2995,20 +3002,20 @@ function applyCrossTrackRecovery(sample, desiredBearing, headingSign, crossNm, t
 
 // Nearest-value fallback over an expandSeries()-shaped array: tries the exact valueAtMs()
 // lookup first (atMs inside some [startMs,endMs)), then falls back to whichever interval's
-// midpoint is closest — used for wind direction, which must return *some* reading at every
-// simulated instant instead of valueAtMs's strict "only inside this hour" answer.
-function nearestSeriesValue(series, atMs) {
+// boundary is closest, but only across a short forecast gap. Never drag an unrelated stale
+// boundary value into a sail window that the forecast does not actually cover.
+var SAIL_WIND_NEAREST_MAX_GAP_MS = 90 * 60000;
+function nearestSeriesValue(series, atMs, maxGapMs) {
   if (!series || !series.length) return null;
   var exact = valueAtMs(series, atMs);
   if (exact != null) return exact;
-  var best = null, bestDist = Infinity;
+  var best = null, bestDist = Infinity, limit = maxGapMs == null ? SAIL_WIND_NEAREST_MAX_GAP_MS : maxGapMs;
   series.forEach(function (p) {
     if (p.value == null) return;
-    var mid = (p.startMs + p.endMs) / 2;
-    var d = Math.abs(mid - atMs);
+    var d = atMs < p.startMs ? p.startMs - atMs : (atMs >= p.endMs ? atMs - p.endMs : 0);
     if (d < bestDist) { bestDist = d; best = p.value; }
   });
-  return best;
+  return bestDist <= limit ? best : null;
 }
 
 // Smallest angle (0-180) between two compass bearings.
@@ -3197,6 +3204,8 @@ function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, windDir
     if (motor) return {
       vmg: boatSpeedKt, lateralKt: 0, throughWaterKt: boatSpeedKt,
       courseType: 'motor', side: 0, headingDeg: desiredBearing, mode: 'motor',
+      windKt: nearestSeriesValue(windSpeedSeries, atMs),
+      windDir: nearestSeriesValue(windDirSeries, atMs),
       windAngleDeg: null, strategyReason: 'motor', strategyHeadings: [desiredBearing]
     };
     return sailingSample(atMs, lat, headingSign, side, windDirSeries, windSpeedSeries, boatSpeedKt, maneuvering);
@@ -3214,6 +3223,7 @@ function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, windDir
     ms: startMs, lat: startLat, crossNm: crossNm, sog: sog0, c: c0, sourceC: sourceC0,
     courseType: s0.courseType, side: s0.side, vmg: s0.vmg, lateralKt: headingSign * s0.lateralKt,
     throughWaterKt: s0.throughWaterKt, headingDeg: s0.headingDeg,
+    windKt: s0.windKt, windDir: s0.windDir,
     windAngleDeg: s0.windAngleDeg, strategyReason: s0.strategyReason, strategyHeadings: s0.strategyHeadings,
     maneuver: null, mode: s0.mode, trafficAction: null, ferryEncounterId: null
   }];
@@ -3316,6 +3326,7 @@ function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, windDir
       ms: t, lat: lat, crossNm: crossNm, sog: sog, c: c, sourceC: sourceC,
       courseType: s.courseType, side: s.side, vmg: s.vmg, lateralKt: fixedLateralKt,
       throughWaterKt: s.throughWaterKt, headingDeg: s.headingDeg,
+      windKt: s.windKt, windDir: s.windDir,
       windAngleDeg: s.windAngleDeg, strategyReason: s.strategyReason, strategyHeadings: s.strategyHeadings,
       maneuver: maneuver, mode: s.mode,
       trafficAction: s.trafficAction || null, ferryEncounterId: s.ferryEncounterId || null,
@@ -3481,8 +3492,7 @@ function pathUntilLatitude(path, targetLat, headingSign) {
 }
 
 // Stop only when the integrated track genuinely enters the two-dimensional mooring circle.
-// The first point is deliberately never accepted: a failed diagnostic return can start at
-// Pier 25 and immediately sail away, which is not an arrival.
+// Once captured, the caller adds a short, timed terminal approach to the mooring center.
 function pathUntilHome(path, targetLat, targetCrossNm, toleranceNm) {
   if (!path || path.length < 2) return { path: path ? path.map(function (p) { return Object.assign({}, p); }) : [], hit: null };
   var kept = [Object.assign({}, path[0])];
@@ -3492,11 +3502,22 @@ function pathUntilHome(path, targetLat, targetCrossNm, toleranceNm) {
     var ax = (a.lat - targetLat) * NM_PER_DEG_LAT, ay = (a.crossNm || 0) - targetCrossNm;
     var bx = (b.lat - targetLat) * NM_PER_DEG_LAT, by = (b.crossNm || 0) - targetCrossNm;
     var vx = bx - ax, vy = by - ay, vv = vx * vx + vy * vy;
-    var frac = vv > 1e-12 ? clamp(-(ax * vx + ay * vy) / vv, 0, 1) : 1;
+    var frac = null;
+    if (vv > 1e-12) {
+      // First intersection with the mooring circle, not the segment's closest point. This
+      // preserves the real time available for the subsequent low-speed terminal approach.
+      var dot = ax * vx + ay * vy;
+      var discriminant = dot * dot - vv * (ax * ax + ay * ay - tolerance * tolerance);
+      if (discriminant >= 0) {
+        var rootIn = (-dot - Math.sqrt(discriminant)) / vv;
+        var rootOut = (-dot + Math.sqrt(discriminant)) / vv;
+        if (rootIn >= 0 && rootIn <= 1) frac = rootIn;
+        else if (rootOut >= 0 && rootOut <= 1 && i !== 1) frac = 0;
+      }
+    }
     // Do not accept the leg's departure point as an arrival when it is moving away.
-    if (i === 1 && frac <= 1e-8) { kept.push(Object.assign({}, b)); continue; }
+    if (frac == null || (i === 1 && frac <= 1e-8)) { kept.push(Object.assign({}, b)); continue; }
     var dx = ax + vx * frac, dy = ay + vy * frac;
-    if (Math.sqrt(dx * dx + dy * dy) > tolerance) { kept.push(Object.assign({}, b)); continue; }
     function lerp(field) {
       var av = a[field], bv = b[field];
       return isFinite(av) && isFinite(bv) ? av + (bv - av) * frac : (bv != null ? bv : av);
@@ -3506,7 +3527,10 @@ function pathUntilHome(path, targetLat, targetCrossNm, toleranceNm) {
       lat: targetLat + dx / NM_PER_DEG_LAT,
       crossNm: targetCrossNm + dy,
       sog: lerp('sog'), c: lerp('c'), sourceC: lerp('sourceC'), vmg: lerp('vmg'),
-      lateralKt: lerp('lateralKt'), throughWaterKt: lerp('throughWaterKt'), maneuver: null
+      lateralKt: lerp('lateralKt'), throughWaterKt: lerp('throughWaterKt'), maneuver: null,
+      trafficAction: null, ferryEncounterId: null, ferryRouteName: null,
+      trafficCpaNm: null, trafficTcpaMs: null, trafficTimingShiftMs: null,
+      trafficValidated: null, navigationAction: 'mooring-capture'
     });
     kept.push(hit);
     return { path: kept, hit: hit };
@@ -3514,24 +3538,64 @@ function pathUntilHome(path, targetLat, targetCrossNm, toleranceNm) {
   return { path: kept, hit: null };
 }
 
+// The harbor integrator resolves arrivals to a small mooring circle. Finish the residual
+// distance as an explicit low-speed straight approach instead of teleporting the boat or
+// claiming it is moored tens of metres away. The 15-minute reserve easily contains the
+// worst-case 0.05 nm approach at 2 kt SOG.
+function completeMooringApproach(path, targetLat, targetCrossNm, deadlineMs, curvePoints, windDirSeries, windSpeedSeries) {
+  if (!path || !path.length) return { path: [], arrivalMs: null, converged: false };
+  var out = path.map(function (p) { return Object.assign({}, p); });
+  var start = out[out.length - 1];
+  var alongNm = (targetLat - start.lat) * NM_PER_DEG_LAT;
+  var crossNm = targetCrossNm - (start.crossNm || 0);
+  var distanceNm = Math.sqrt(alongNm * alongNm + crossNm * crossNm);
+  if (distanceNm <= 1e-9) return { path: out, arrivalMs: start.ms, converged: true };
+  var durationMs = distanceNm / SAIL_DOCKING_SOG_KT * 3600000;
+  var arrivalMs = start.ms + durationMs;
+  if (arrivalMs > deadlineMs) return { path: out, arrivalMs: null, converged: false };
+  var hours = durationMs / 3600000;
+  var groundAlongKt = hours > 0 ? alongNm / hours : 0;
+  var groundCrossKt = hours > 0 ? crossNm / hours : 0;
+  var currentKt = harborCurrentAt(curvePoints, start.ms + durationMs / 2, start.lat);
+  var waterAlongKt = groundAlongKt - (currentKt || 0);
+  var waterCrossKt = groundCrossKt;
+  var throughWaterKt = Math.sqrt(waterAlongKt * waterAlongKt + waterCrossKt * waterCrossKt);
+  var headingDeg = normalizeBearing(SAIL_COURSE_BEARING_N + Math.atan2(waterCrossKt, waterAlongKt) * 180 / Math.PI);
+  out.push({
+    ms: arrivalMs, lat: targetLat, crossNm: targetCrossNm,
+    sog: groundAlongKt,
+    c: harborCurrentAt(curvePoints, arrivalMs, targetLat), sourceC: currentVelocityAt(curvePoints, arrivalMs),
+    courseType: 'docking', side: 0, vmg: Math.abs(waterAlongKt), lateralKt: groundCrossKt,
+    throughWaterKt: throughWaterKt, headingDeg: headingDeg,
+    windKt: nearestSeriesValue(windSpeedSeries, arrivalMs), windDir: nearestSeriesValue(windDirSeries, arrivalMs),
+    windAngleDeg: null, strategyReason: 'final-approach', strategyHeadings: [headingDeg],
+    maneuver: null, mode: 'docking', trafficAction: null, ferryEncounterId: null,
+    navigationAction: 'final-approach'
+  });
+  return { path: out, arrivalMs: arrivalMs, converged: true };
+}
+
 // A southbound boat that reaches the club boundary turns immediately. It never parks at
 // Robbins Reef to consume the remaining window. The return leg ends at the first Pier 25
 // crossing; arriving early means mooring early, which is honest and operationally useful.
-function applySouthLimitPlan(rt, returnMs, startLat, curvePoints, windDirSeries, windSpeedSeries, boatKt, stepMs, ferryTrips) {
+function applySouthLimitPlan(rt, returnMs, startLat, curvePoints, windDirSeries, windSpeedSeries, boatKt, stepMs, ferryTrips, dockingDeadlineMs) {
   var outbound = pathUntilLatitude(rt.outPath, SAIL_SOUTH_LIMIT_LAT, -1);
   if (!outbound.hit) return null;
 
   var hit = outbound.hit;
   var fullInbound = simulateLeg(hit.ms, returnMs, hit.lat, 1, curvePoints, windDirSeries, windSpeedSeries, boatKt, stepMs, false, hit.crossNm, 0, ferryTrips);
   var home = pathUntilHome(fullInbound, startLat, 0, SAIL_HOME_TOLERANCE_NM);
-  var inPath = home.hit ? home.path : fullInbound;
+  var approach = home.hit
+    ? completeMooringApproach(home.path, startLat, 0, dockingDeadlineMs || returnMs, curvePoints, windDirSeries, windSpeedSeries)
+    : null;
+  var inPath = approach && approach.converged ? approach.path : (home.hit ? home.path : fullInbound);
   return {
     outPath: outbound.path,
     inPath: inPath,
     boundaryArrivalMs: hit.ms,
     turnMs: hit.ms,
-    arrivalMs: home.hit ? home.hit.ms : returnMs,
-    converged: !!home.hit
+    arrivalMs: approach && approach.converged ? approach.arrivalMs : returnMs,
+    converged: !!(approach && approach.converged)
   };
 }
 
@@ -3547,19 +3611,50 @@ function computeSailSim(departureMs, returnMs, curvePoints, windDirSeries, windS
   // Solve against an arrival target before the window ends while retaining the conservative
   // harbor polar. A boundary crossing is handled as an immediate turn, never a hold.
   var arriveByMs = Math.max(departureMs + 60000, returnMs - SAIL_RETURN_MARGIN_MS);
+  var captureByMs = Math.max(departureMs + 60000,
+    arriveByMs - SAIL_HOME_TOLERANCE_NM / SAIL_DOCKING_SOG_KT * 3600000);
   var trafficTrips = ferryTrips || [];
-  var turn = findTurnAroundMs(departureMs, arriveByMs, PIER25.lat, headingSign, curvePoints, dirSeries, speedSeries, boatKt, SAIL_STEP_MS, useMotor, motorKt, trafficTrips);
-  var rt = simulateRoundTrip(departureMs, arriveByMs, turn.turnMs, PIER25.lat, headingSign, curvePoints, dirSeries, speedSeries, boatKt, SAIL_STEP_MS, useMotor, motorKt, trafficTrips);
-  var limited = headingSign < 0 ? applySouthLimitPlan(rt, arriveByMs, PIER25.lat, curvePoints, dirSeries, speedSeries, boatKt, SAIL_STEP_MS, trafficTrips) : null;
-  var normalHome = (!limited && turn.converged) ? pathUntilHome(rt.inPath, PIER25.lat, 0, SAIL_HOME_TOLERANCE_NM) : null;
-  if (normalHome && normalHome.hit) {
-    rt.inPath = normalHome.path;
+  var turn = findTurnAroundMs(departureMs, captureByMs, PIER25.lat, headingSign, curvePoints, dirSeries, speedSeries, boatKt, SAIL_STEP_MS, useMotor, motorKt, trafficTrips);
+  // A failed root solve is not a voyage. The old diagnostic fed turnMs=departure into the
+  // inbound integrator, which animated a boat leaving Pier 25 in the opposite direction and
+  // eventually froze it offshore as "overdue". Keep the boat on its mooring and expose the
+  // failure in the readouts instead.
+  if (!turn.converged) {
+    function noTripPoint(ms) {
+      return {
+        ms: ms, lat: PIER25.lat, crossNm: 0, sog: 0,
+        c: harborCurrentAt(curvePoints, ms, PIER25.lat), sourceC: currentVelocityAt(curvePoints, ms),
+        courseType: 'no-trip', side: 0, vmg: 0, lateralKt: 0, throughWaterKt: 0,
+        headingDeg: SAIL_COURSE_BEARING_N,
+        windKt: nearestSeriesValue(speedSeries, ms), windDir: nearestSeriesValue(dirSeries, ms),
+        windAngleDeg: null, strategyReason: 'no-safe-round-trip',
+        strategyHeadings: [], maneuver: null, mode: 'no-trip',
+        trafficAction: null, ferryEncounterId: null
+      };
+    }
+    return {
+      headingSign: headingSign, boatSpeedKt: boatKt, motorSpeedKt: motorKt, motorFirstLeg: useMotor,
+      turnMs: departureMs, boundaryArrivalMs: null, converged: false,
+      turnErrNm: turn.homeErrNm != null ? turn.homeErrNm : turn.errNm,
+      turnReason: turn.reason || 'cannot_return', departureMs: departureMs, returnMs: returnMs,
+      arriveByMs: arriveByMs, arrivalMs: null,
+      path: [noTripPoint(departureMs), noTripPoint(returnMs)],
+      furthestLandmark: 'Pier 25', furthestDistNm: 0, furthestLabel: 'Pier 25 (0.0 nm)',
+      maxDistLat: PIER25.lat, ferryTrips: trafficTrips, trafficUnresolved: false, ferryEncounters: []
+    };
   }
+  var rt = simulateRoundTrip(departureMs, arriveByMs, turn.turnMs, PIER25.lat, headingSign, curvePoints, dirSeries, speedSeries, boatKt, SAIL_STEP_MS, useMotor, motorKt, trafficTrips);
+  var limited = headingSign < 0 ? applySouthLimitPlan(rt, arriveByMs, PIER25.lat, curvePoints, dirSeries, speedSeries, boatKt, SAIL_STEP_MS, trafficTrips, arriveByMs) : null;
+  var normalHome = (!limited && turn.converged) ? pathUntilHome(rt.inPath, PIER25.lat, 0, SAIL_HOME_TOLERANCE_NM) : null;
+  var normalApproach = normalHome && normalHome.hit
+    ? completeMooringApproach(normalHome.path, PIER25.lat, 0, arriveByMs, curvePoints, dirSeries, speedSeries)
+    : null;
+  if (normalApproach && normalApproach.converged) rt.inPath = normalApproach.path;
   var effectiveTurnMs = limited ? limited.turnMs : turn.turnMs;
   var path = limited
     ? limited.outPath.concat(limited.inPath.slice(1))
     : rt.outPath.concat(rt.inPath.slice(1));
-  var actualArrivalMs = limited ? limited.arrivalMs : (normalHome && normalHome.hit ? normalHome.hit.ms : arriveByMs);
+  var actualArrivalMs = limited ? limited.arrivalMs : (normalApproach && normalApproach.converged ? normalApproach.arrivalMs : arriveByMs);
   var arrivalPoint = path.length ? path[path.length - 1] : null;
   var finalAlongErrNm = arrivalPoint ? (arrivalPoint.lat - PIER25.lat) * NM_PER_DEG_LAT : Infinity;
   var finalCrossErrNm = arrivalPoint ? (arrivalPoint.crossNm || 0) : Infinity;
@@ -3580,6 +3675,7 @@ function computeSailSim(departureMs, returnMs, curvePoints, windDirSeries, windS
       sourceC: currentVelocityAt(curvePoints, actualArrivalMs),
       courseType: tailMode, side: 0, vmg: 0, lateralKt: 0, throughWaterKt: 0,
       headingDeg: SAIL_COURSE_BEARING_N, windAngleDeg: null,
+      windKt: nearestSeriesValue(speedSeries, actualArrivalMs), windDir: nearestSeriesValue(dirSeries, actualArrivalMs),
       strategyReason: tailMode, strategyHeadings: [SAIL_COURSE_BEARING_N],
       maneuver: null, mode: tailMode, trafficAction: null, ferryEncounterId: null
     };
@@ -3590,7 +3686,9 @@ function computeSailSim(departureMs, returnMs, curvePoints, windDirSeries, windS
     path.push(Object.assign({}, stoppedAtArrival, {
       ms: returnMs,
       c: harborCurrentAt(curvePoints, returnMs, arrivedLat),
-      sourceC: currentVelocityAt(curvePoints, returnMs)
+      sourceC: currentVelocityAt(curvePoints, returnMs),
+      windKt: nearestSeriesValue(speedSeries, returnMs),
+      windDir: nearestSeriesValue(dirSeries, returnMs)
     }));
   }
 
@@ -3637,7 +3735,7 @@ function sailValueAt(path, atMs, field) {
 // path record produced by the step covering atMs.
 function sailStepAt(path, atMs) {
   if (!path || path.length < 2) return (path && path[0]) || null;
-  if (atMs <= path[0].ms) return path[1];
+  if (atMs <= path[0].ms) return path[0];
   for (var i = 1; i < path.length; i++) {
     if (atMs <= path[i].ms) return path[i];
   }
@@ -4566,23 +4664,37 @@ function sailNoSailSectorPath(cx, cy, windFromDeg, halfAngleDeg, radius) {
     (cx + end.x * radius).toFixed(1) + ',' + (cy + end.y * radius).toFixed(1) + ' Z';
 }
 
+function sailFerryRotationDeg(trip, xFn, yFn) {
+  var fromLat = PIER25.lat + trip.from.alongNm / NM_PER_DEG_LAT;
+  var toLat = PIER25.lat + trip.to.alongNm / NM_PER_DEG_LAT;
+  var routeDx = xFn(trip.to.crossNm) - xFn(trip.from.crossNm);
+  var routeDy = yFn(toLat) - yFn(fromLat);
+  return Math.atan2(routeDx, -routeDy) * 180 / Math.PI;
+}
+
 function renderSailSimSvg(sim, atMs) {
   var W = 360, H = 270, padTop = 14, padBottom = 14;
   var innerH = H - padTop - padBottom;
   var chX0 = 56, chX1 = 190, chCenter = (chX0 + chX1) / 2;
   var bounds = sailStripLatBounds(sim);
   function y(la) { return latToY(la, padTop, innerH, bounds.latMin, bounds.latMax); }
-  function x(crossNm) { return chCenter + clamp(crossNm || 0, -0.50, 0.50) * 110; }
+  // Geographic cross-river frame. Pier 25 sits close to the Manhattan shore; the previous
+  // symmetric ±0.5 nm clamp put it in mid-river and collapsed both Hoboken terminals onto
+  // the same edge, making real cross-river services look north/south.
+  var crossMinNm = -1.05, crossMaxNm = 0.20;
+  function x(crossNm) {
+    return chX0 + clamp(((crossNm || 0) - crossMinNm) / (crossMaxNm - crossMinNm), 0, 1) * (chX1 - chX0);
+  }
 
   var lat = sailValueAt(sim.path, atMs, 'lat');
   var crossNm = sailValueAt(sim.path, atMs, 'crossNm');
   var step = sailStepAt(sim.path, atMs);
   var headingNow = atMs < sim.turnMs ? sim.headingSign : -sim.headingSign;
 
-  var windSeries = state.gridSeries ? state.gridSeries.windDirection : null;
-  var speedSeries = state.gridSeries ? state.gridSeries.windSpeedKt : null;
-  var windDir = windSeries ? nearestSeriesValue(windSeries, atMs) : null;
-  var windSpd = speedSeries ? nearestSeriesValue(speedSeries, atMs) : null;
+  // Read the exact wind snapshot carried by the integrated path. Re-reading mutable global
+  // state here let a cache refresh make the caption disagree with the physics on screen.
+  var windDir = step && isFinite(step.windDir) ? step.windDir : null;
+  var windSpd = step && isFinite(step.windKt) ? step.windKt : null;
   var windAvailable = windDir != null && isFinite(windDir);
   // NWS directions are bearings the wind comes FROM; the brush strokes travel downwind.
   var windFlowTowardDeg = windAvailable ? normalizeBearing(windDir + 180) : null;
@@ -4693,15 +4805,27 @@ function renderSailSimSvg(sim, atMs) {
   });
   if (plannedPts.length) {
     var plannedD = plannedPts.map(function (p, i) { return (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1); }).join(' ');
-    svg += '<path d="' + plannedD + '" fill="none" stroke="var(--accent)" stroke-width="1" stroke-opacity="0.22" stroke-dasharray="2,3"/>';
+    svg += '<path d="' + plannedD + '" fill="none" stroke="var(--accent)" stroke-width="1.15" stroke-opacity="0.48" stroke-dasharray="2,3"/>';
   }
   plannedMarks.forEach(function (m) {
     svg += '<circle cx="' + m.x.toFixed(1) + '" cy="' + m.y.toFixed(1) + '" r="3.5" fill="var(--bg-card)" fill-opacity="0.8" stroke="var(--accent)" stroke-opacity="0.45"/>' +
       '<text x="' + m.x.toFixed(1) + '" y="' + (m.y + 2.2).toFixed(1) + '" font-size="5.5" font-weight="750" text-anchor="middle" fill="var(--accent)" fill-opacity="0.65">' + m.label + '</text>';
   });
 
-  // Small schedule-position diamonds give the avoidance marker context without adding a
-  // legend or another vertical block. Only ferries actually underway at this frame render.
+  // Draw the two modeled operator routes in their actual geographic cross-river frame.
+  // These are terminal-to-terminal planning corridors (not claimed GPS/AIS tracks).
+  var drawnRoutes = {};
+  (sim.ferryTrips || []).forEach(function (trip) {
+    if (drawnRoutes[trip.scheduleId]) return;
+    drawnRoutes[trip.scheduleId] = true;
+    var fromLat = PIER25.lat + trip.from.alongNm / NM_PER_DEG_LAT;
+    var toLat = PIER25.lat + trip.to.alongNm / NM_PER_DEG_LAT;
+    svg += '<path class="sailsim-ferry-route" d="M' + x(trip.from.crossNm).toFixed(1) + ',' + y(fromLat).toFixed(1) +
+      ' L' + x(trip.to.crossNm).toFixed(1) + ',' + y(toLat).toFixed(1) + '" clip-path="url(#sailSimChannelClip)"/>';
+  });
+
+  // Only ferries actually underway at this frame render. The vessel glyph follows the
+  // route above; it is deliberately distinct from sailboat yield annotations.
   (sim.ferryTrips || []).forEach(function (trip) {
     var timingShiftMs = step && step.ferryEncounterId === trip.id && isFinite(step.trafficTimingShiftMs)
       ? step.trafficTimingShiftMs : 0;
@@ -4710,19 +4834,16 @@ function renderSailSimSvg(sim, atMs) {
     var ferryLat = PIER25.lat + ferry.alongNm / NM_PER_DEG_LAT;
     if (ferryLat < bounds.latMin || ferryLat > bounds.latMax) return;
     var fx = x(ferry.crossNm), fy = y(ferryLat);
-    svg += '<rect x="' + (fx - 2.7).toFixed(1) + '" y="' + (fy - 2.7).toFixed(1) + '" width="5.4" height="5.4" rx="1" fill="var(--ink)" fill-opacity="0.72" transform="rotate(45 ' + fx.toFixed(1) + ' ' + fy.toFixed(1) + ')"/>';
+    var routeRotation = sailFerryRotationDeg(trip, x, y);
+    svg += '<g class="sailsim-ferry" transform="translate(' + fx.toFixed(1) + ',' + fy.toFixed(1) + ') rotate(' + routeRotation.toFixed(1) + ')">' +
+      '<path d="M-5,2 L-3,-3 L3,-3 L5,2 Z"/><line x1="-3.5" y1="2" x2="3.5" y2="2"/></g>';
   });
 
-  var wakePts = [], maneuverMarks = [], trafficMarks = [];
-  var lastTrafficId = null;
+  var wakePts = [], maneuverMarks = [];
   sim.path.forEach(function (p) {
     if (p.ms > atMs) return;
     var xOff = x(p.crossNm);
     if (p.maneuver) maneuverMarks.push({ x: xOff, y: y(p.lat), label: p.maneuver === 'tack' ? 'T' : 'J' });
-    if (p.trafficAction && p.ferryEncounterId !== lastTrafficId) {
-      trafficMarks.push({ x: xOff, y: y(p.lat) });
-      lastTrafficId = p.ferryEncounterId;
-    }
     wakePts.push({ x: xOff, y: y(p.lat), mode: p.mode || 'sail' });
   });
   var wakeRuns = [];
@@ -4747,10 +4868,6 @@ function renderSailSimSvg(sim, atMs) {
     svg += '<circle cx="' + m.x.toFixed(1) + '" cy="' + m.y.toFixed(1) + '" r="4" fill="var(--bg-card)" stroke="var(--accent)" stroke-width="1"/>' +
       '<text x="' + m.x.toFixed(1) + '" y="' + (m.y + 2.4).toFixed(1) + '" font-size="6" font-weight="750" text-anchor="middle" fill="var(--accent)">' + m.label + '</text>';
   });
-  trafficMarks.forEach(function (m) {
-    svg += '<circle cx="' + m.x.toFixed(1) + '" cy="' + m.y.toFixed(1) + '" r="4" fill="var(--bg-card)" stroke="var(--ink-dim)" stroke-width="1"/>' +
-      '<text x="' + m.x.toFixed(1) + '" y="' + (m.y + 2.3).toFixed(1) + '" font-size="5.8" font-weight="750" text-anchor="middle" fill="var(--ink-dim)">F</text>';
-  });
 
   // The no-sail sector is earth-referenced, centered on the true wind FROM bearing, and
   // uses the exact same close-hauled limit as the polar. It sits behind the hull so the
@@ -4759,7 +4876,8 @@ function renderSailSimSvg(sim, atMs) {
     var boatDeg = step && isFinite(step.headingDeg) ? step.headingDeg : (headingNow > 0 ? 0 : 180);
     var boatX = x(crossNm);
     var boatY = y(lat);
-    var showNoSailSector = windAvailable && step && step.mode !== 'moored' && step.mode !== 'overdue';
+    var showNoSailSector = windAvailable && step && step.mode !== 'moored' && step.mode !== 'overdue' &&
+      step.mode !== 'no-trip' && step.mode !== 'docking';
     if (showNoSailSector) {
       var noSailPath = sailNoSailSectorPath(boatX, boatY, windDir, SAIL_CLOSE_HAULED_DEG, 32);
       svg += '<path class="sailsim-no-sail-sector" d="' + noSailPath + '"/>' +
@@ -4779,7 +4897,8 @@ function renderSailSimSvg(sim, atMs) {
   // One compact caption anchors the texture's meaning without a separate legend block.
   if (windAvailable) {
     svg += '<text class="sailsim-wind-label" x="' + chCenter + '" y="' + (H - 3) + '" font-size="8.5" letter-spacing="0.05em" text-anchor="middle" fill="var(--ink-dim)">' +
-      'WIND FROM ' + degToCompass(windDir) + ' &middot; ' + (windSpd != null ? round1(windSpd) + ' kt' : '--') + '</text>';
+      'NWS ' + fmtTime(atMs) + ' &middot; WIND FROM ' + degToCompass(windDir) + ' &middot; ' +
+      (windSpd != null ? round1(windSpd) + ' kt' : '--') + '</text>';
   }
 
   svg += '</svg>';
@@ -4800,8 +4919,7 @@ function renderSailSimReadouts(sim, atMs) {
   // Item 1c: furthestLabel is already the landmark-or-area phrase computed in computeSailSim.
   var furthestLabel;
   if (sim.converged === false) {
-    furthestLabel = 'No feasible round trip · return target ' + fmtTime(sim.arriveByMs) +
-      (isFinite(sim.turnErrNm) ? ' · miss ' + round1(Math.abs(sim.turnErrNm)) + ' nm' : '');
+    furthestLabel = 'No feasible round trip · remain at Pier 25 · return target ' + fmtTime(sim.arriveByMs);
   } else {
     furthestLabel = sim.furthestLabel + (sim.boundaryArrivalMs != null
       ? ' · club limit, turned immediately ' + fmtTime(sim.turnMs)
@@ -4817,6 +4935,8 @@ function renderSailSimReadouts(sim, atMs) {
     else if (step.mode === 'motor') courseLabel = 'Under power';
     else if (step.mode === 'moored') courseLabel = 'Moored at Pier 25';
     else if (step.mode === 'overdue') courseLabel = 'Return target missed';
+    else if (step.mode === 'no-trip') courseLabel = 'No safe round trip · remain at Pier 25';
+    else if (step.mode === 'docking') courseLabel = 'Final approach to Pier 25';
     else if (step.navigationAction === 'return-to-mooring') courseLabel = 'Recovering cross-track toward Pier 25';
     else if (step.courseType === 'tack') courseLabel = 'Beating · ' + (step.side < 0 ? 'port' : 'starboard') + ' tack';
     else if (step.courseType === 'jibe') courseLabel = 'Broad reach · ' + (step.side < 0 ? 'port' : 'starboard') + ' jibe';
@@ -4824,7 +4944,7 @@ function renderSailSimReadouts(sim, atMs) {
     else courseLabel = 'Direct reach on river course';
   }
   var vmgLabel = step && step.vmg != null ? round1(step.vmg) + ' kt' : '--';
-  var headingLabel = step && isFinite(step.headingDeg)
+  var headingLabel = step && step.mode !== 'no-trip' && step.mode !== 'moored' && step.mode !== 'overdue' && isFinite(step.headingDeg)
     ? degToCompass(step.headingDeg) + ' ' + Math.round(normalizeBearing(step.headingDeg)) + '°'
     : '--';
   var completedManeuvers = sim.path.filter(function (p) { return p.ms <= atMs && p.maneuver; });
@@ -4840,7 +4960,8 @@ function renderSailSimReadouts(sim, atMs) {
   var strategyLabel;
   if (!step) strategyLabel = '--';
   else if (step.mode === 'motor') strategyLabel = 'Under power';
-  else if (step.mode === 'moored' || step.mode === 'overdue') strategyLabel = '--';
+  else if (step.mode === 'moored' || step.mode === 'overdue' || step.mode === 'no-trip') strategyLabel = '--';
+  else if (step.mode === 'docking') strategyLabel = 'Low-speed mooring approach';
   else if (step.navigationAction === 'return-to-mooring') strategyLabel = 'Direct reach · correcting toward mooring';
   else if (step.courseType === 'infeasible') strategyLabel = 'No positive-progress sailing course';
   else if (step.courseType === 'tack') {

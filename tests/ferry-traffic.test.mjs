@@ -112,12 +112,15 @@ assert.ok(officialTrafficSim && officialTrafficSim.path.length > 2);
 assert.ok(officialTrafficSim.path.every(p => Number.isFinite(p.lat) && Number.isFinite(p.crossNm)));
 assert.equal(officialTrafficSim.converged, true,
   `dense official schedule should still solve a true 2D return; miss ${officialTrafficSim.turnErrNm} nm`);
+assert.ok(officialTrafficSim.arrivalMs <= officialTrafficSim.arriveByMs,
+  'the final approach must finish before the 15-minute reserve begins');
 assert.equal(officialTrafficSim.trafficUnresolved, false,
   'dense official timetable should not silently accept an unresolved modeled clearance');
 const officialArrival = officialTrafficSim.path.findLast(p => p.mode !== 'moored' && p.mode !== 'overdue');
-assert.ok(Math.hypot((officialArrival.lat - PIER25.lat) * NM_PER_DEG_LAT, officialArrival.crossNm) <= SAIL_HOME_TOLERANCE_NM + 1e-9);
-assert.equal(officialTrafficSim.path.at(-1).crossNm, officialArrival.crossNm,
-  'official-schedule moored tail must not snap the lateral arrival to zero');
+assert.equal(officialArrival.lat, PIER25.lat);
+assert.equal(officialArrival.crossNm, 0);
+assert.equal(officialTrafficSim.path.at(-1).crossNm, 0,
+  'official-schedule moored tail must stay at Pier 25');
 if (officialTrafficSim.arrivalMs < officialTrafficSim.returnMs) {
   const reserveSampleMs = officialTrafficSim.arrivalMs +
     (officialTrafficSim.returnMs - officialTrafficSim.arrivalMs) / 2;
@@ -190,7 +193,7 @@ for (let i = 1; i < withTraffic.path.length; i++) {
 assert.equal(withTraffic.trafficUnresolved, yields.some(p => p.trafficValidated === false));
 
 // Crossing the Pier 25 latitude well off the centerline is not an arrival and must never be
-// snapped to the mooring. A genuine hit keeps its integrated residual instead of teleporting.
+// captured. A genuine entry into the harbor-scale mooring circle resolves at Pier 25.
 const offCenter = pathUntilHome([
   { ms: 0, lat: PIER25.lat + 0.01, crossNm: 0.25 },
   { ms: minute, lat: PIER25.lat, crossNm: 0.24 },
@@ -200,9 +203,18 @@ assert.equal(offCenter.hit, null);
 const acceptedArrival = withTraffic.path.findLast(p => p.mode !== 'moored' && p.mode !== 'overdue');
 if (withTraffic.converged) {
   const alongErr = (acceptedArrival.lat - PIER25.lat) * NM_PER_DEG_LAT;
-  assert.ok(Math.hypot(alongErr, acceptedArrival.crossNm) <= SAIL_HOME_TOLERANCE_NM + 1e-9);
+  assert.equal(alongErr, 0, 'accepted harbor-scale arrival must render at the Pier 25 mooring');
+  assert.equal(acceptedArrival.crossNm, 0, 'accepted harbor-scale arrival must end on the mooring centerline');
+  assert.equal(acceptedArrival.mode, 'docking');
+  const approachStart = withTraffic.path[withTraffic.path.indexOf(acceptedArrival) - 1];
+  const approachDistance = Math.hypot((approachStart.lat - PIER25.lat) * NM_PER_DEG_LAT, approachStart.crossNm);
+  assert.ok(approachDistance > 0 && approachDistance <= SAIL_HOME_TOLERANCE_NM + 1e-9,
+    'the timed final approach must start from the integrated mooring-circle capture');
+  assert.ok(acceptedArrival.ms > approachStart.ms, 'the final approach must consume real time');
+  assert.ok(withTraffic.arrivalMs <= withTraffic.arriveByMs,
+    'the final approach must not consume the return reserve');
   const tail = withTraffic.path.at(-1);
-  assert.equal(tail.crossNm, acceptedArrival.crossNm, 'moored tail must preserve the integrated lateral arrival');
+  assert.equal(tail.crossNm, 0, 'moored tail must remain at Pier 25');
 }
 
 assert.match(html, /Scheduled ferry estimate/);

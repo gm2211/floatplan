@@ -34,6 +34,10 @@ assert.ok(Math.abs(northVector.x) < 1e-12 && Math.abs(northVector.y + 1) < 1e-12
 assert.ok(Math.abs(eastVector.x - 1) < 1e-12 && Math.abs(eastVector.y) < 1e-12);
 assert.equal(sailNoSailSectorPath(0, 0, 0, 47, 10),
   'M0.0,0.0 L-7.3,-6.8 A10,10 0 0 1 7.3,-6.8 Z');
+const eastboundFerry = { from: { alongNm: 0, crossNm: -1 }, to: { alongNm: 0, crossNm: 1 } };
+const westboundFerry = { from: eastboundFerry.to, to: eastboundFerry.from };
+assert.equal(Math.round(sailFerryRotationDeg(eastboundFerry, v => v, () => 0)), 90);
+assert.equal(Math.round(sailFerryRotationDeg(westboundFerry, v => v, () => 0)), -90);
 globalThis.window = { matchMedia: () => ({ matches: false }) };
 const movingPhase = sailWindFlowPhase(1234567, 12);
 assert.equal(sailWindFlowPhase(1234567, 12), movingPhase, 'flow phase must be deterministic when scrubbing');
@@ -49,6 +53,11 @@ const arrivalTargetMs = 165 * minute;
 function series(value) {
   return [{ startMs: departureMs, endMs: 4 * hour, value }];
 }
+
+assert.equal(nearestSeriesValue([{ startMs: 24 * hour, endMs: 25 * hour, value: 0 }], departureMs), null,
+  'the simulator must not reuse a wind interval from a different day');
+assert.equal(nearestSeriesValue([{ startMs: 60 * minute, endMs: 2 * hour, value: 290 }], departureMs), 290,
+  'a short gap at the forecast boundary remains usable');
 
 // Regression: the old solver accepted arrivalTargetMs itself as a converged turn because
 // its -0.050 nm miss fit a loose tolerance derived from the 5 kt hull-speed ceiling. That
@@ -86,6 +95,7 @@ const directReach = computeSailSim(
   departureMs, 180 * minute, [{ ms: departureMs, v: 0 }],
   series(270), series(13), 5, { initialHeading: 'S' }, false, 6
 );
+assert.ok(directReach.arrivalMs <= directReach.arriveByMs);
 assert.ok(directReach);
 assert.equal(directReach.path.some(p => p.maneuver), false);
 assert.ok(Math.max(...directReach.path.map(p => Math.abs(p.crossNm))) < 0.03);
@@ -176,17 +186,19 @@ assert.ok(boundaryTrip.path.filter(p => Math.abs(p.lat - SAIL_SOUTH_LIMIT_LAT) <
   'the path must not park repeated samples on the south limit');
 assert.ok(Math.min(...boundaryTrip.path.map(p => p.lat)) >= SAIL_SOUTH_LIMIT_LAT - 1e-9);
 
-// A failed solver starts its diagnostic return at Pier 25. That starting sample is not an
-// arrival: preserve the moving diagnostic path and its real miss instead of truncating at
-// time zero and reporting the impossible combination "no feasible trip, miss 0.0 nm".
+// A failed solver is not a voyage. It must leave the boat at Pier 25 rather than animate the
+// old fake "inbound" diagnostic leg away from the mooring.
 const failedTrip = computeSailSim(
   departureMs, 180 * minute, [{ ms: departureMs, v: -5 }],
   series(270), series(13), 5, { initialHeading: 'S' }, false, 6
 );
 assert.equal(failedTrip.converged, false);
-assert.ok(failedTrip.path.length > 2);
-assert.ok(Math.abs(failedTrip.turnErrNm) > 0.1);
-assert.notEqual(failedTrip.arrivalMs, departureMs);
+assert.equal(failedTrip.path.length, 2);
+assert.ok(Number.isFinite(failedTrip.turnErrNm));
+assert.equal(failedTrip.arrivalMs, null);
+assert.ok(failedTrip.path.every(p => p.mode === 'no-trip' && p.lat === PIER25.lat && p.crossNm === 0 && p.sog === 0));
+assert.equal(sailStepAt(failedTrip.path, departureMs).ms, departureMs,
+  'a no-trip frame at departure must use departure wind, not the return snapshot');
 
 // The entrance-current prediction is phase guidance, not a literal Pier 25 velocity.
 assert.ok(harborCurrentFactor(PIER25.lat) < harborCurrentFactor(40.67));
@@ -210,7 +222,11 @@ assert.match(html, /windFromDeg - halfAngleDeg/);
 assert.match(html, /windFromDeg \+ halfAngleDeg/);
 assert.match(html, /windFlowTowardDeg = windAvailable \? normalizeBearing\(windDir \+ 180\)/);
 assert.match(html, /flowPhase = sailWindFlowPhase\(atMs, windSpd\)/);
-assert.match(html, /WIND FROM ['"] \+ degToCompass\(windDir\)/);
+assert.match(html, /NWS ['"] \+ fmtTime\(atMs\) \+ ['"] &middot; WIND FROM ['"] \+ degToCompass\(windDir\)/);
+assert.match(html, /var windDir = step && isFinite\(step\.windDir\)/);
+assert.match(html, /class="sailsim-ferry-route"/);
+assert.match(html, /class="sailsim-ferry"/);
+assert.doesNotMatch(html, />F<\/text>/);
 assert.match(html, /@media \(prefers-reduced-motion: reduce\)/);
 assert.match(html, /matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches/);
 assert.doesNotMatch(html, /points="0,-8 -5,6 5,6"/);
