@@ -43,6 +43,9 @@ function series(value) {
   return [{ startMs: departureMs, endMs: 4 * hour, value }];
 }
 
+assert.equal(SAIL_COURSE_BEARING_S, (SAIL_COURSE_BEARING_N + 180) % 360,
+  'northbound and southbound river bearings must be reciprocal');
+
 assert.equal(nearestSeriesValue([{ startMs: 24 * hour, endMs: 25 * hour, value: 0 }], departureMs), null,
   'the simulator must not reuse a wind interval from a different day');
 assert.equal(nearestSeriesValue([{ startMs: 60 * minute, endMs: 2 * hour, value: 290 }], departureMs), 290,
@@ -158,7 +161,7 @@ assert.ok(deadDownwind.negative.cross < 0 && deadDownwind.positive.cross > 0);
 // T/J labels laid on top.
 const maneuverTrip = computeSailSim(
   departureMs, 180 * minute, [{ ms: departureMs, v: 0 }],
-  series(183), series(13), 5, { initialHeading: 'S' }, false, 6
+  series(SAIL_COURSE_BEARING_S), series(13), 5, { initialHeading: 'S' }, false, 6
 );
 const maneuverEvents = maneuverTrip.path.filter(p => p.maneuver);
 const crossValues = maneuverTrip.path.map(p => p.crossNm);
@@ -168,6 +171,45 @@ assert.ok(maneuverEvents.some(p => p.maneuver === 'jibe'), 'downwind return shou
 assert.ok(Math.max(...crossValues) - Math.min(...crossValues) >= 0.18, 'maneuvers must produce visible lateral geometry');
 assert.ok(new Set(maneuverTrip.path.filter(p => p.mode === 'sail').map(p => Math.round(p.headingDeg))).size >= 2,
   'maneuver legs must use distinct sailed headings');
+
+// Forecast shifts must change the sailed strategy in time, produce explicit paid maneuvers,
+// and keep real lateral geometry instead of silently bending a straight line.
+const shiftingDirection = [
+  { startMs: 0, endMs: 60 * minute, value: 281 },
+  { startMs: 60 * minute, endMs: 120 * minute, value: SAIL_COURSE_BEARING_N },
+  { startMs: 120 * minute, endMs: 4 * hour, value: SAIL_COURSE_BEARING_N + 180 }
+];
+const shiftingTrip = computeSailSim(
+  departureMs, 180 * minute, [{ ms: departureMs, v: 0 }],
+  shiftingDirection, series(14), 5, { initialHeading: 'N' }, false, 6
+);
+assert.ok(new Set(shiftingTrip.path.filter(p => p.mode === 'sail').map(p => p.courseType)).size >= 2,
+  'changing wind must change the optimal point of sail');
+assert.ok(shiftingTrip.path.some(p => p.maneuver), 'a strategy transition must be recorded as a maneuver');
+const shiftingManeuver = shiftingTrip.path.find(p => p.maneuver);
+const comparableSteadyLeg = shiftingTrip.path.find(p => !p.maneuver && p.courseType === shiftingManeuver.courseType &&
+  p.windKt === shiftingManeuver.windKt && p.throughWaterKt > 0);
+assert.ok(comparableSteadyLeg && shiftingManeuver.throughWaterKt < comparableSteadyLeg.throughWaterKt * 0.6,
+  'a strategy transition must pay the maneuver speed loss');
+assert.ok(Math.max(...shiftingTrip.path.map(p => p.crossNm)) - Math.min(...shiftingTrip.path.map(p => p.crossNm)) >= 0.12,
+  'changing wind must produce visible lateral maneuver geometry');
+
+const calmSample = sailingSample(0, PIER25.lat, 1, 0, series(90), series(0), 5, false);
+assert.equal(calmSample.throughWaterKt, 0, 'calm wind cannot propel the sailboat');
+const missingWindSample = sailingSample(0, PIER25.lat, 1, 0, [], [], 5, false);
+assert.equal(missingWindSample.courseType, 'infeasible');
+assert.equal(missingWindSample.throughWaterKt, 0, 'missing wind must not invent a healthy reach');
+assert.equal(sailingSample(0, PIER25.lat, 1, 0, series(90), [], 5, false).courseType, 'infeasible',
+  'direction without speed is not a usable sailing forecast');
+assert.equal(sailingSample(0, PIER25.lat, 1, 0, [], series(12), 5, false).courseType, 'infeasible',
+  'speed without direction is not a usable sailing forecast');
+
+assert.equal(sailManeuverBetween(330, 47, 0), 'tack');
+assert.equal(sailManeuverBetween(145, 215, 0), 'jibe');
+assert.equal(sailManeuverBetween(11, 47, 0), null, 'same-side heading change is not a tack');
+
+assert.deepEqual(sailCrossTrackBounds([{ crossNm: -0.25 }, { crossNm: 0.28 }]), { min: -0.34, max: 0.34 });
+assert.deepEqual(sailCrossTrackBounds([{ crossNm: -2 }, { crossNm: 2 }]), { min: -1.05, max: 1.05 });
 
 // Even an intentionally overpowered long-window fixture may never dwell at the club limit.
 // It reaches Robbins, reverses immediately, crosses Pier 25 once, and moors early.
@@ -224,6 +266,10 @@ assert.match(html, /NWS ['"] \+ fmtTime\(atMs\) \+ ['"] &middot; WIND FROM ['"] 
 assert.match(html, /var windDir = step && isFinite\(step\.windDir\)/);
 assert.match(html, /class="sailsim-wind-vector"/);
 assert.match(html, /class="sailsim-current-vector"/);
+assert.match(html, /class="sailsim-planned-track"/);
+assert.match(html, /class="sailsim-wake" data-mode=/);
+assert.match(html, /class="sailsim-maneuver" data-state="planned" data-type=/);
+assert.match(html, /class="sailsim-maneuver" data-state="completed" data-type=/);
 assert.match(html, /CURRENT &middot;/);
 assert.doesNotMatch(html, /sailsim-wind-streak/);
 assert.doesNotMatch(html, /sailsim-ferry/);
