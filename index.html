@@ -324,6 +324,25 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .sailsim-top { display: grid; grid-template-columns: minmax(230px, 1.35fr) minmax(160px, 0.85fr); gap: 10px; align-items: start; }
 .sailsim-strip-wrap { min-width: 0; max-width: none; }
 .sailsim-strip-wrap svg { width: 100%; height: auto; display: block; }
+.sailsim-wind-flow { pointer-events: none; }
+.sailsim-wind-streak {
+  fill: none; stroke: var(--ink-dim); stroke-linecap: round; stroke-width: 1.15px;
+}
+.sailsim-wind-streak-head { fill: var(--ink-dim); }
+.sailsim-no-sail-sector { fill: var(--red); fill-opacity: 0.12; }
+.sailsim-no-sail-boundary {
+  fill: none; stroke: var(--red); stroke-opacity: 0.62; stroke-width: 1px;
+  stroke-dasharray: 2.5 2.5;
+}
+.sailsim-boat-hull {
+  fill: var(--accent); fill-opacity: 0.36; stroke: var(--accent); stroke-width: 1.45px;
+  stroke-linejoin: round;
+}
+.sailsim-boat-centerline, .sailsim-boat-heading-cue {
+  stroke: var(--accent); stroke-linecap: round;
+}
+.sailsim-boat-centerline { stroke-width: 0.9px; }
+.sailsim-boat-heading-cue { stroke-width: 1.4px; }
 .sailsim-readouts {
   min-width: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 7px 12px;
   align-content: start;
@@ -340,6 +359,12 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
   border-radius: 8px; padding: 8px 10px;
 }
 .sailsim-motor-toggle { margin: 0 0 0 auto; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* The renderer also freezes its atMs-derived flow phase when this preference is set. */
+  .sailsim-wind-streak, .sailsim-wind-streak-head { transition: none; }
+  .sailsim-wind-flow { opacity: 0.72; }
+}
 
 @container (max-width: 405px) {
   .sailsim-top { grid-template-columns: minmax(0, 1fr); gap: 8px; }
@@ -4495,6 +4520,32 @@ function setupSailSimControls(sim) {
 var SAIL_STRIP_LABEL_FONT = 13;
 var SAIL_LANDMARK_LABEL_MIN_GAP = 12;
 
+function sailBearingVector(bearingDeg) {
+  var rad = normalizeBearing(bearingDeg) * Math.PI / 180;
+  return { x: Math.sin(rad), y: -Math.cos(rad) };
+}
+
+// Wind particles are tied to simulator time, not requestAnimationFrame time, so scrubbing
+// to the same instant always produces the same field. Freeze the phase for users who ask
+// the OS to reduce motion while preserving the directional strokes themselves.
+function sailWindFlowPhase(atMs, windSpd) {
+  var reduceMotion = typeof window !== 'undefined' && window.matchMedia &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduceMotion) return 0;
+  var cycleMinutes = clamp(36 - (isFinite(windSpd) ? windSpd : 8) * 0.9, 16, 32);
+  return ((atMs % (cycleMinutes * 60000)) + cycleMinutes * 60000) % (cycleMinutes * 60000) /
+    (cycleMinutes * 60000);
+}
+
+function sailNoSailSectorPath(cx, cy, windFromDeg, halfAngleDeg, radius) {
+  var start = sailBearingVector(windFromDeg - halfAngleDeg);
+  var end = sailBearingVector(windFromDeg + halfAngleDeg);
+  return 'M' + cx.toFixed(1) + ',' + cy.toFixed(1) +
+    ' L' + (cx + start.x * radius).toFixed(1) + ',' + (cy + start.y * radius).toFixed(1) +
+    ' A' + radius + ',' + radius + ' 0 0 1 ' +
+    (cx + end.x * radius).toFixed(1) + ',' + (cy + end.y * radius).toFixed(1) + ' Z';
+}
+
 function renderSailSimSvg(sim, atMs) {
   var W = 360, H = 270, padTop = 14, padBottom = 14;
   var innerH = H - padTop - padBottom;
@@ -4508,8 +4559,46 @@ function renderSailSimSvg(sim, atMs) {
   var step = sailStepAt(sim.path, atMs);
   var headingNow = atMs < sim.turnMs ? sim.headingSign : -sim.headingSign;
 
-  var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">';
+  var windSeries = state.gridSeries ? state.gridSeries.windDirection : null;
+  var speedSeries = state.gridSeries ? state.gridSeries.windSpeedKt : null;
+  var windDir = windSeries ? nearestSeriesValue(windSeries, atMs) : null;
+  var windSpd = speedSeries ? nearestSeriesValue(speedSeries, atMs) : null;
+  var windAvailable = windDir != null && isFinite(windDir);
+  // NWS directions are bearings the wind comes FROM; the brush strokes travel downwind.
+  var windFlowTowardDeg = windAvailable ? normalizeBearing(windDir + 180) : null;
+
+  var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">' +
+    '<defs><clipPath id="sailSimChannelClip"><rect x="' + chX0 + '" y="' + padTop + '" width="' +
+    (chX1 - chX0) + '" height="' + innerH + '"/></clipPath></defs>';
   svg += '<rect x="' + chX0 + '" y="' + padTop + '" width="' + (chX1 - chX0) + '" height="' + innerH + '" fill="var(--track)"/>';
+
+  // Sparse Windy-style brush strokes show the forecast flow without adding a legend. A
+  // regular grid plus an atMs-derived phase is deterministic: no random jitter or flicker
+  // when paused/scrubbed. Speed tightens spacing and raises opacity slightly; direction is
+  // explicitly windDir + 180 because the forecast bearing describes where wind comes FROM.
+  if (windAvailable) {
+    var flowVector = sailBearingVector(windFlowTowardDeg);
+    var flowPhase = sailWindFlowPhase(atMs, windSpd);
+    var flowGap = clamp(40 - (isFinite(windSpd) ? windSpd : 8) * 0.5, 30, 36);
+    var flowOpacity = clamp(0.13 + (isFinite(windSpd) ? windSpd : 8) / 70, 0.18, 0.38);
+    var flowAdvance = flowPhase * flowGap;
+    var flowIndex = 0;
+    svg += '<g class="sailsim-wind-flow" clip-path="url(#sailSimChannelClip)" opacity="' + flowOpacity.toFixed(2) + '">';
+    for (var flowY = padTop + 18; flowY < H - padBottom; flowY += flowGap) {
+      for (var flowX = chX0 + 15; flowX < chX1; flowX += flowGap) {
+        var stagger = (flowIndex % 3) * flowGap / 3;
+        var fx = chX0 + ((flowX - chX0 + flowVector.x * (flowAdvance + stagger) + (chX1 - chX0)) % (chX1 - chX0));
+        var fy = padTop + ((flowY - padTop + flowVector.y * (flowAdvance + stagger) + innerH) % innerH);
+        var tailX = fx - flowVector.x * 8, tailY = fy - flowVector.y * 8;
+        var headX = fx + flowVector.x * 6, headY = fy + flowVector.y * 6;
+        svg += '<line class="sailsim-wind-streak" x1="' + tailX.toFixed(1) + '" y1="' + tailY.toFixed(1) +
+          '" x2="' + headX.toFixed(1) + '" y2="' + headY.toFixed(1) + '"/>' +
+          '<circle class="sailsim-wind-streak-head" cx="' + headX.toFixed(1) + '" cy="' + headY.toFixed(1) + '" r="0.9"/>';
+        flowIndex++;
+      }
+    }
+    svg += '</g>';
+  }
   svg += '<line x1="' + chX0 + '" y1="' + padTop + '" x2="' + chX0 + '" y2="' + (H - padBottom) + '" stroke="var(--ink-dim)" stroke-opacity="0.5"/>';
   svg += '<line x1="' + chX1 + '" y1="' + padTop + '" x2="' + chX1 + '" y2="' + (H - padBottom) + '" stroke="var(--ink-dim)" stroke-opacity="0.5"/>';
   svg += '<text x="' + (chX0 - 3) + '" y="' + (padTop + 9) + '" font-size="' + SAIL_STRIP_LABEL_FONT + '" text-anchor="end" fill="var(--ink-dim)">NJ</text>';
@@ -4643,29 +4732,35 @@ function renderSailSimSvg(sim, atMs) {
       '<text x="' + m.x.toFixed(1) + '" y="' + (m.y + 2.3).toFixed(1) + '" font-size="5.8" font-weight="750" text-anchor="middle" fill="var(--ink-dim)">F</text>';
   });
 
-  // Boat marker.
+  // The no-sail sector is earth-referenced, centered on the true wind FROM bearing, and
+  // uses the exact same close-hauled limit as the polar. It sits behind the hull so the
+  // boat's current heading can be checked visually against the prohibited sector.
   if (lat != null) {
     var boatDeg = step && isFinite(step.headingDeg) ? step.headingDeg : (headingNow > 0 ? 0 : 180);
     var boatX = x(crossNm);
-    svg += '<g transform="translate(' + boatX + ',' + y(lat).toFixed(1) + ') rotate(' + boatDeg + ')">' +
-      '<polygon points="0,-8 -5,6 5,6" fill="var(--accent)"/></g>';
+    var boatY = y(lat);
+    var showNoSailSector = windAvailable && step && step.mode !== 'moored' && step.mode !== 'overdue';
+    if (showNoSailSector) {
+      var noSailPath = sailNoSailSectorPath(boatX, boatY, windDir, SAIL_CLOSE_HAULED_DEG, 32);
+      svg += '<path class="sailsim-no-sail-sector" d="' + noSailPath + '"/>' +
+        '<path class="sailsim-no-sail-boundary" d="' + noSailPath + '"/>';
+    }
+
+    // Compact top-down hull: pointed bow, fuller stern, centerline/mast, and a short bow
+    // cue. The whole glyph rotates to the actual sailed heading carried by this path step.
+    svg += '<g class="sailsim-boat" transform="translate(' + boatX + ',' + boatY.toFixed(1) + ') rotate(' + boatDeg.toFixed(1) + ')">' +
+      '<path class="sailsim-boat-hull" d="M0,-10.5 C4.2,-7.1 5.2,-1.8 3.9,7.2 Q0,9 -3.9,7.2 C-5.2,-1.8 -4.2,-7.1 0,-10.5 Z"/>' +
+      '<line class="sailsim-boat-centerline" x1="0" y1="-8" x2="0" y2="6.1"/>' +
+      '<circle cx="0" cy="0" r="1.3" fill="var(--accent)"/>' +
+      '<line class="sailsim-boat-heading-cue" x1="0" y1="-14" x2="0" y2="-10"/>' +
+      '</g>';
   }
 
-  // Wind arrow + kt, corner widget. Arrow rotated to the direction the wind blows TOWARD
-  // (windFromDeg + 180), same rotate-clockwise-from-north convention as drawCompassArrow.
-  var windSeries = state.gridSeries ? state.gridSeries.windDirection : null;
-  var speedSeries = state.gridSeries ? state.gridSeries.windSpeedKt : null;
-  var windDir = windSeries ? nearestSeriesValue(windSeries, atMs) : null;
-  var windSpd = speedSeries ? nearestSeriesValue(speedSeries, atMs) : null;
-  var wcx = W - 28, wcy = 26;
-  if (windDir != null) {
-    var flowDeg = (windDir + 180) % 360;
-    svg += '<g transform="translate(' + wcx + ',' + wcy + ') rotate(' + flowDeg.toFixed(1) + ')">' +
-      '<line x1="0" y1="8" x2="0" y2="-8" stroke="var(--ink-dim)" stroke-width="2"/>' +
-      '<polygon points="0,-12 -4,-6 4,-6" fill="var(--ink-dim)"/></g>';
+  // One compact caption anchors the texture's meaning without a separate legend block.
+  if (windAvailable) {
+    svg += '<text class="sailsim-wind-label" x="' + chCenter + '" y="' + (H - 3) + '" font-size="8.5" letter-spacing="0.05em" text-anchor="middle" fill="var(--ink-dim)">' +
+      'WIND FROM ' + degToCompass(windDir) + ' &middot; ' + (windSpd != null ? round1(windSpd) + ' kt' : '--') + '</text>';
   }
-  svg += '<text x="' + wcx + '" y="' + (wcy + 20) + '" font-size="' + SAIL_STRIP_LABEL_FONT + '" text-anchor="middle" fill="var(--ink-dim)">' +
-    (windSpd != null ? round1(windSpd) + 'kt' : '--') + '</text>';
 
   svg += '</svg>';
   $('sailSimSvgWrap').innerHTML = svg;

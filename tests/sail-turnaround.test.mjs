@@ -5,6 +5,10 @@ const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const startMarker = '/* ============================== Sail simulator physics';
 const endMarker = '/* ============================== Pre-motor advice';
 const physics = html.slice(html.indexOf(startMarker), html.indexOf(endMarker));
+const visualHelpers = html.slice(
+  html.indexOf('function sailBearingVector'),
+  html.indexOf('function renderSailSimSvg')
+);
 
 globalThis.clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 globalThis.round1 = v => Math.round(v * 10) / 10;
@@ -20,6 +24,22 @@ globalThis.currentVelocityAt = points => points[0].v;
 // Evaluate the production pure-physics block, rather than maintaining a test copy of the
 // turnaround math. The block intentionally has no DOM reads.
 (0, eval)(physics);
+(0, eval)(visualHelpers);
+
+// Execute the visual coordinate helpers so a future sign/sweep regression cannot make the
+// overlay look plausible while reversing the wind or no-sail geometry.
+const northVector = sailBearingVector(0);
+const eastVector = sailBearingVector(90);
+assert.ok(Math.abs(northVector.x) < 1e-12 && Math.abs(northVector.y + 1) < 1e-12);
+assert.ok(Math.abs(eastVector.x - 1) < 1e-12 && Math.abs(eastVector.y) < 1e-12);
+assert.equal(sailNoSailSectorPath(0, 0, 0, 47, 10),
+  'M0.0,0.0 L-7.3,-6.8 A10,10 0 0 1 7.3,-6.8 Z');
+globalThis.window = { matchMedia: () => ({ matches: false }) };
+const movingPhase = sailWindFlowPhase(1234567, 12);
+assert.equal(sailWindFlowPhase(1234567, 12), movingPhase, 'flow phase must be deterministic when scrubbing');
+assert.notEqual(sailWindFlowPhase(2234567, 12), movingPhase, 'flow phase must advance with simulator time');
+globalThis.window = { matchMedia: () => ({ matches: true }) };
+assert.equal(sailWindFlowPhase(2234567, 12), 0, 'reduced motion must freeze the flow phase');
 
 const hour = 3600000;
 const minute = 60000;
@@ -179,5 +199,21 @@ assert.match(html, /\.sailsim-top\s*\{[^}]*display:\s*grid;[^}]*grid-template-co
 assert.doesNotMatch(physics, /mode:\s*['"]hold['"]/);
 assert.match(html, /True wind angle/);
 assert.match(html, /Direct reach · tacking is slower/);
+
+// The strip must expose the sailing geometry rather than hiding it behind a generic arrow:
+// a heading-oriented top-down hull, the polar's exact no-sail cone centered on true wind
+// FROM, and deterministic downwind brush strokes tied to simulator time.
+assert.match(html, /class="sailsim-boat-hull"[^>]*d="M0,-10\.5 C4\.2,-7\.1/);
+assert.match(html, /class="sailsim-boat"[^>]*rotate\(' \+ boatDeg\.toFixed\(1\)/);
+assert.match(html, /sailNoSailSectorPath\(boatX, boatY, windDir, SAIL_CLOSE_HAULED_DEG, 32\)/);
+assert.match(html, /windFromDeg - halfAngleDeg/);
+assert.match(html, /windFromDeg \+ halfAngleDeg/);
+assert.match(html, /windFlowTowardDeg = windAvailable \? normalizeBearing\(windDir \+ 180\)/);
+assert.match(html, /flowPhase = sailWindFlowPhase\(atMs, windSpd\)/);
+assert.match(html, /WIND FROM ['"] \+ degToCompass\(windDir\)/);
+assert.match(html, /@media \(prefers-reduced-motion: reduce\)/);
+assert.match(html, /matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches/);
+assert.doesNotMatch(html, /points="0,-8 -5,6 5,6"/);
+assert.doesNotMatch(html, /var wcx = W - 28/);
 
 console.log('sail turnaround assertions passed');
