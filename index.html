@@ -6893,7 +6893,11 @@ function renderMarineText(text) {
 
 /* ============================== Radar / Leaflet ============================== */
 
-var currentSensorMapState = { map: null, baseLayer: null, markers: {}, fitted: false };
+var CURRENT_SENSOR_CAMERA = Object.freeze({
+  center: Object.freeze([40.66335, -74.0762]),
+  zoom: 9
+});
+var currentSensorMapState = { map: null, baseLayer: null, markers: {} };
 
 function cartoBaseTileUrl() {
   return resolvedTheme() === 'dark' ?
@@ -6928,16 +6932,13 @@ function addCurrentSensorBaseLayer() {
   currentSensorMapState.baseLayer.bringToBack();
 }
 
-function fitCurrentSensorMap() {
+function resizeCurrentSensorMap() {
   var el = $('timelineSensorMap');
   if (!currentSensorMapState.map || !el || el.getBoundingClientRect().width <= 0) return false;
-  currentSensorMapState.map.invalidateSize(false);
-  currentSensorMapState.map.fitBounds([
-    [PIER25.lat, PIER25.lon],
-    [CURRENT_SENSOR_LOCATIONS.kvk.lat, CURRENT_SENSOR_LOCATIONS.kvk.lon],
-    [CURRENT_SENSOR_LOCATIONS.narrows.lat, CURRENT_SENSOR_LOCATIONS.narrows.lon]
-  ], { padding: [16, 16], animate: false, maxZoom: 11 });
-  currentSensorMapState.fitted = true;
+  // Let Leaflet offset its panes to preserve the same geographic center when the
+  // responsive column changes width. With animation disabled this is an atomic
+  // redraw, not a user-visible camera move.
+  currentSensorMapState.map.invalidateSize({ animate: false, pan: true });
   return true;
 }
 
@@ -6949,7 +6950,7 @@ function initCurrentSensorMap() {
     zoomControl: false, attributionControl: true, scrollWheelZoom: false,
     doubleClickZoom: false, boxZoom: false, keyboard: false, dragging: false,
     touchZoom: false, zoomSnap: 1, maxZoom: 14
-  });
+  }).setView(CURRENT_SENSOR_CAMERA.center, CURRENT_SENSOR_CAMERA.zoom, { animate: false });
   addCurrentSensorBaseLayer();
   var pierColor = cssColor('--accent');
   var kvkColor = cssColor('--measured-current');
@@ -6957,14 +6958,13 @@ function initCurrentSensorMap() {
   currentSensorMapState.markers.pier = L.circleMarker([PIER25.lat, PIER25.lon], {
     radius: 5, color: pierColor, weight: 2, fillColor: pierColor, fillOpacity: 0.9
   }).addTo(currentSensorMapState.map).bindTooltip('Pier 25', { permanent: true, direction: 'top', offset: [0, -4] })
-    .bindPopup('<strong>Pier 25</strong><br>Home reference; no current sensor');
+    .bindPopup('<strong>Pier 25</strong><br>Home reference; no current sensor', { autoPan: false });
   currentSensorMapState.markers.kvk = L.circleMarker([CURRENT_SENSOR_LOCATIONS.kvk.lat, CURRENT_SENSOR_LOCATIONS.kvk.lon], {
     radius: 6, color: kvkColor, weight: 2, fillColor: kvkColor, fillOpacity: 0.85
   }).addTo(currentSensorMapState.map).bindTooltip('Kill Van Kull', { permanent: true, direction: 'left', offset: [-5, 0] });
   currentSensorMapState.markers.narrows = L.circleMarker([CURRENT_SENSOR_LOCATIONS.narrows.lat, CURRENT_SENSOR_LOCATIONS.narrows.lon], {
     radius: 6, color: narrowsColor, weight: 2, fillColor: narrowsColor, fillOpacity: 0.85
   }).addTo(currentSensorMapState.map).bindTooltip('The Narrows', { permanent: true, direction: 'right', offset: [5, 0] });
-  fitCurrentSensorMap();
   updateCurrentSensorMap();
   return true;
 }
@@ -6978,14 +6978,13 @@ function updateCurrentSensorMap() {
   currentSensorMapState.markers.pier.setStyle({ color: cssColor('--accent'), fillColor: cssColor('--accent') });
   currentSensorMapState.markers.kvk.setStyle({ color: kvkColor, fillColor: kvkColor, fillOpacity: kvk ? 0.85 : 0.18, dashArray: kvk ? null : '3,3' });
   currentSensorMapState.markers.narrows.setStyle({ color: narrowsColor, fillColor: narrowsColor, fillOpacity: narrows ? 0.85 : 0.18, dashArray: narrows ? null : '3,3' });
-  currentSensorMapState.markers.kvk.bindPopup(currentSensorPopup(CURRENT_SENSOR_LOCATIONS.kvk.name, kvk));
-  currentSensorMapState.markers.narrows.bindPopup(currentSensorPopup(CURRENT_SENSOR_LOCATIONS.narrows.name, narrows));
-  if (!currentSensorMapState.fitted) fitCurrentSensorMap();
+  currentSensorMapState.markers.kvk.bindPopup(currentSensorPopup(CURRENT_SENSOR_LOCATIONS.kvk.name, kvk), { autoPan: false });
+  currentSensorMapState.markers.narrows.bindPopup(currentSensorPopup(CURRENT_SENSOR_LOCATIONS.narrows.name, narrows), { autoPan: false });
 }
 
 function refreshCurrentSensorMapLayout() {
   if (!currentSensorMapState.map && !initCurrentSensorMap()) return;
-  fitCurrentSensorMap();
+  resizeCurrentSensorMap();
 }
 
 var radarState = {

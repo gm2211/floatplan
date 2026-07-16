@@ -134,13 +134,24 @@ assert.ok(html.includes('.source-links-notes { flex: 1 1 100%;'), 'source notes 
 
 assert.ok(html.includes("kvk: { name: 'Kill Van Kull', lat: 40.64358, lon: -74.13889 }"));
 assert.ok(html.includes("narrows: { name: 'The Narrows', lat: 40.60639953613281, lon: -74.03800201416016 }"));
+const sensorMapStart = html.indexOf('var CURRENT_SENSOR_CAMERA');
+const sensorMapEnd = html.indexOf('var radarState', sensorMapStart);
+assert.ok(sensorMapStart >= 0 && sensorMapEnd > sensorMapStart, 'sensor locator implementation block not found');
+const sensorMapBlock = html.slice(sensorMapStart, sensorMapEnd);
 assert.ok(html.includes('height: 132px'), 'sensor locator must stay compact and fixed-height');
 assert.ok(html.includes("L.map(el, {"), 'sensor locator initializes a Leaflet map once');
 assert.ok(html.includes('scrollWheelZoom: false'), 'sensor locator must not hijack page scrolling');
 assert.ok(html.includes('dragging: false'), 'compact locator must stay a stable geographic reference');
 assert.ok(html.includes('touchZoom: false'), 'compact locator must not capture pinch gestures');
-assert.ok(html.includes('currentSensorMapState.map.invalidateSize(false)'));
-assert.ok(html.includes('refreshCurrentSensorMapLayout();'), 'layout changes must resize and refit the sensor locator');
+assert.ok(sensorMapBlock.includes('center: Object.freeze([40.66335, -74.0762])'), 'sensor locator must use the fixed harbor camera center');
+assert.ok(sensorMapBlock.includes('zoom: 9'), 'sensor locator must use the fixed harbor camera zoom');
+assert.equal((sensorMapBlock.match(/\.setView\(/g) || []).length, 1, 'sensor locator camera must be set exactly once');
+assert.ok(sensorMapBlock.includes('setView(CURRENT_SENSOR_CAMERA.center, CURRENT_SENSOR_CAMERA.zoom, { animate: false })'), 'sensor locator must initialize at the fixed camera');
+assert.ok(sensorMapBlock.includes('currentSensorMapState.map.invalidateSize({ animate: false, pan: true })'), 'responsive resizing must atomically preserve the fixed geographic center');
+assert.ok(!sensorMapBlock.includes('fitBounds'), 'sensor locator must never derive a new camera from its container size');
+assert.ok(!sensorMapBlock.includes('fitted'), 'sensor locator must not retain refit state');
+assert.equal((sensorMapBlock.match(/\{ autoPan: false \}/g) || []).length, 3, 'Pier 25 and both current sensor popups must not auto-pan the map');
+assert.ok(html.includes('refreshCurrentSensorMapLayout();'), 'layout changes must resize the sensor locator without changing its camera');
 assert.ok(html.includes('addCurrentSensorBaseLayer();'), 'theme changes must replace the sensor map base layer');
 assert.ok(html.includes('https://tidesandcurrents.noaa.gov/ports/index.html?port=ny'));
 assert.ok(html.includes('https://tidesandcurrents.noaa.gov/cdata/DataPlot?id=n03020&amp;view=data'));
