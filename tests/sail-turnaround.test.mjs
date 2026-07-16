@@ -34,17 +34,6 @@ assert.ok(Math.abs(northVector.x) < 1e-12 && Math.abs(northVector.y + 1) < 1e-12
 assert.ok(Math.abs(eastVector.x - 1) < 1e-12 && Math.abs(eastVector.y) < 1e-12);
 assert.equal(sailNoSailSectorPath(0, 0, 0, 47, 10),
   'M0.0,0.0 L-7.3,-6.8 A10,10 0 0 1 7.3,-6.8 Z');
-const eastboundFerry = { from: { alongNm: 0, crossNm: -1 }, to: { alongNm: 0, crossNm: 1 } };
-const westboundFerry = { from: eastboundFerry.to, to: eastboundFerry.from };
-assert.equal(Math.round(sailFerryRotationDeg(eastboundFerry, v => v, () => 0)), 90);
-assert.equal(Math.round(sailFerryRotationDeg(westboundFerry, v => v, () => 0)), -90);
-globalThis.window = { matchMedia: () => ({ matches: false }) };
-const movingPhase = sailWindFlowPhase(1234567, 12);
-assert.equal(sailWindFlowPhase(1234567, 12), movingPhase, 'flow phase must be deterministic when scrubbing');
-assert.notEqual(sailWindFlowPhase(2234567, 12), movingPhase, 'flow phase must advance with simulator time');
-globalThis.window = { matchMedia: () => ({ matches: true }) };
-assert.equal(sailWindFlowPhase(2234567, 12), 0, 'reduced motion must freeze the flow phase');
-
 const hour = 3600000;
 const minute = 60000;
 const departureMs = 0;
@@ -89,8 +78,8 @@ assert.ok(Math.hypot((validTrip.finalLat - PIER25.lat) * NM_PER_DEG_LAT, validTr
   'turn solver convergence must include lateral mooring error');
 
 // A west wind is a direct reach on the Hudson axis. The simulator must not invent tacks or
-// jibes merely to make the picture interesting, and its conservative three-hour range
-// should remain around the Statue/Red Hook area rather than routinely reaching Robbins.
+// jibes merely to make the picture interesting. The speed model may reach the club boundary
+// in strong reaching conditions, but the track may never continue south of Robbins Reef.
 const directReach = computeSailSim(
   departureMs, 180 * minute, [{ ms: departureMs, v: 0 }],
   series(270), series(13), 5, { initialHeading: 'S' }, false, 6
@@ -100,7 +89,15 @@ assert.ok(directReach);
 assert.equal(directReach.path.some(p => p.maneuver), false);
 assert.ok(Math.max(...directReach.path.map(p => Math.abs(p.crossNm))) < 0.03);
 assert.ok(directReach.furthestDistNm > 1.2);
-assert.ok(directReach.furthestDistNm < 3.0, `direct-reach range was ${directReach.furthestDistNm.toFixed(2)} nm`);
+assert.ok(directReach.furthestDistNm <= Math.abs((SAIL_SOUTH_LIMIT_LAT - PIER25.lat) * NM_PER_DEG_LAT) + 0.02,
+  `direct reach crossed the Robbins limit at ${directReach.furthestDistNm.toFixed(2)} nm`);
+const quarterFrameMs = directReach.departureMs + (directReach.arrivalMs - directReach.departureMs) * 0.25;
+assert.ok(Math.abs((sailValueAt(directReach.path, quarterFrameMs, 'lat') - PIER25.lat) * NM_PER_DEG_LAT) > 0.1,
+  'the boat must visibly leave Pier 25 during playback');
+assert.equal(directReach.path.some(p => p.ms < directReach.arrivalMs && p.mode === 'sail' && Math.abs(p.sog) < 0.05), false,
+  'a valid voyage cannot contain stationary sailing samples before arrival');
+assert.equal(directReach.path.at(-1).lat, PIER25.lat, 'the explicit final approach must finish at Pier 25');
+assert.equal(directReach.path.at(-1).crossNm, 0, 'the explicit final approach must finish on the mooring axis');
 
 // Screenshot regression: WNW wind on the N 11° Hudson course is about 78.5° off the bow.
 // That is an honest direct reach, so the wake should stay straight and the simulator should
@@ -186,19 +183,21 @@ assert.ok(boundaryTrip.path.filter(p => Math.abs(p.lat - SAIL_SOUTH_LIMIT_LAT) <
   'the path must not park repeated samples on the south limit');
 assert.ok(Math.min(...boundaryTrip.path.map(p => p.lat)) >= SAIL_SOUTH_LIMIT_LAT - 1e-9);
 
-// A failed solver is not a voyage. It must leave the boat at Pier 25 rather than animate the
-// old fake "inbound" diagnostic leg away from the mooring.
+// A failed solver remains unsafe, but it should show the closest physically integrated
+// attempt instead of replacing the entire window with a stationary boat at Pier 25.
 const failedTrip = computeSailSim(
-  departureMs, 180 * minute, [{ ms: departureMs, v: -5 }],
+  departureMs, 180 * minute, [{ ms: departureMs, v: -12 }],
   series(270), series(13), 5, { initialHeading: 'S' }, false, 6
 );
 assert.equal(failedTrip.converged, false);
-assert.equal(failedTrip.path.length, 2);
+assert.ok(failedTrip.path.length > 2);
 assert.ok(Number.isFinite(failedTrip.turnErrNm));
-assert.equal(failedTrip.arrivalMs, null);
-assert.ok(failedTrip.path.every(p => p.mode === 'no-trip' && p.lat === PIER25.lat && p.crossNm === 0 && p.sog === 0));
-assert.equal(sailStepAt(failedTrip.path, departureMs).ms, departureMs,
-  'a no-trip frame at departure must use departure wind, not the return snapshot');
+assert.ok(failedTrip.path.some(p => Math.abs(p.lat - PIER25.lat) * NM_PER_DEG_LAT > 0.01 || Math.abs(p.crossNm) > 0.01),
+  'unsafe diagnostic voyage must visibly move');
+assert.equal(failedTrip.path.some(p => p.mode === 'no-trip'), false);
+assert.ok(failedTrip.turnMs > departureMs, 'best-effort voyage must include a real outbound leg');
+assert.notEqual(failedTrip.path.at(-1).mode, 'overdue',
+  'unsafe diagnostic must keep integrating through return time instead of parking offshore');
 
 // The entrance-current prediction is phase guidance, not a literal Pier 25 velocity.
 assert.ok(harborCurrentFactor(PIER25.lat) < harborCurrentFactor(40.67));
@@ -214,21 +213,29 @@ assert.match(html, /Direct reach · tacking is slower/);
 
 // The strip must expose the sailing geometry rather than hiding it behind a generic arrow:
 // a heading-oriented top-down hull, the polar's exact no-sail cone centered on true wind
-// FROM, and deterministic downwind brush strokes tied to simulator time.
+// FROM. Current is a separate filled, semantic-colored vector field.
 assert.match(html, /class="sailsim-boat-hull"[^>]*d="M0,-10\.5 C4\.2,-7\.1/);
 assert.match(html, /class="sailsim-boat"[^>]*rotate\(' \+ boatDeg\.toFixed\(1\)/);
 assert.match(html, /sailNoSailSectorPath\(boatX, boatY, windDir, SAIL_CLOSE_HAULED_DEG, 32\)/);
 assert.match(html, /windFromDeg - halfAngleDeg/);
 assert.match(html, /windFromDeg \+ halfAngleDeg/);
 assert.match(html, /windFlowTowardDeg = windAvailable \? normalizeBearing\(windDir \+ 180\)/);
-assert.match(html, /flowPhase = sailWindFlowPhase\(atMs, windSpd\)/);
 assert.match(html, /NWS ['"] \+ fmtTime\(atMs\) \+ ['"] &middot; WIND FROM ['"] \+ degToCompass\(windDir\)/);
 assert.match(html, /var windDir = step && isFinite\(step\.windDir\)/);
-assert.match(html, /class="sailsim-ferry-route"/);
-assert.match(html, /class="sailsim-ferry"/);
-assert.doesNotMatch(html, />F<\/text>/);
+assert.match(html, /class="sailsim-wind-vector"/);
+assert.match(html, /class="sailsim-current-vector"/);
+assert.match(html, /CURRENT &middot;/);
+assert.doesNotMatch(html, /sailsim-wind-streak/);
+assert.doesNotMatch(html, /sailsim-ferry/);
+assert.doesNotMatch(html, /Scheduled ferry/);
+assert.doesNotMatch(physics, /FERRY_/);
 assert.match(html, /@media \(prefers-reduced-motion: reduce\)/);
 assert.match(html, /matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches/);
+assert.match(html, /function sailPlaybackEndMs\(sim\)/);
+assert.match(html, /next = state\.sailSim\.departureMs \+ \(\(next - state\.sailSim\.departureMs\) % spanMs\)/,
+  'active playback must loop the moving voyage instead of parking on the moored tail');
+assert.match(html, /currentAtDepartureKt: harborCurrentAt\(state\.curvePoints, departureMs, PIER25\.lat\)/,
+  'direction advice and simulator must share the same local-current scale');
 assert.doesNotMatch(html, /points="0,-8 -5,6 5,6"/);
 assert.doesNotMatch(html, /var wcx = W - 28/);
 
