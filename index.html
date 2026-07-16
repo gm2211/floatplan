@@ -4034,25 +4034,45 @@ function estimateLabelWidth(text, pxPerChar) {
   return String(text == null ? '' : text).length * (pxPerChar || 6.5);
 }
 
+// The 9px labels have a 2.5px background-colored outline (see .svg-wrap svg text), so their
+// visible footprint is about 14-16px tall even though the glyphs alone are only 9px. Keep
+// 18px between baselines: the former 10-12px rows still let outlines from adjacent lanes
+// merge into what looked like overlapping text, especially after browser antialiasing.
+var CHART_LABEL_LANE_STEP = 18;
+var CHART_LABEL_HORIZONTAL_GAP = 6;
+
 // items: [{x, text, ...}] (any extra fields the caller stashed on each item are preserved
-// and ignored here). Greedy interval partitioning: sorts a COPY by x ascending (stable, so
-// equal-x items keep input order and output is deterministic), then places each label in
-// the FIRST row whose rightmost occupied edge it clears (4px gap), adding a new row when
-// none fits — a cluster of N mutually-overlapping labels gets N distinct rows instead of
-// the old two-row alternation that always left one pair of a 3-cluster colliding. Widths
-// get a 1.15x + 8px pad because estimateLabelWidth runs narrow. Mutates each original item
-// with `.bandY` (rowIndex * rowDy, 0 when no collision; rows stack in rowDy's sign
-// direction) and returns the (unsorted) input array for chaining.
-function layoutBandLabels(items, rowDy) {
-  var sorted = items.slice().sort(function (a, b) { return a.x - b.x; });
+// and ignored here). Greedy interval partitioning: labels are first clamped inside the
+// optional chart bounds, then a COPY is sorted by that visible label position. Each label
+// goes in the FIRST lane whose occupied edge it clears, adding a lane when none fits. A
+// cluster of N mutually-overlapping labels therefore gets N distinct lanes. Mutates each
+// original item with `.labelX`, `.bandRow`, and `.bandY`; the marker's true `.x` is never
+// changed, so guides remain accurate even when an edge label has to shift inward.
+function layoutBandLabels(items, rowDy, minX, maxX) {
+  items.forEach(function (it, index) {
+    var halfW = (estimateLabelWidth(it.text) * 1.15 + 8) / 2;
+    it.labelHalfWidth = halfW;
+    it.labelX = it.x;
+    if (isFinite(minX) && isFinite(maxX)) {
+      var available = Math.max(0, maxX - minX);
+      it.labelX = halfW * 2 >= available
+        ? (minX + maxX) / 2
+        : Math.max(minX + halfW, Math.min(maxX - halfW, it.x));
+    }
+    it._bandOrder = index;
+  });
+  var sorted = items.slice().sort(function (a, b) {
+    return a.labelX - b.labelX || a._bandOrder - b._bandOrder;
+  });
   var rowRights = [];
   sorted.forEach(function (it) {
-    var halfW = (estimateLabelWidth(it.text) * 1.15 + 8) / 2;
     var row = 0;
-    while (row < rowRights.length && it.x - halfW <= rowRights[row] + 4) row++;
+    while (row < rowRights.length && it.labelX - it.labelHalfWidth <= rowRights[row] + CHART_LABEL_HORIZONTAL_GAP) row++;
     if (row === rowRights.length) rowRights.push(-Infinity);
-    rowRights[row] = it.x + halfW;
+    rowRights[row] = it.labelX + it.labelHalfWidth;
+    it.bandRow = row;
     it.bandY = row * rowDy;
+    delete it._bandOrder;
   });
   return items;
 }
@@ -4224,7 +4244,7 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   // All top-band label sets (slack events, window ticks, 'now') share one collision-layout
   // pass so any pair landing on the same x gets nudged apart.
   var topBandBaseY = padT + 9;
-  var topBandRowDy = 12;
+  var topBandRowDy = CHART_LABEL_LANE_STEP;
 
   var slackLabelItems = slackEvents.filter(function (e) { return e.ms >= domStart && e.ms <= domEnd; }).map(function (e) {
     return {
@@ -4240,14 +4260,14 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   var nowItem = nowX != null ? { x: nowX, text: 'now' } : null;
   var topLabelItems = slackLabelItems.concat(windowTickItems);
   if (nowItem) topLabelItems.push(nowItem);
-  layoutBandLabels(topLabelItems, topBandRowDy);
+  layoutBandLabels(topLabelItems, topBandRowDy, padL, W - padR);
 
   var markers = slackLabelItems.map(function (it) {
     var labelY = topBandBaseY + it.bandY;
     var leaderEndY = labelY + (labelY >= it.markerY ? -3 : 3);
     return '<circle cx="' + it.x.toFixed(1) + '" cy="' + it.markerY.toFixed(1) + '" r="3.5" fill="' + it.color + '"/>' +
-      '<line x1="' + it.x.toFixed(1) + '" y1="' + it.markerY.toFixed(1) + '" x2="' + it.x.toFixed(1) + '" y2="' + leaderEndY.toFixed(1) + '" stroke="' + it.color + '" stroke-width="0.75" stroke-opacity="0.5"/>' +
-      '<text x="' + it.x.toFixed(1) + '" y="' + labelY.toFixed(1) + '" font-size="9" text-anchor="middle" fill="' + inkDim + '">' + escapeHtml(it.text) + '</text>';
+      '<line x1="' + it.x.toFixed(1) + '" y1="' + it.markerY.toFixed(1) + '" x2="' + it.labelX.toFixed(1) + '" y2="' + leaderEndY.toFixed(1) + '" stroke="' + it.color + '" stroke-width="0.75" stroke-opacity="0.5"/>' +
+      '<text x="' + it.labelX.toFixed(1) + '" y="' + labelY.toFixed(1) + '" font-size="9" text-anchor="middle" fill="' + inkDim + '">' + escapeHtml(it.text) + '</text>';
   }).join('');
 
   // Guide lines render early (behind the data curves); their labels render late (with the
@@ -4257,29 +4277,29 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   }).join('');
   var windowTickLabels = windowTickItems.map(function (it) {
     var labelY = topBandBaseY + it.bandY;
-    return '<text x="' + it.x.toFixed(1) + '" y="' + labelY.toFixed(1) + '" font-size="9" text-anchor="middle" fill="' + inkDim + '">' + escapeHtml(it.text) + '</text>';
+    return '<text x="' + it.labelX.toFixed(1) + '" y="' + labelY.toFixed(1) + '" font-size="9" text-anchor="middle" fill="' + inkDim + '">' + escapeHtml(it.text) + '</text>';
   }).join('');
 
   // --- Bottom band: tide H/L labels, same treatment mirrored to the bottom of the plot so
   // they never sit on the level curve or collide with each other when highs/lows are close.
   var botBandBaseY = H - padB - 6;
-  var botBandRowDy = 10;
+  var botBandRowDy = -CHART_LABEL_LANE_STEP;
   var hiloLabelItems = (showWater ? (hiloEvents || []) : []).filter(function (e) { return e.ms >= domStart && e.ms <= domEnd; }).map(function (e) {
     return { x: x(e.ms), markerY: yLvl(e.v), text: (e.type === 'H' ? 'H ' : 'L ') + fmtTime(e.ms) + ' · ' + e.v.toFixed(1) + ' ft' };
   });
-  layoutBandLabels(hiloLabelItems, botBandRowDy);
+  layoutBandLabels(hiloLabelItems, botBandRowDy, padL, W - padR);
   var hiloMarkers = hiloLabelItems.map(function (it) {
     var labelY = botBandBaseY + it.bandY;
     var leaderEndY = labelY + (labelY >= it.markerY ? -3 : 3);
     return '<circle cx="' + it.x.toFixed(1) + '" cy="' + it.markerY.toFixed(1) + '" r="3" fill="' + levelPredColor + '"/>' +
-      '<line x1="' + it.x.toFixed(1) + '" y1="' + it.markerY.toFixed(1) + '" x2="' + it.x.toFixed(1) + '" y2="' + leaderEndY.toFixed(1) + '" stroke="' + levelPredColor + '" stroke-width="0.75" stroke-opacity="0.5"/>' +
-      '<text x="' + it.x.toFixed(1) + '" y="' + labelY.toFixed(1) + '" font-size="9" text-anchor="middle" fill="' + levelPredColor + '">' + escapeHtml(it.text) + '</text>';
+      '<line x1="' + it.x.toFixed(1) + '" y1="' + it.markerY.toFixed(1) + '" x2="' + it.labelX.toFixed(1) + '" y2="' + leaderEndY.toFixed(1) + '" stroke="' + levelPredColor + '" stroke-width="0.75" stroke-opacity="0.5"/>' +
+      '<text x="' + it.labelX.toFixed(1) + '" y="' + labelY.toFixed(1) + '" font-size="9" text-anchor="middle" fill="' + levelPredColor + '">' + escapeHtml(it.text) + '</text>';
   }).join('');
 
   var nowLine = '';
   if (nowItem) {
     nowLine = '<line x1="' + nowX.toFixed(1) + '" y1="' + padT + '" x2="' + nowX.toFixed(1) + '" y2="' + (H - padB) + '" stroke="' + accent + '" stroke-width="1.5" stroke-dasharray="3,3"/>' +
-      '<text x="' + nowX.toFixed(1) + '" y="' + (topBandBaseY + nowItem.bandY).toFixed(1) + '" font-size="9" text-anchor="middle" fill="' + accent + '">now</text>';
+      '<text x="' + nowItem.labelX.toFixed(1) + '" y="' + (topBandBaseY + nowItem.bandY).toFixed(1) + '" font-size="9" text-anchor="middle" fill="' + accent + '">now</text>';
   }
 
   var axisTicks = '';
