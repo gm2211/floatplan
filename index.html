@@ -2721,11 +2721,11 @@ var SAIL_LANDMARK_PROXIMITY_NM = 0.8;
 // multi-hour sail window it made playback take many real MINUTES to finish, which read as
 // "the boat isn't moving" even though atMs was, in fact, still advancing every frame.
 var SAIL_PLAYBACK_TARGET_S = 14;
-var SAIL_TACK_MIN_LEG_MS = 7 * 60000;
+var SAIL_TACK_MIN_LEG_MS = 4 * 60000;
 var SAIL_TACK_MAX_LEG_MS = 18 * 60000;
 var SAIL_JIBE_MIN_LEG_MS = 10 * 60000;
 var SAIL_JIBE_MAX_LEG_MS = 26 * 60000;
-var SAIL_TACK_CORRIDOR_NM = 0.20;
+var SAIL_TACK_CORRIDOR_NM = 0.25;
 var SAIL_JIBE_CORRIDOR_NM = 0.28;
 var SAIL_CLOSE_HAULED_DEG = 47;
 var SAIL_BROAD_REACH_DEG = 28;
@@ -3032,20 +3032,21 @@ function isBeating(windFromDeg, courseBearingDeg, thresholdDeg) {
   return angularDistance(windFromDeg, courseBearingDeg) < (thresholdDeg == null ? SAIL_BEATING_THRESHOLD_DEG : thresholdDeg);
 }
 
-// Conservative day-sail calibration for the Pier 25 fleet. The speed setting is a ceiling,
-// not a promise: light air cannot produce hull speed, and the Manhattan waterfront commonly
-// delivers only a fraction of the airport/gridpoint wind between buildings and piers.
+// Mild day-sail calibration for the Pier 25 fleet. The speed setting is a ceiling, not a
+// promise: light air cannot produce hull speed. This factor is a mild siting adjustment,
+// not a dominant term — the polar carries most of the speed model.
 function windPowerFactor(windKt) {
-  if (windKt == null || !isFinite(windKt)) return 0.62;
-  if (windKt <= 3) return 0.15;
-  if (windKt >= 16) return 0.92;
-  return 0.15 + (windKt - 3) / 13 * 0.77;
+  if (windKt == null || !isFinite(windKt)) return 0.85;
+  if (windKt <= 3) return 0.35;
+  if (windKt >= 12) return 1.0;
+  return 0.35 + (windKt - 3) / 9 * 0.65;
 }
+// Mild siting adjustment for local wind shadow/turbulence, not a dominant term.
 function harborWindFactor(lat) {
-  if (lat >= 40.700 && lat <= 40.790) return 0.48; // Manhattan building/pier wind shadow
-  if (lat > 40.790) return 0.60;
-  if (lat >= 40.685) return 0.64; // Battery, Ellis/Liberty Island turbulence
-  return 0.74; // more open Upper Bay
+  if (lat >= 40.700 && lat <= 40.790) return 0.85; // Manhattan building/pier shadow (mild)
+  if (lat > 40.790) return 0.90;
+  if (lat >= 40.685) return 0.92; // Battery, Ellis/Liberty Island turbulence (mild)
+  return 0.95; // more open Upper Bay
 }
 
 // NYH1927 is a model prediction for the Hudson River Entrance, not a Pier 25 meter. Apply
@@ -3191,8 +3192,8 @@ function nearestLandmark(lat) {
 // `mode` ('motor'/'sail') so the renderer can draw a visually distinct dashed wake.
 function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, windDirSeries, windSpeedSeries, boatSpeedKt, stepMs, motor, startCrossNm, endCrossNm, ferryTrips) {
   var desiredBearing = courseBearingForHeading(headingSign);
-  var crossNm = isFinite(startCrossNm) ? startCrossNm : 0;
-  var targetCrossNm = isFinite(endCrossNm) ? endCrossNm : 0;
+  var crossNm = Number.isFinite(startCrossNm) ? startCrossNm : 0;
+  var targetCrossNm = Number.isFinite(endCrossNm) ? endCrossNm : 0;
   // `side` is port/starboard relative to the sailed course; crossNm is fixed east/west.
   // Starboard is east northbound but west southbound, hence the headingSign conversion.
   var side = (crossNm > targetCrossNm ? -1 : 1) * headingSign;
@@ -3247,7 +3248,7 @@ function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, windDir
       var maxLeg = probe.courseType === 'tack' ? SAIL_TACK_MAX_LEG_MS : SAIL_JIBE_MAX_LEG_MS;
       // The corridor narrows on a homebound leg so the last few legs converge on Pier 25
       // instead of finishing an arbitrary fraction of a tack away from the mooring.
-      if (isFinite(endCrossNm)) {
+      if (Number.isFinite(endCrossNm)) {
         var remainingFrac = clamp((endMs - midT) / (20 * 60000), 0.20, 1);
         corridor *= remainingFrac;
       }
