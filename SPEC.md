@@ -77,9 +77,9 @@ Logic over current predictions within the window:
 
 ## Sail simulator
 
-- Integrate the boat in one-minute steps using the N 11° / S 183° Hudson course, forecast wind, the conservative harbor wind-shadow calibration, and location-adjusted Hudson Entrance current.
+- Integrate the boat in one-minute steps using the reciprocal N 11° / S 191° Hudson course, forecast wind, the conservative harbor wind-shadow calibration, and location-adjusted Hudson Entrance current.
 - Choose a sailed strategy by comparing velocity vectors, not by applying a decorative angle threshold. Score the direct river heading and paired close-hauled/broad-reach headings by their along-route component; a pair is valid only when its legs cancel cross-route drift and neither leg makes negative route progress. Prefer direct unless the paired strategy is at least 3% faster.
-- A WNW wind on the northbound course is approximately 79° off the bow and is therefore an honest direct reach: keep that track straight and explicitly show its true wind angle and `Direct reach · tacking is slower`. Do not invent tacks solely to make the route look nautical.
+- A mathematically direct reach is worked across a bounded Hudson corridor when both ±12° headings remain outside the no-go zone and each retains at least 94% of direct-route VMG. Integrate the real lateral velocity and label these as working-reach legs. They are ordinary course changes, not tacks/jibes; reserve T/J markers for actual wind crossings.
 - When a paired strategy wins, integrate its alternating headings and cross-route velocity. The wake must visibly zigzag, tack/jibe markers must correspond to actual heading changes and maneuver losses, and the readout must show both planned headings and completed/planned maneuver counts.
 - Never hide an invalid strategy by clamping a meaningfully negative VMG to zero. A selected sailing leg must make non-negative route progress, and a genuine beating fixture must make positive progress on every leg.
 - Keep ferry traffic out of the deterministic sail model. Published schedules are not live vessel positions and must not distort the predicted boat track or return solve; the skipper remains responsible for visual collision avoidance.

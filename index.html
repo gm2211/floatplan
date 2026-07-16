@@ -344,12 +344,16 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .sailsim-boat-heading-cue { stroke-width: 1.4px; }
 .sailsim-readouts {
   min-width: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 7px 12px;
-  align-content: start;
+  align-content: start; grid-template-rows: repeat(5, 52px) 72px; height: 367px;
 }
-.sailsim-readout-row { min-width: 0; border-bottom: 1px dashed var(--border); padding-bottom: 5px; }
-.sailsim-readout-row--full { grid-column: 1 / -1; }
+.sailsim-readout-row { min-width: 0; height: 52px; border-bottom: 1px dashed var(--border); padding-bottom: 5px; overflow: hidden; }
+.sailsim-readout-row--full { grid-column: 1 / -1; height: 72px; }
 .sailsim-readout-label { display: block; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-dim); }
-.sailsim-readout-value { display: block; margin-top: 1px; font-size: 12.5px; line-height: 1.3; font-weight: 650; overflow-wrap: anywhere; }
+.sailsim-readout-value {
+  display: -webkit-box; margin-top: 1px; font-size: 12.5px; line-height: 1.3; font-weight: 650;
+  overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+}
+.sailsim-readout-row--full .sailsim-readout-value { -webkit-line-clamp: 3; }
 .sailsim-controls { display: flex; align-items: center; gap: 8px; width: 100%; flex-wrap: wrap; }
 .sailsim-controls input[type="range"] { flex: 1 1 140px; min-width: 100px; }
 .sailsim-controls input[type="range"]:disabled { opacity: 0.5; }
@@ -366,7 +370,10 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 @container (max-width: 405px) {
   .sailsim-top { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .sailsim-strip-wrap { max-width: 520px; margin-inline: auto; }
-  .sailsim-readouts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .sailsim-readouts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: repeat(4, 52px) 72px; height: 308px;
+  }
   .sailsim-readout-row--full { grid-column: 1 / -1; }
 }
 
@@ -2656,7 +2663,7 @@ function computeDirectionRec(curvePoints, slackEvents, departureMs, returnMs, no
 
 /* ============================== Sail simulator physics ============================== */
 // Pure functions only — no DOM, no reads of the global `state` — so they're smoke-testable
-// standalone. Course bearings (11°/183°) match the Hudson's actual axis through Manhattan,
+// standalone. Reciprocal course bearings (11°/191°) match the Hudson's local axis,
 // not true north/south. Latitude tracks river progress while crossNm integrates the lateral
 // component of each sailed heading; 1 degree latitude = 60 nm.
 
@@ -2713,6 +2720,14 @@ var SAIL_JIBE_MIN_LEG_MS = 10 * 60000;
 var SAIL_JIBE_MAX_LEG_MS = 26 * 60000;
 var SAIL_TACK_CORRIDOR_NM = 0.25;
 var SAIL_JIBE_CORRIDOR_NM = 0.28;
+// Real Pier 25 tracks do not follow an autopilot-straight river axis on a reach. When both
+// sides remain efficient and outside the no-go zone, work a conservative corridor with
+// real lateral velocity. These are reaching course changes, not decorative tacks/jibes.
+var SAIL_REACH_WEAVE_DEG = 12;
+var SAIL_REACH_MIN_EFFICIENCY = 0.94;
+var SAIL_REACH_CORRIDOR_NM = 0.12;
+var SAIL_REACH_MIN_LEG_MS = 6 * 60000;
+var SAIL_REACH_MAX_LEG_MS = 12 * 60000;
 var SAIL_CLOSE_HAULED_DEG = 47;
 var SAIL_BROAD_REACH_DEG = 28;
 var SAIL_TACK_LOSS_FACTOR = 0.28;
@@ -2724,6 +2739,10 @@ var SAIL_SOUTH_LIMIT_LAT = 40.6577;
 // leave it unrecovered and let the explicit final-approach check decide convergence.
 function applyCrossTrackRecovery(sample, desiredBearing, headingSign, crossNm, targetCrossNm, remainingMs) {
   if (!isFinite(targetCrossNm) || sample.courseType !== 'reach' || remainingMs <= 0) return sample;
+  // Preserve the working-reach corridor through most of the inbound leg. Only begin the
+  // exact Pier 25 intercept late enough that it reads as a deliberate final approach,
+  // rather than silently flattening the visible course changes for the whole return.
+  if (sample.workingReach && remainingMs > 10 * 60000) return sample;
   var crossErrorNm = targetCrossNm - crossNm;
   if (Math.abs(crossErrorNm) <= SAIL_HOME_TOLERANCE_NM * 0.35 || !(sample.throughWaterKt > 0)) return sample;
   var remainingHours = Math.max(1 / 60, remainingMs / 3600000);
@@ -2856,7 +2875,8 @@ function pairedSailStrategy(type, negative, positive) {
   var score = negativeWeight * negative.along + (1 - negativeWeight) * positive.along;
   return {
     type: type, negative: negative, positive: positive, score: score,
-    reason: type === 'tack' ? 'paired-upwind-faster' : 'paired-downwind-faster'
+    reason: type === 'tack' ? 'paired-upwind-faster' :
+      (type === 'jibe' ? 'paired-downwind-faster' : 'working-reach')
   };
 }
 
@@ -2906,8 +2926,21 @@ function sailingSample(atMs, lat, headingSign, side, windDirSeries, windSpeedSer
     ? chooseSailStrategy(windDir, desiredBearing)
     : { type: 'infeasible', score: 0, windAngleDeg: null, reason: 'wind-unavailable' };
   var paired = strategy.type === 'tack' || strategy.type === 'jibe';
-  var activeSide = paired ? (side || -1) : 0;
-  var candidate = strategy.direct || (activeSide < 0 ? strategy.negative : strategy.positive);
+  var workingReach = false, reachPair = null;
+  if (strategy.type === 'reach' && strategy.direct) {
+    var reachCandidates = [
+      sailStrategyCandidate(windDir, desiredBearing, desiredBearing - SAIL_REACH_WEAVE_DEG),
+      sailStrategyCandidate(windDir, desiredBearing, desiredBearing + SAIL_REACH_WEAVE_DEG)
+    ].sort(function (a, b) { return a.cross - b.cross; });
+    reachPair = pairedSailStrategy('reach', reachCandidates[0], reachCandidates[1]);
+    workingReach = !!(reachPair && reachCandidates.every(function (leg) {
+      return leg.along >= strategy.score * SAIL_REACH_MIN_EFFICIENCY;
+    }));
+  }
+  var activeSide = (paired || workingReach) ? (side || -1) : 0;
+  var candidate = workingReach
+    ? (activeSide < 0 ? reachPair.negative : reachPair.positive)
+    : (strategy.direct || (activeSide < 0 ? strategy.negative : strategy.positive));
   var headingDeg = candidate ? candidate.headingDeg : desiredBearing;
   var deltaRad = signedBearingDelta(desiredBearing, headingDeg) * Math.PI / 180;
   var polarFactor = candidate ? candidate.factor : 0;
@@ -2917,11 +2950,15 @@ function sailingSample(atMs, lat, headingSign, side, windDirSeries, windSpeedSer
   if (vmg < -1e-9) throw new Error('Sail strategy selected a negative-progress heading');
   if (vmg < 0) vmg = 0;
   var lateralKt = throughWaterKt * Math.sin(deltaRad);
-  var strategyHeadings = paired ? [strategy.negative.headingDeg, strategy.positive.headingDeg] : [headingDeg];
+  var strategyHeadings = workingReach
+    ? [reachPair.negative.headingDeg, reachPair.positive.headingDeg]
+    : (paired ? [strategy.negative.headingDeg, strategy.positive.headingDeg] : [headingDeg]);
   return {
     vmg: vmg, lateralKt: lateralKt, throughWaterKt: throughWaterKt,
     courseType: strategy.type, side: activeSide, windKt: windKt, windDir: windDir,
-    windAngleDeg: strategy.windAngleDeg, strategyReason: strategy.reason, strategyHeadings: strategyHeadings,
+    windAngleDeg: angularDistance(windDir, headingDeg),
+    strategyReason: workingReach ? reachPair.reason : strategy.reason, strategyHeadings: strategyHeadings,
+    workingReach: workingReach,
     headingDeg: headingDeg, desiredBearing: desiredBearing, mode: 'sail'
   };
 }
@@ -2984,6 +3021,7 @@ function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, windDir
     throughWaterKt: s0.throughWaterKt, headingDeg: s0.headingDeg,
     windKt: s0.windKt, windDir: s0.windDir,
     windAngleDeg: s0.windAngleDeg, strategyReason: s0.strategyReason, strategyHeadings: s0.strategyHeadings,
+    workingReach: !!s0.workingReach,
     maneuver: null, mode: s0.mode
   }];
   if (endMs <= startMs) return path;
@@ -3046,6 +3084,21 @@ function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, windDir
         probe = sample(midT, lat, probe.courseType);
       }
     }
+    if (!motor && probe.courseType === 'reach' && probe.workingReach) {
+      var reachElapsed = midT - lastManeuverMs;
+      var reachCorridor = SAIL_REACH_CORRIDOR_NM;
+      if (Number.isFinite(endCrossNm)) {
+        reachCorridor *= clamp((endMs - midT) / (18 * 60000), 0.22, 1);
+      }
+      var reachFixedLateralKt = headingSign * probe.lateralKt;
+      var reachBeyondEdge = (reachFixedLateralKt < 0 && crossNm <= targetCrossNm - reachCorridor) ||
+        (reachFixedLateralKt > 0 && crossNm >= targetCrossNm + reachCorridor);
+      if ((reachBeyondEdge && reachElapsed >= SAIL_REACH_MIN_LEG_MS) || reachElapsed >= SAIL_REACH_MAX_LEG_MS) {
+        side *= -1;
+        lastManeuverMs = midT;
+        probe = sample(midT, lat, false);
+      }
+    }
     previousCourseType = probe.courseType;
     previousHeadingDeg = probe.headingDeg;
     var s = probe;
@@ -3064,6 +3117,7 @@ function simulateLeg(startMs, endMs, startLat, headingSign, curvePoints, windDir
       throughWaterKt: s.throughWaterKt, headingDeg: s.headingDeg,
       windKt: s.windKt, windDir: s.windDir,
       windAngleDeg: s.windAngleDeg, strategyReason: s.strategyReason, strategyHeadings: s.strategyHeadings,
+      workingReach: !!s.workingReach,
       maneuver: maneuver, mode: s.mode, navigationAction: s.navigationAction || null
     });
   }
@@ -4618,6 +4672,7 @@ function renderSailSimReadouts(sim, atMs) {
     else if (step.mode === 'overdue') courseLabel = 'Return target missed';
     else if (step.mode === 'docking') courseLabel = 'Final approach to Pier 25';
     else if (step.navigationAction === 'return-to-mooring') courseLabel = 'Recovering cross-track toward Pier 25';
+    else if (step.workingReach) courseLabel = 'Working reach · ' + (step.side < 0 ? 'port' : 'starboard') + ' leg';
     else if (step.courseType === 'tack') courseLabel = 'Beating · ' + (step.side < 0 ? 'port' : 'starboard') + ' tack';
     else if (step.courseType === 'jibe') courseLabel = 'Broad reach · ' + (step.side < 0 ? 'port' : 'starboard') + ' jibe';
     else if (step.courseType === 'infeasible') courseLabel = 'No positive-progress sailing course';
@@ -4642,7 +4697,8 @@ function renderSailSimReadouts(sim, atMs) {
   else if (step.mode === 'motor') strategyLabel = 'Under power';
   else if (step.mode === 'moored' || step.mode === 'overdue' || step.mode === 'no-trip') strategyLabel = '--';
   else if (step.mode === 'docking') strategyLabel = 'Low-speed mooring approach';
-  else if (step.navigationAction === 'return-to-mooring') strategyLabel = 'Direct reach · correcting toward mooring';
+  else if (step.navigationAction === 'return-to-mooring') strategyLabel = 'Working reach · correcting toward mooring';
+  else if (step.workingReach) strategyLabel = 'Working reach · ' + Math.round(SAIL_REACH_WEAVE_DEG) + '° course changes';
   else if (step.courseType === 'infeasible') strategyLabel = 'No positive-progress sailing course';
   else if (step.courseType === 'tack') {
     strategyLabel = tackCount + '/' + plannedTacks + ' tacks' + (strategyHeadingLabel ? ' · ' + strategyHeadingLabel : '');
@@ -4705,6 +4761,7 @@ function sailSimPathsEqual(pathA, pathB) {
     if (numbersDiffer(pathA[i].c, pathB[i].c, 1e-6)) return false;
     if (numbersDiffer(pathA[i].sog, pathB[i].sog, 1e-6)) return false;
     if (pathA[i].courseType !== pathB[i].courseType || pathA[i].side !== pathB[i].side || pathA[i].mode !== pathB[i].mode) return false;
+    if (!!pathA[i].workingReach !== !!pathB[i].workingReach) return false;
     if (pathA[i].maneuver !== pathB[i].maneuver) return false;
     if (Math.abs((pathA[i].headingDeg || 0) - (pathB[i].headingDeg || 0)) > 1e-5) return false;
     if (pathA[i].strategyReason !== pathB[i].strategyReason) return false;

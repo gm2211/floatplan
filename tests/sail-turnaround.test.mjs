@@ -80,9 +80,8 @@ assert.ok(Math.abs((validTrip.finalLat - PIER25.lat) * NM_PER_DEG_LAT) <= SAIL_H
 assert.ok(Math.hypot((validTrip.finalLat - PIER25.lat) * NM_PER_DEG_LAT, validTrip.finalCrossNm) <= SAIL_HOME_TOLERANCE_NM,
   'turn solver convergence must include lateral mooring error');
 
-// A west wind is a direct reach on the Hudson axis. The simulator must not invent tacks or
-// jibes merely to make the picture interesting. The speed model may reach the club boundary
-// in strong reaching conditions, but the track may never continue south of Robbins Reef.
+// A west wind is a reach on the Hudson axis. A real day sail works a bounded corridor rather
+// than following an autopilot-straight line, but those course changes are not false T/J events.
 const directReach = computeSailSim(
   departureMs, 180 * minute, [{ ms: departureMs, v: 0 }],
   series(270), series(13), 5, { initialHeading: 'S' }, false, 6
@@ -90,7 +89,10 @@ const directReach = computeSailSim(
 assert.ok(directReach.arrivalMs <= directReach.arriveByMs);
 assert.ok(directReach);
 assert.equal(directReach.path.some(p => p.maneuver), false);
-assert.ok(Math.max(...directReach.path.map(p => Math.abs(p.crossNm))) < 0.03);
+assert.ok(directReach.path.some(p => p.workingReach));
+assert.ok(Math.max(...directReach.path.map(p => p.crossNm)) - Math.min(...directReach.path.map(p => p.crossNm)) >= 0.08);
+assert.ok(Math.max(...directReach.path.map(p => p.crossNm)) - Math.min(...directReach.path.map(p => p.crossNm)) <= 0.32,
+  'working reaches must stay inside the bounded river corridor');
 assert.ok(directReach.furthestDistNm > 1.2);
 assert.ok(directReach.furthestDistNm <= Math.abs((SAIL_SOUTH_LIMIT_LAT - PIER25.lat) * NM_PER_DEG_LAT) + 0.02,
   `direct reach crossed the Robbins limit at ${directReach.furthestDistNm.toFixed(2)} nm`);
@@ -101,10 +103,14 @@ assert.equal(directReach.path.some(p => p.ms < directReach.arrivalMs && p.mode =
   'a valid voyage cannot contain stationary sailing samples before arrival');
 assert.equal(directReach.path.at(-1).lat, PIER25.lat, 'the explicit final approach must finish at Pier 25');
 assert.equal(directReach.path.at(-1).crossNm, 0, 'the explicit final approach must finish on the mooring axis');
+const directInbound = directReach.path.filter(p => p.ms >= directReach.turnMs && p.mode === 'sail');
+assert.ok(directInbound.some(p => p.workingReach), 'the return leg must preserve working-reach geometry');
+const closestInboundNm = Math.min(...directInbound.map(p => Math.hypot((p.lat - PIER25.lat) * NM_PER_DEG_LAT, p.crossNm)));
+assert.ok(closestInboundNm <= SAIL_HOME_TOLERANCE_NM + 1e-6,
+  `the inbound working reach must enter the Pier 25 capture circle before docking (${closestInboundNm.toFixed(3)} nm)`);
 
-// Screenshot regression: WNW wind on the N 11° Hudson course is about 78.5° off the bow.
-// That is an honest direct reach, so the wake should stay straight and the simulator should
-// explicitly preserve the angle/reason that proves why decorative tacks would be wrong.
+// Screenshot regression: WNW wind on the N 11° Hudson course is an honest reach. It should
+// work alternating efficient headings without claiming those same-side changes are tacks.
 const screenshotReach = computeSailSim(
   departureMs, 180 * minute, [{ ms: departureMs, v: -0.96 }],
   series(292.5), series(14), 5, { initialHeading: 'N' }, false, 6
@@ -112,11 +118,12 @@ const screenshotReach = computeSailSim(
 const screenshotSail = screenshotReach.path.filter(p => p.mode === 'sail' && p.ms <= screenshotReach.turnMs);
 assert.ok(screenshotSail.length > 1);
 assert.equal(screenshotSail.some(p => p.maneuver), false);
-assert.ok(Math.max(...screenshotSail.map(p => Math.abs(p.crossNm))) < 0.03);
+assert.ok(Math.max(...screenshotSail.map(p => p.crossNm)) - Math.min(...screenshotSail.map(p => p.crossNm)) >= 0.08);
 assert.ok(screenshotSail.every(p => p.courseType === 'reach'));
-assert.ok(screenshotSail.every(p => p.strategyReason === 'direct-faster'));
-assert.ok(screenshotSail.every(p => Math.abs(p.windAngleDeg - 78.5) < 0.01));
-assert.ok(screenshotSail.every(p => Math.abs(p.headingDeg - SAIL_COURSE_BEARING_N) < 0.01));
+assert.ok(screenshotSail.every(p => p.strategyReason === 'working-reach'));
+assert.ok(new Set(screenshotSail.map(p => Math.round(p.headingDeg))).size >= 2);
+assert.ok(screenshotSail.every(p => p.vmg >= Math.max(...screenshotSail.map(q => q.vmg)) * 0.80),
+  'working-reach legs must not hide a severely inefficient heading');
 
 // Exact headwind must choose two positive-progress close-hauled vectors whose lateral
 // components cancel over time. Both sides of the river-axis zigzag must be visible.
@@ -251,7 +258,9 @@ assert.match(html, /wide:\s*\{[\s\S]*?colB:\s*\[[^\]]*'sailSimCard'/);
 assert.match(html, /\.sailsim-top\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:/);
 assert.doesNotMatch(physics, /mode:\s*['"]hold['"]/);
 assert.match(html, /True wind angle/);
-assert.match(html, /Direct reach · tacking is slower/);
+assert.match(html, /Working reach · ['"] \+ Math\.round\(SAIL_REACH_WEAVE_DEG\)/);
+assert.match(html, /grid-template-rows:\s*repeat\(5,\s*52px\)\s*72px/);
+assert.match(html, /\.sailsim-readout-row\s*\{[^}]*height:\s*52px/);
 
 // The strip must expose the sailing geometry rather than hiding it behind a generic arrow:
 // a heading-oriented top-down hull, the polar's exact no-sail cone centered on true wind
