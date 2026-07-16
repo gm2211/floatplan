@@ -54,6 +54,7 @@ const narrative = composeTemplateNarrative({
   windSustainedMaxKt: 7,
   windGustMaxKt: 20,
   windGustMaxTime: '5:00 PM',
+  observed_now: { windSustainedKt: 22, windGustKt: 26 },
   reefBandLow: 15,
   reefBandHigh: 18,
   advisories: [{ event: 'Special Marine Warning', endsTime: '6:15 PM' }],
@@ -83,6 +84,7 @@ assert.ok(narrative.includes('5:00 PM depart — ebb 1.8 kt · 6:47 PM — slack
 assert.ok(narrative.includes('Head north against the ebb'));
 assert.ok(narrative.includes('turn near 6:32 PM before slack'));
 assert.ok(!narrative.includes('then return to Pier 25'), 'route should not repeat the return action');
+assert.ok(!narrative.includes('Observed now'), 'live observation comparison belongs in the wind widget, not the compact plan');
 assert.ok(narrative.includes('4 aboard (skipper + 3 crew)'));
 assert.ok(narrative.split(/\s+/).length <= 90,
   `representative compact plan must stay within 90 words (${narrative.split(/\s+/).length})\n${narrative}`);
