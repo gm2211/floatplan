@@ -61,9 +61,9 @@ Window = departure → departure + duration. Compute max sustained & max gust ac
 
 Logic over current predictions within the window:
 - Compute signed current (positive = flood/north, negative = ebb/south) at departure, at midpoint, at return.
-- If current reverses (slack falls inside window) AND the flip lands in the first ~half of the window: recommend departing WITH the current now, returning with the reversed current. E.g. ebbing now, turns to flood mid-sail → "Head SOUTH on the ebb, ride the flood home." A LATE flip (past ~55% of the window) is treated like a single-phase window instead — head against the pre-flip current, come home with it before it turns. Guiding principle: never plan a return leg that fights the current.
+- If current reverses (slack falls inside window) AND the flip lands in the first ~half of the window: recommend departing WITH the current at the selected departure, returning with the reversed current. E.g. ebbing at departure, turns to flood mid-sail → "Head SOUTH on the ebb, ride the flood home." A LATE flip (past ~55% of the window) is treated like a single-phase window instead — head against the pre-flip current, come home with it before it turns. Guiding principle: never plan a return leg that fights the current.
 - If current is one direction for the whole window: recommend heading AGAINST it outbound so the ride home is favorable → "Flooding the whole window — head SOUTH first (against ~1.2 kt flood), come home with it."
-- Always show: current state now (ebb/flood/slack + speed), next slack time, next max (flood/ebb) time + speed.
+- Always show: current state at the selected departure (ebb/flood/slack + speed), then the next slack and next max (flood/ebb) after that departure. The current arrow and supporting copy must never use the wall clock for a future sail window.
 - Compass arrow graphic showing recommended initial heading (N or S along the Hudson).
 
 ## Current timeline chart (hand-rolled inline SVG, no chart lib)

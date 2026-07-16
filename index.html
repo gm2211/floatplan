@@ -2574,11 +2574,10 @@ function severityRank(sev) { return SEVERITY_RANK[sev] != null ? SEVERITY_RANK[s
 /* ============================== Direction logic ============================== */
 // Signed velocity convention: positive = flood (north/upriver), negative = ebb (south).
 
-function computeDirectionRec(curvePoints, slackEvents, departureMs, returnMs, nowMs) {
+function computeDirectionRec(curvePoints, slackEvents, departureMs, returnMs) {
   var vDep = currentVelocityAt(curvePoints, departureMs);
   var vMid = currentVelocityAt(curvePoints, (departureMs + returnMs) / 2);
   var vRet = currentVelocityAt(curvePoints, returnMs);
-  var vNow = currentVelocityAt(curvePoints, nowMs);
 
   // Currents predictions haven't loaded (or don't cover this window) yet — this is a
   // distinct "we don't know" state, never to be conflated with "near slack" (which is a
@@ -2588,7 +2587,6 @@ function computeDirectionRec(curvePoints, slackEvents, departureMs, returnMs, no
       unavailable: true,
       headline: 'Currents unavailable — waiting on current predictions to load.',
       initialHeading: null,
-      stateNow: 'unknown', vNow: null,
       stateDep: 'unknown', vDep: null,
       nextSlack: null, nextMax: null
     };
@@ -2646,14 +2644,16 @@ function computeDirectionRec(curvePoints, slackEvents, departureMs, returnMs, no
     }
   }
 
-  var nextSlack = slackEvents.find(function (e) { return e.ms > nowMs && e.type === 'slack'; });
-  var nextMax = slackEvents.find(function (e) { return e.ms > nowMs && e.type && e.type !== 'slack'; });
+  // Direction is a sail-plan card, so every displayed current reference starts at the
+  // selected departure—not the device clock. Otherwise a future sail can recommend ebb
+  // while the arrow and supporting line describe today's flood.
+  var events = slackEvents || [];
+  var nextSlack = events.find(function (e) { return e.ms >= departureMs && e.type === 'slack'; });
+  var nextMax = events.find(function (e) { return e.ms >= departureMs && e.type && e.type !== 'slack'; });
 
   return {
     headline: headline,
     initialHeading: initialHeading,
-    stateNow: classifyCurrent(vNow),
-    vNow: vNow,
     stateDep: classifyCurrent(vDep),
     vDep: vDep,
     nextSlack: nextSlack || null,
@@ -3658,7 +3658,7 @@ function renderDirection(rec) {
     return;
   }
   showEl($('compassArrow'));
-  setText('directionNow', 'Now: ' + rec.stateNow + (rec.vNow != null ? ' at ' + round1(Math.abs(rec.vNow)) + ' kt' : ''));
+  setText('directionNow', 'At departure: ' + rec.stateDep + (rec.vDep != null ? ' at ' + round1(Math.abs(rec.vDep)) + ' kt' : ''));
   setText('directionNextSlack', rec.nextSlack ? 'Next slack: ' + fmtTime(rec.nextSlack.ms) : 'Next slack: n/a');
   setText('directionNextMax', rec.nextMax ?
     ('Next max ' + rec.nextMax.type + ': ' + fmtTime(rec.nextMax.ms) + ' at ' + round1(Math.abs(rec.nextMax.v)) + ' kt') :
@@ -3686,8 +3686,8 @@ function renderPreMotorNote(advice) {
 function drawCompassArrow(rec) {
   var svg = $('compassArrow');
   var heading = rec.initialHeading;
-  var curState = rec.stateNow;
-  var curSpeed = rec.vNow != null ? round1(Math.abs(rec.vNow)) : null;
+  var curState = rec.stateDep;
+  var curSpeed = rec.vDep != null ? round1(Math.abs(rec.vDep)) : null;
 
   var accent = getComputedColor('--accent'), ink = getComputedColor('--ink'), inkDim = getComputedColor('--ink-dim');
   var flood = getComputedColor('--flood'), ebb = getComputedColor('--ebb');
@@ -7963,7 +7963,7 @@ function recomputeWindowDependentUI() {
   state.lastVerdict = verdict;
   renderVerdict(verdict, departureMs, returnMs);
 
-  var direction = computeDirectionRec(state.curvePoints, state.slackEvents, departureMs, returnMs, nowMs);
+  var direction = computeDirectionRec(state.curvePoints, state.slackEvents, departureMs, returnMs);
   state.lastDirectionRec = direction;
   renderDirection(direction);
 
