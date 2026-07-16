@@ -86,6 +86,10 @@ Logic over current predictions within the window:
 - Make the sailed geometry auditable in playback without altering it for visual effect. Render one outlined wind-flow vector with an explicit `WIND FROM` caption, separate filled ebb/flood current vectors, a heading-oriented overhead hull, and a translucent no-sail sector centered on the forecast wind-from bearing with the same ±47° boundary used by the sailing polar. Project the hull's through-water vector through the same unequal chart scales as the wake, while retaining any real difference from the ground-track vector caused by current. Hide the sector when wind is unavailable or the boat is moored/overdue.
 - Solve return feasibility in two dimensions. The boat is home only when the actual path enters the Pier 25 along/cross mooring circle and completes the explicit low-speed final approach. Never snap an off-center latitude crossing or a moored tail to `crossNm = 0`. If no safe return exists, animate the closest fully integrated attempt through the planned return time and label its miss clearly; never replace it with a stationary boat.
 
+## Sun & twilight panel
+
+- Keep live sunrise, sunset, civil-dusk, and nautical-dusk countdowns. Add one compact line beneath Sunset that compares the planned sail start and return directly with sunset using explicit `before`, `after`, or `at sunset` wording. Tint only a late return, retain the existing after-dark warning, and do not repeat plan deltas beneath every twilight event.
+
 ## Wind panel
 
 - Hourly rows (or compact chart + rows) covering window ±2 h: time, wind dir arrow + cardinal, sustained kt, gust kt, colored per limits (green/yellow/red cell backgrounds).
