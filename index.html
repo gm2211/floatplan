@@ -8795,6 +8795,14 @@ function windowAdvisorySummaries(alerts, windowStartMs, windowEndMs) {
   return Object.keys(unique).map(function (key) { return unique[key]; });
 }
 
+function isExceptionalPlanAdvisory(advisory) {
+  return /warning|small craft|gale|storm|hazardous seas/i.test((advisory && advisory.event) || '');
+}
+
+function isActionablePlanPrecip(summary) {
+  return !!(summary && /rain|drizzle|shower|thunder|snow|sleet/i.test(summary));
+}
+
 // Compact structured snapshot of everything already on screen — reused for both the AI
 // prompt and the template composer so the two paths never disagree on the underlying facts.
 function buildPlanNarrativeContext() {
@@ -8849,6 +8857,30 @@ function buildPlanNarrativeContext() {
     var depDay = getNYParts(departureMs);
     var twilight = twilightTimes(Date.UTC(depDay.y, depDay.m - 1, depDay.d), PIER25.lat, PIER25.lon);
     var turnaroundMs = computeTurnaroundMs(departureMs, returnMs);
+    var currentTimeline = [];
+    function addCurrentTimelinePoint(ms, label) {
+      if (!state.curvePoints || !state.curvePoints.length || ms == null) return;
+      var velocity = currentVelocityAt(state.curvePoints, ms);
+      if (velocity == null || !isFinite(velocity)) return;
+      currentTimeline.push({
+        ms: ms, time: fmtTime(ms), label: label,
+        phase: classifyCurrent(velocity), speedKt: round1(Math.abs(velocity))
+      });
+    }
+    addCurrentTimelinePoint(departureMs, 'departure');
+    currentEvents.forEach(function (event) {
+      if (event.type !== 'slack') return;
+      currentTimeline.push({
+        ms: event.ms, time: event.time, label: 'turn',
+        phase: event.type === 'slack' ? 'slack' : event.type, speedKt: event.speedKt
+      });
+    });
+    addCurrentTimelinePoint(returnMs, 'return');
+
+    var exceptionalAdvisories = advisories.filter(isExceptionalPlanAdvisory);
+    var precipSummary = precipWindowSummaryLine(departureMs, returnMs);
+    var actionablePrecip = isActionablePlanPrecip(precipSummary) ? precipSummary : null;
+    var sunsetMarginMin = twilight.sunsetMs != null ? Math.round((twilight.sunsetMs - returnMs) / 60000) : null;
 
     return {
       departure: fmtDateTime(departureMs),
@@ -8863,15 +8895,17 @@ function buildPlanNarrativeContext() {
       windGustMaxTime: maxGustMs != null ? fmtTime(maxGustMs) : null,
       reefBandLow: limits.reefLow, reefBandHigh: limits.reefHigh,
       currentEvents: currentEvents,
+      currentTimeline: currentTimeline,
       currentPhase: direction.stateDep || null,
       initialHeading: direction.initialHeading || null,
       directionHeadline: direction.headline || null,
       tideEvents: tideEvents,
-      advisories: advisories,
+      advisories: exceptionalAdvisories,
       sunset: twilight.sunsetMs != null ? fmtTime(twilight.sunsetMs) : null,
+      sunsetMarginMin: sunsetMarginMin,
       turnaroundMs: turnaroundMs,
       turnaroundTime: turnaroundMs != null ? fmtTime(turnaroundMs) : null,
-      precipSummary: precipWindowSummaryLine(departureMs, returnMs),
+      precipSummary: actionablePrecip,
       vessel: {
         name: getVesselDisplayName(),
         crewCount: vesselField('fpCrewCount'),
@@ -8885,8 +8919,8 @@ function buildPlanNarrativeContext() {
       departure: null, returnTime: null, sailWindowHours: null, verdictLevel: null, verdictReasons: [],
       windDirection: null, windSustainedMinKt: null, windSustainedMaxKt: null, windGustMaxKt: null, windGustMaxTime: null,
       reefBandLow: DEFAULT_LIMITS.reefLow, reefBandHigh: DEFAULT_LIMITS.reefHigh,
-      currentEvents: [], currentPhase: null, initialHeading: null, directionHeadline: null, tideEvents: [], advisories: [],
-      sunset: null, turnaroundMs: null, turnaroundTime: null, precipSummary: null, vessel: {},
+      currentEvents: [], currentTimeline: [], currentPhase: null, initialHeading: null, directionHeadline: null, tideEvents: [], advisories: [],
+      sunset: null, sunsetMarginMin: null, turnaroundMs: null, turnaroundTime: null, precipSummary: null, vessel: {},
       observed_now: null, pre_motor: null
     };
   }
@@ -8896,12 +8930,18 @@ function buildPlanNarrativeContext() {
 function composeTemplateNarrative(ctx) {
   try {
     ctx = ctx || {};
-    var depStr = ctx.departure || 'departure time TBD';
     var retStr = ctx.returnTime || 'return time TBD';
 
     var routeParts = [];
-    routeParts.push('Depart Pier 25 ' + depStr + '; return by ' + retStr + '.');
+    if (ctx.currentTimeline && ctx.currentTimeline.length) {
+      routeParts.push(ctx.currentTimeline.map(function (point) {
+        var phase = point.phase === 'slack' ? 'slack' : point.phase;
+        var label = point.label === 'departure' ? ' depart' : point.label === 'return' ? ' back' : '';
+        return point.time + label + ' — ' + phase + (phase !== 'slack' && point.speedKt != null ? ' ' + point.speedKt + ' kt' : '');
+      }).join(' · ') + '.');
+    }
     var headingWord = ctx.initialHeading === 'N' ? 'north' : ctx.initialHeading === 'S' ? 'south' : null;
+    var returnWord = ctx.initialHeading === 'N' ? 'south' : ctx.initialHeading === 'S' ? 'north' : null;
     var phaseWord = ctx.currentPhase === 'flood' || ctx.currentPhase === 'ebb' ? ctx.currentPhase : null;
     var currentRunsNorth = phaseWord === 'flood';
     var headingRunsNorth = ctx.initialHeading === 'N';
@@ -8921,10 +8961,17 @@ function composeTemplateNarrative(ctx) {
         } else {
           timingRelation = ' near ';
         }
-        routeAction = (routeAction || 'Turn conservatively') + timingRelation + 'slack at ' + turnEvent.time;
+        var slackLabel = ctx.currentTimeline && ctx.currentTimeline.length ? 'slack' : 'slack at ' + turnEvent.time;
+        routeAction = (routeAction || 'Turn conservatively') + timingRelation + slackLabel;
       }
     }
-    if (routeAction) routeParts.push(routeAction + ', then return to Pier 25.');
+    if (routeAction) routeParts.push(routeAction + (returnWord ? '; return ' + returnWord : '') + '.');
+    if (!ctx.currentTimeline || !ctx.currentTimeline.length) routeParts.push('Back by ' + retStr + '.');
+    if (ctx.sunsetMarginMin != null && ctx.sunsetMarginMin <= 60) {
+      routeParts.push(ctx.sunsetMarginMin >= 0
+        ? 'Back ' + ctx.sunsetMarginMin + ' min before sunset.'
+        : 'Return is ' + Math.abs(ctx.sunsetMarginMin) + ' min after sunset; carry navigation lights.');
+    }
 
     var sailParts = [];
     var reefLow = ctx.reefBandLow != null ? ctx.reefBandLow : DEFAULT_LIMITS.reefLow;
@@ -8934,11 +8981,11 @@ function composeTemplateNarrative(ctx) {
         (ctx.windSustainedMinKt != null ? ctx.windSustainedMinKt + '–' : '') + ctx.windSustainedMaxKt + ' kt' +
         (ctx.windGustMaxKt != null ? ', gusts ' + ctx.windGustMaxKt + ' kt near ' + (ctx.windGustMaxTime || 'departure') : '');
       if (ctx.windSustainedMaxKt > reefHigh || (ctx.windGustMaxKt != null && ctx.windGustMaxKt > reefHigh)) {
-        sailParts.push('Reef before departure; ' + windFacts + '.');
+        sailParts.push('NWS: ' + windFacts + '. Reef before departure; recheck at pier.');
       } else if (ctx.windSustainedMaxKt >= reefLow) {
-        sailParts.push('Plan to reef; ' + windFacts + '.');
+        sailParts.push('NWS: ' + windFacts + '. Plan to reef; recheck at pier.');
       } else {
-        sailParts.push('Full sail; ' + windFacts + '.');
+        sailParts.push('NWS: ' + windFacts + '. Full sail; reef from ' + reefLow + ' kt.');
       }
     } else {
       sailParts.push('Check wind at the pier before choosing full sail or reef.');
@@ -8950,11 +8997,11 @@ function composeTemplateNarrative(ctx) {
         ' — already running above the forecast max; recheck before departing.');
     }
     if (ctx.pre_motor) {
-      sailParts.push('Progress is poor against the ' + round1(ctx.pre_motor.opposingCurrentKt) + ' kt ' +
-        ctx.pre_motor.currentPhase + '; consider motoring ' +
+      sailParts.push('Weak progress against ' + ctx.pre_motor.currentPhase + ': motor ' +
         (ctx.pre_motor.direction === 'S' ? 'south' : 'north') + ' ~' + Math.round(ctx.pre_motor.durationMin) +
-        ' min to the ' + ctx.pre_motor.target + ', then sail home.');
+        ' min to ' + ctx.pre_motor.target + ', then sail home.');
     }
+    if (ctx.precipSummary) sailParts.push(ctx.precipSummary);
 
     var checkinParts = [];
     if (ctx.advisories && ctx.advisories.length) {
@@ -8971,18 +9018,18 @@ function composeTemplateNarrative(ctx) {
     }
     if (ctx.vessel && ctx.vessel.name) {
       var aboard = ctx.vessel.crewCount != null ? Number(ctx.vessel.crewCount) + 1 : null;
-      checkinParts.push(ctx.vessel.name + (aboard != null ? ' · ' + aboard + ' aboard' : '') +
-        (ctx.vessel.phone ? ' · ' + ctx.vessel.phone : '') + '.');
+      checkinParts.push(ctx.vessel.name + (aboard != null ? ' · ' + aboard + ' aboard (skipper + ' + ctx.vessel.crewCount + ' crew)' : '') +
+        (ctx.vessel.phone ? ' · contact ' + ctx.vessel.phone : '') + '.');
     }
-    checkinParts.push('Notify your shore contact if overdue.');
+    checkinParts.push('Notify shore contact if overdue.');
 
-    return 'ROUTE & TIMING\n' + routeParts.join(' ') +
-      '\n\nSAIL PLAN\n' + sailParts.join(' ') +
-      '\n\nSAFETY & CHECK-IN\n' + checkinParts.join(' ');
+    return 'CURRENT & ROUTE\n' + routeParts.join(' ') +
+      '\n\nWIND & WEATHER\n' + sailParts.join(' ') +
+      '\n\nABOARD & CHECK-IN\n' + checkinParts.join(' ');
   } catch (e) {
-    return 'ROUTE & TIMING\nConfirm departure, turn, and return times.\n\n' +
-      'SAIL PLAN\nCheck wind and current at the pier.\n\n' +
-      'SAFETY & CHECK-IN\nReview active advisories and notify your shore contact if overdue.';
+    return 'CURRENT & ROUTE\nConfirm departure, turn, and return times.\n\n' +
+      'WIND & WEATHER\nCheck wind and current at the pier.\n\n' +
+      'ABOARD & CHECK-IN\nReview active warnings and notify your shore contact if overdue.';
   }
 }
 
@@ -8991,12 +9038,13 @@ function buildNarrativePromptText(ctx) {
     var reefLow = (ctx && ctx.reefBandLow != null) ? ctx.reefBandLow : DEFAULT_LIMITS.reefLow;
     var reefHigh = (ctx && ctx.reefBandHigh != null) ? ctx.reefBandHigh : DEFAULT_LIMITS.reefHigh;
     var intro = 'You are helping a recreational sailor write a float plan for a day sail on the Hudson River from the Pier 25 mooring field (New York Harbor). ' +
-      'Using ONLY the data below, write a concise proposed float plan narrative (max 120 words) with exactly these sections: ' +
-      'ROUTE & TIMING (departure, turn, return, and current strategy), ' +
-      'SAIL PLAN (full sail or reef, based on the wind numbers and the reef band ' + reefLow + '–' + reefHigh + ' kt; ' +
-      'if pre_motor is present, work its recommendation to motor the first leg into this section), ' +
-      'SAFETY & CHECK-IN (only active exceptional hazards, vessel/aboard, and who to notify). ' +
-      'State each time, speed, gust, alert, and action only once. Omit inactive alerts, empty categories, tide facts that do not change the plan, and generic boilerplate such as "within limits." ' +
+      'Using ONLY the data below, write a compact proposed float plan (max 90 words) with exactly these sections: ' +
+      'CURRENT & ROUTE (start with a one-line time/phase/speed timeline that labels departure and back, then one route sentence; do not repeat either time), ' +
+      'WIND & WEATHER (NWS wind, full sail or reef based on the reef band ' + reefLow + '–' + reefHigh + ' kt; ' +
+      'if pre_motor is present, include its first-leg recommendation), ' +
+      'ABOARD & CHECK-IN (vessel, total aboard including skipper, and who to notify). ' +
+      'Use short label/value clauses. State each time, speed, gust, alert, and action only once. Mention precipitation only when present, sunset only when return is within 60 minutes of it or later, and only exceptional active marine or storm hazards. ' +
+      'Omit inactive alerts, routine advisories, empty categories, qualifications not in the data, tide facts that do not change the plan, and generic boilerplate such as "within limits." ' +
       'Plain text, no markdown headers other than the section words in caps. Do not invent data not present below.\n\nDATA:\n';
     return intro + JSON.stringify(ctx, null, 1);
   } catch (e) { return ''; }

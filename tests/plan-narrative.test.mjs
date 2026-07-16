@@ -44,6 +44,11 @@ const narrative = composeTemplateNarrative({
   currentPhase: 'ebb',
   initialHeading: 'N',
   currentEvents: [{ ms: Date.parse('2026-07-15T18:47:00-04:00'), type: 'slack', time: '6:47 PM', speedKt: 0 }],
+  currentTimeline: [
+    { time: '5:00 PM', label: 'departure', phase: 'ebb', speedKt: 1.8 },
+    { time: '6:47 PM', label: 'turn', phase: 'slack', speedKt: 0 },
+    { time: '8:00 PM', label: 'return', phase: 'flood', speedKt: 0.6 }
+  ],
   windDirection: 'NNW',
   windSustainedMinKt: 6,
   windSustainedMaxKt: 7,
@@ -51,7 +56,7 @@ const narrative = composeTemplateNarrative({
   windGustMaxTime: '5:00 PM',
   reefBandLow: 15,
   reefBandHigh: 18,
-  advisories: [{ event: 'Air Quality Alert', endsTime: '12:00 AM' }],
+  advisories: [{ event: 'Special Marine Warning', endsTime: '6:15 PM' }],
   vessel: { name: 'AY10', crewCount: '3', phone: null },
   pre_motor: {
     sentence: 'available', direction: 'N', durationMin: 45, target: 'Intrepid',
@@ -62,18 +67,25 @@ const narrative = composeTemplateNarrative({
   sunset: '8:26 PM'
 });
 
-assert.equal(narrative.split('Jul 15 at 8:00 PM').length - 1, 1, 'return deadline must appear once');
+assert.equal(narrative.split('8:00 PM back').length - 1, 1, 'return deadline must appear once');
 assert.equal(narrative.split('6:47 PM').length - 1, 1, 'slack time must appear once');
 assert.equal(narrative.split('20 kt').length - 1, 1, 'gust value must appear once');
-assert.equal(narrative.split('Air Quality Alert').length - 1, 1, 'advisory must appear once');
+assert.equal(narrative.split('Special Marine Warning').length - 1, 1, 'exceptional warning must appear once');
 assert.ok(!narrative.includes('within limits'), 'generic verdict boilerplate must be omitted');
 assert.ok(!narrative.includes('Battery tide'), 'non-actionable tide facts must be omitted');
 assert.ok(!narrative.includes('Sunset'), 'sunset must not be repeated when it does not constrain return');
 assert.ok(!narrative.includes('Expected return'), 'check-in must not repeat the return deadline');
-assert.ok(narrative.includes('SAFETY & CHECK-IN'));
+assert.ok(narrative.includes('CURRENT & ROUTE'));
+assert.ok(narrative.includes('WIND & WEATHER'));
+assert.ok(narrative.includes('ABOARD & CHECK-IN'));
 assert.ok(!narrative.includes('SAFETY NOTES\n'));
+assert.ok(narrative.includes('5:00 PM depart — ebb 1.8 kt · 6:47 PM — slack · 8:00 PM back — flood 0.6 kt'));
 assert.ok(narrative.includes('Head north against the ebb'));
-assert.ok(narrative.includes('turn near 6:32 PM before slack at 6:47 PM'));
+assert.ok(narrative.includes('turn near 6:32 PM before slack'));
+assert.ok(!narrative.includes('then return to Pier 25'), 'route should not repeat the return action');
+assert.ok(narrative.includes('4 aboard (skipper + 3 crew)'));
+assert.ok(narrative.split(/\s+/).length <= 90,
+  `representative compact plan must stay within 90 words (${narrative.split(/\s+/).length})\n${narrative}`);
 
 const emptySafety = composeTemplateNarrative({
   departure: '5:00 PM', returnTime: '8:00 PM', windSustainedMaxKt: 6,
@@ -110,8 +122,29 @@ assert.equal(thunder.split('Thunderstorms in forecast 5:00 PM').length - 1, 1,
   'thunder NO-GO reason must be retained exactly once');
 
 const prompt = buildNarrativePromptText({ reefBandLow: 15, reefBandHigh: 18 });
-assert.ok(prompt.includes('max 120 words'));
+assert.ok(prompt.includes('max 90 words'));
 assert.ok(prompt.includes('State each time, speed, gust, alert, and action only once.'));
-assert.ok(prompt.includes('SAFETY & CHECK-IN'));
+assert.ok(prompt.includes('CURRENT & ROUTE'));
+assert.ok(prompt.includes('ABOARD & CHECK-IN'));
+
+assert.equal(isExceptionalPlanAdvisory({ event: 'Air Quality Alert' }), false,
+  'routine advisory should not crowd the compact plan');
+assert.equal(isExceptionalPlanAdvisory({ event: 'Special Marine Warning' }), true,
+  'marine warnings remain in the compact plan');
+assert.equal(isActionablePlanPrecip('Partly cloudy — precip chance up to 8%.'), false,
+  'dry/benign weather summary should be omitted');
+assert.equal(isActionablePlanPrecip('Light rain after 7:00 PM — precip chance up to 30%.'), true,
+  'actionable precipitation should remain');
+
+const sunsetClose = composeTemplateNarrative({
+  returnTime: '8:00 PM', sunsetMarginMin: 25, windSustainedMaxKt: 6,
+  reefBandLow: 15, reefBandHigh: 18, advisories: [], vessel: {}
+});
+assert.ok(sunsetClose.includes('Back 25 min before sunset.'));
+const sunsetFar = composeTemplateNarrative({
+  returnTime: '6:00 PM', sunsetMarginMin: 145, windSustainedMaxKt: 6,
+  reefBandLow: 15, reefBandHigh: 18, advisories: [], vessel: {}
+});
+assert.ok(!sunsetFar.includes('sunset'), 'distant sunset should not add noise');
 
 console.log('float-plan narrative distillation assertions passed');

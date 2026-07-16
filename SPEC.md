@@ -123,6 +123,7 @@ Logic over current predictions within the window:
 - Collapsible card with editable fields persisted in localStorage: vessel name/type/color, sail number, crew count + names, phones, emergency contact ashore, VHF channel, planned route (auto-filled from direction rec: "Depart Pier 25 mooring → Hudson N/S → return"), ETD, ETA (auto from inputs), "file with" note.
 - Print stylesheet: @media print shows only the float-plan sheet + conditions summary (verdict, wind summary, current summary, advisories) in clean black-on-white.
 - "Copy as text" button → clipboard plain-text float plan for texting/emailing.
+- Generated plan narrative is capped at 90 words and uses three compact sections: a timed current/route sequence, NWS wind plus actionable weather/reef guidance, and aboard/check-in. Each time, speed, hazard, and action appears once; routine advisories and non-actionable tide/weather facts are omitted.
 
 ## Layout / style
 
