@@ -34,6 +34,8 @@ assert.equal(result.latest.dirCardinal, 'SSW');
 assert.match(html, /windHistory: windBundle && windBundle\.history/,
   'observed history must survive in the cached observed source group');
 assert.match(html, /var obsHistoryPts =/);
+assert.doesNotMatch(html, /obsHistoryPts = \(state\.obsWindStation[^\n]+=== 'robbinsReef'/,
+  'Robbins measured history remains visible when Willy Wall supplies the headline reading');
 assert.match(html, /smoothPathD\(segment, x, y\).*var\(--violet\)/s,
   'the chart must draw a violet measured-wind path');
 assert.match(html, /splitObservedWindSegments\(obsHistoryPts\)/,
@@ -41,5 +43,7 @@ assert.match(html, /splitObservedWindSegments\(obsHistoryPts\)/,
 assert.match(html, /Robbins measured/);
 assert.match(html, /var obsX = x\(obsW\.ms\)/,
   'the latest marker belongs at its observation timestamp, not artificially on the now line');
+assert.match(html, /OBS_WIND_STATION_LABELS\[selectedObsStation\]/,
+  'the endpoint label names the selected observation station');
 
 console.log('Observed wind history assertions passed');

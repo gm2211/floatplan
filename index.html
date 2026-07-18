@@ -5657,12 +5657,13 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
 
   var sustainedVals = rows.map(function (r) { return r.sustained; }).filter(function (v) { return v != null; });
   var gustVals = rows.map(function (r) { return r.gust; }).filter(function (v) { return v != null; });
-  var obsHistoryPts = (state.obsWindStation || 'robbinsReef') === 'robbinsReef'
-    ? (((state.observedRaw && state.observedRaw.windHistory) || []).filter(function (point) {
-      return point && point.ms >= domStart && point.ms <= Math.min(domEnd, nowMs) &&
-        point.sustainedKt != null && isFinite(point.sustainedKt);
-    }).map(function (point) { return { ms: point.ms, v: point.sustainedKt }; }))
-    : [];
+  // Robbins Reef is the continuous measured reference for the chart regardless of which
+  // headline station is selected. Willy Wall currently exposes only a latest observation;
+  // hiding the Robbins trace when Willy is selected would collapse history back to one dot.
+  var obsHistoryPts = ((state.observedRaw && state.observedRaw.windHistory) || []).filter(function (point) {
+    return point && point.ms >= domStart && point.ms <= Math.min(domEnd, nowMs) &&
+      point.sustainedKt != null && isFinite(point.sustainedKt);
+  }).map(function (point) { return { ms: point.ms, v: point.sustainedKt }; });
   var obsVals = obsHistoryPts.map(function (point) { return point.v; });
   var yMax = Math.max(limits.noGoGust, sustainedVals.length ? Math.max.apply(null, sustainedVals) : 0,
     gustVals.length ? Math.max.apply(null, gustVals) : 0,
@@ -5705,15 +5706,18 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
   // trace. Willy Wall currently exposes only its latest reading, so that source retains the
   // single marker while Robbins Reef uses NOAA's recent history.
   var obsMarker = '';
-  var obsW = observedWindDataForStation(state.obsWindStation || 'robbinsReef');
+  var selectedObsStation = state.obsWindStation || 'robbinsReef';
+  var obsW = observedWindDataForStation(selectedObsStation);
   if (obsW && obsW.ms >= domStart && obsW.ms <= domEnd && observedWindIsFresh(obsW, nowMs) && obsW.sustainedKt <= yMax) {
     var obsX = x(obsW.ms);
     var obsY = y(obsW.sustainedKt);
     var labelRight = obsX <= W - padR - 55;
     obsMarker = '<circle cx="' + obsX.toFixed(1) + '" cy="' + obsY.toFixed(1) + '" r="4" fill="var(--violet)" stroke="var(--bg-card)" stroke-width="1.2"/>' +
       '<text x="' + (labelRight ? obsX + 7 : obsX - 7).toFixed(1) + '" y="' + (obsY + 3).toFixed(1) +
-      '" font-size="9" text-anchor="' + (labelRight ? 'start' : 'end') + '" fill="var(--violet)">obs ' + round1(obsW.sustainedKt) + '</text>';
-    if (!obsPath && legendEl) legendEl.innerHTML += '<span><span class="swatch swatch-obs"></span>observed now</span>';
+      '" font-size="9" text-anchor="' + (labelRight ? 'start' : 'end') + '" fill="var(--violet)">' +
+      escapeHtml(OBS_WIND_STATION_LABELS[selectedObsStation] || 'Observed') + ' ' + round1(obsW.sustainedKt) + '</text>';
+    if (!obsPath && legendEl) legendEl.innerHTML += '<span><span class="swatch swatch-obs"></span>' +
+      escapeHtml(OBS_WIND_STATION_LABELS[selectedObsStation] || 'Observed') + ' now</span>';
   }
 
   // Direction arrow row: thin to one per 2h once hourly spacing would crowd the glyphs.
