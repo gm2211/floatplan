@@ -1877,7 +1877,7 @@ function refreshSourceLinks(departureMs) {
   setSourceHref('srcObservedKvk', buildMeasuredCurrentUrl(STATION_KVK_CURRENT));
   setSourceHref('srcObservedNewark', buildMeasuredCurrentUrl(STATION_NEWARK_CURRENT));
   setSourceHref('srcObservedNarrows', buildMeasuredCurrentUrl(STATION_NARROWS_CURRENT));
-  setSourceHref('srcWindObserved', buildCoopsObsUrl(STATION_WIND_ROBBINS_REEF, 'wind'));
+  setSourceHref('srcWindObserved', buildCoopsObsUrl(STATION_WIND_ROBBINS_REEF, 'wind', '', 'recent'));
 }
 
 // "Observed now" card: live CO-OPS readings (not predictions). date=latest returns the
@@ -1961,20 +1961,31 @@ function fetchWaterGroup(departureMs) {
 // Battery has no wind sensor and returns an {"error":{...}} body for product=wind) must
 // never fail the whole card. fetchObservedNow() throws only if every product came back null.
 
+function parseObservedWindRow(row) {
+  if (!row) return null;
+  var sustainedKt = row.s != null ? parseFloat(row.s) : null;
+  var gustKt = row.g != null ? parseFloat(row.g) : null;
+  var dirDeg = row.d != null ? parseFloat(row.d) : null;
+  var ms = parseNoaaGmt(row.t);
+  if (ms == null || !isFinite(ms) || !isFinite(sustainedKt)) return null;
+  return {
+    ms: ms,
+    sustainedKt: sustainedKt,
+    gustKt: isFinite(gustKt) ? gustKt : null,
+    dirDeg: isFinite(dirDeg) ? dirDeg : null,
+    dirCardinal: row.dr || null
+  };
+}
+
+function parseObservedWindSeries(rows) {
+  return (rows || []).map(parseObservedWindRow).filter(Boolean).sort(function (a, b) { return a.ms - b.ms; });
+}
+
 function fetchObservedWind() {
-  return fetchCoopsJson(buildCoopsObsUrl(STATION_WIND_ROBBINS_REEF, 'wind'), 'Observed wind').then(function (json) {
-    var row = json.data && json.data[0];
-    if (!row) return null;
-    var sustainedKt = row.s != null ? parseFloat(row.s) : null;
-    var gustKt = row.g != null ? parseFloat(row.g) : null;
-    var dirDeg = row.d != null ? parseFloat(row.d) : null;
-    return {
-      ms: parseNoaaGmt(row.t),
-      sustainedKt: isFinite(sustainedKt) ? sustainedKt : null,
-      gustKt: isFinite(gustKt) ? gustKt : null,
-      dirDeg: isFinite(dirDeg) ? dirDeg : null,
-      dirCardinal: row.dr || null
-    };
+  return fetchCoopsJson(buildCoopsObsUrl(STATION_WIND_ROBBINS_REEF, 'wind', '', 'recent'), 'Observed wind').then(function (json) {
+    var history = parseObservedWindSeries(json.data);
+    if (!history.length) return null;
+    return { latest: history[history.length - 1], history: history };
   }).catch(function () { return null; });
 }
 
@@ -2212,8 +2223,12 @@ function fetchObservedNow() {
       var v = results[idx].status === 'fulfilled' ? results[idx].value : null;
       return v != null ? v : (prev[key] != null ? prev[key] : null);
     }
+    var windBundle = results[0].status === 'fulfilled' ? results[0].value : null;
     return {
-      wind: pick(0, 'wind'),
+      wind: windBundle && windBundle.latest ? windBundle.latest : (prev.wind || null),
+      windHistory: windBundle && windBundle.history && windBundle.history.length
+        ? windBundle.history
+        : (prev.windHistory || []),
       airTemp: pick(1, 'airTemp'),
       waterTemp: pick(2, 'waterTemp'),
       waterLevel: pick(3, 'waterLevel'),
@@ -5352,6 +5367,21 @@ function splitWindPointSegments(points) {
   return segments;
 }
 
+// CO-OPS wind normally arrives every six minutes. Do not bridge an outage long enough to
+// make the measured trace look continuous; three missed samples starts a new segment.
+function splitObservedWindSegments(points) {
+  var segments = [], current = [];
+  (points || []).forEach(function (p) {
+    if (current.length && p.ms - current[current.length - 1].ms > 18 * 60000) {
+      segments.push(current);
+      current = [];
+    }
+    current.push(p);
+  });
+  if (current.length) segments.push(current);
+  return segments;
+}
+
 function windLegendLineSvg(color, dash, width, opacity) {
   return '<svg class="line-key" viewBox="0 0 24 8" aria-hidden="true">' +
     '<line x1="1" y1="4" x2="23" y2="4" stroke="' + color + '" stroke-width="' + width + '" stroke-opacity="' + opacity + '"' +
@@ -5627,8 +5657,16 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
 
   var sustainedVals = rows.map(function (r) { return r.sustained; }).filter(function (v) { return v != null; });
   var gustVals = rows.map(function (r) { return r.gust; }).filter(function (v) { return v != null; });
+  var obsHistoryPts = (state.obsWindStation || 'robbinsReef') === 'robbinsReef'
+    ? (((state.observedRaw && state.observedRaw.windHistory) || []).filter(function (point) {
+      return point && point.ms >= domStart && point.ms <= Math.min(domEnd, nowMs) &&
+        point.sustainedKt != null && isFinite(point.sustainedKt);
+    }).map(function (point) { return { ms: point.ms, v: point.sustainedKt }; }))
+    : [];
+  var obsVals = obsHistoryPts.map(function (point) { return point.v; });
   var yMax = Math.max(limits.noGoGust, sustainedVals.length ? Math.max.apply(null, sustainedVals) : 0,
-    gustVals.length ? Math.max.apply(null, gustVals) : 0) + 3;
+    gustVals.length ? Math.max.apply(null, gustVals) : 0,
+    obsVals.length ? Math.max.apply(null, obsVals) : 0) + 3;
   function y(v) { return padT + (H - padT - padB) - (v / yMax) * (H - padT - padB); }
   var baseline = H - padB;
   var bands = windRefBandsHtml(limits, yMax, W, padL, padR, y);
@@ -5640,7 +5678,7 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
 
   var sustainedPts = rows.filter(function (r) { return r.sustained != null; }).map(function (r) { return { ms: r.ms, v: r.sustained }; });
   var gustPts = rows.filter(function (r) { return r.gust != null; }).map(function (r) { return { ms: r.ms, v: r.gust }; });
-  var areaPath = '', sustainedPath = '', gustPath = '';
+  var areaPath = '', sustainedPath = '', gustPath = '', obsPath = '';
   if (sustainedPts.length) {
     splitWindPointSegments(sustainedPts).forEach(function (segment) {
       var lineD = smoothPathD(segment, x, y);
@@ -5656,21 +5694,26 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
     }).join('');
   }
 
-  // Observed-now marker: the live anemometer sustained reading pinned to the now-line, so
-  // an observation running hotter/colder than the model shows up IN the chart instead of
-  // contradicting it from the headline (user report: "seeing 18 kt but chart says 14").
-  // ONE dot, labeled inline ("obs 18.7") — an earlier version added a second unlabeled
-  // gust ring and the floating pair read as noise ("those fixed dots make no sense").
-  // Violet = the established "observed" color; skipped when stale or off-scale.
+  if (obsHistoryPts.length > 1) {
+    obsPath = splitObservedWindSegments(obsHistoryPts).filter(function (segment) { return segment.length > 1; }).map(function (segment) {
+      return '<path d="' + smoothPathD(segment, x, y) + '" fill="none" stroke="var(--violet)" stroke-width="2"/>';
+    }).join('');
+    if (obsPath && legendEl) legendEl.innerHTML += '<span><span class="swatch swatch-obs"></span>Robbins measured</span>';
+  }
+
+  // Mark the latest live reading at its actual observation time, at the end of the measured
+  // trace. Willy Wall currently exposes only its latest reading, so that source retains the
+  // single marker while Robbins Reef uses NOAA's recent history.
   var obsMarker = '';
   var obsW = observedWindDataForStation(state.obsWindStation || 'robbinsReef');
-  if (nowX != null && observedWindIsFresh(obsW, nowMs) && obsW.sustainedKt <= yMax) {
+  if (obsW && obsW.ms >= domStart && obsW.ms <= domEnd && observedWindIsFresh(obsW, nowMs) && obsW.sustainedKt <= yMax) {
+    var obsX = x(obsW.ms);
     var obsY = y(obsW.sustainedKt);
-    var labelRight = nowX <= W - padR - 55;
-    obsMarker = '<circle cx="' + nowX.toFixed(1) + '" cy="' + obsY.toFixed(1) + '" r="4" fill="var(--violet)" stroke="var(--bg-card)" stroke-width="1.2"/>' +
-      '<text x="' + (labelRight ? nowX + 7 : nowX - 7).toFixed(1) + '" y="' + (obsY + 3).toFixed(1) +
+    var labelRight = obsX <= W - padR - 55;
+    obsMarker = '<circle cx="' + obsX.toFixed(1) + '" cy="' + obsY.toFixed(1) + '" r="4" fill="var(--violet)" stroke="var(--bg-card)" stroke-width="1.2"/>' +
+      '<text x="' + (labelRight ? obsX + 7 : obsX - 7).toFixed(1) + '" y="' + (obsY + 3).toFixed(1) +
       '" font-size="9" text-anchor="' + (labelRight ? 'start' : 'end') + '" fill="var(--violet)">obs ' + round1(obsW.sustainedKt) + '</text>';
-    if (legendEl) legendEl.innerHTML += '<span><span class="swatch swatch-obs"></span>observed now</span>';
+    if (!obsPath && legendEl) legendEl.innerHTML += '<span><span class="swatch swatch-obs"></span>observed now</span>';
   }
 
   // Direction arrow row: thin to one per 2h once hourly spacing would crowd the glyphs.
@@ -5689,7 +5732,7 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
 
   var svg = '<svg viewBox="0 0 ' + W.toFixed(1) + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">' +
     sailShade + windYAxisHtml(yMax, y, W, padL, padR, padT, inkDim) +
-    bands.shapes + windowTickGuides + areaPath + sustainedPath + gustPath + arrows +
+    bands.shapes + windowTickGuides + areaPath + sustainedPath + gustPath + obsPath + arrows +
     windowTickLabels + nowLine + obsMarker + bands.labels + windAxisTicksHtml(domStart, domEnd, x, W, padL, padR, H - 3, inkDim) +
     '</svg>';
   wrap.innerHTML = svg;
