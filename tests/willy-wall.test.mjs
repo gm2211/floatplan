@@ -7,6 +7,7 @@ const end = html.indexOf('// Kill Van Kull LB 14', start);
 assert.ok(start >= 0 && end > start, 'production Willy Wall parser/fetcher block not found');
 
 globalThis.KT_PER_MPH = 0.868976;
+globalThis.WILLY_WALL_HISTORY_URL = 'https://api.weather.com/willy-wall-history';
 globalThis.WILLY_WALL_OBS_URL = 'https://api.weather.com/willy-wall';
 globalThis.WILLY_WALL_TEXT_FALLBACK_URL = 'https://r.jina.ai/willy-wall';
 (0, eval)(html.slice(start, end));
@@ -38,6 +39,32 @@ assert.equal(calm.ms, 1784094000000);
 assert.equal(parseWillyWallObservation({ observations: [] }), null);
 assert.equal(parseWillyWallObservation({ observations: [{ imperial: { windSpeed: null } }] }), null);
 assert.equal(parseWillyWallObservation({ observations: [{ imperial: { windSpeed: -1 } }] }), null);
+
+const historyFixture = {
+  observations: [
+    {
+      obsTimeUtc: '2026-07-15T05:45:00Z', winddirAvg: 270,
+      imperial: { windspeedAvg: 8, windgustHigh: 13 }
+    },
+    {
+      obsTimeUtc: '2026-07-15T05:40:00Z', winddirAvg: 260,
+      imperial: { windspeedAvg: 7, windgustHigh: 12 }
+    },
+    {
+      obsTimeUtc: '2026-07-15T05:40:00Z', winddirAvg: 260,
+      imperial: { windspeedAvg: 99, windgustHigh: 99 }
+    },
+    { obsTimeUtc: 'bad', imperial: { windspeedAvg: null } }
+  ]
+};
+const historyParsed = parseWillyWallObservationSeries(historyFixture);
+assert.equal(historyParsed.length, 2, 'history parser rejects invalid and duplicate timestamps');
+assert.deepEqual(historyParsed.map(point => point.ms), [
+  Date.parse('2026-07-15T05:40:00Z'), Date.parse('2026-07-15T05:45:00Z')
+]);
+assert.ok(Math.abs(historyParsed[0].sustainedKt - 7 * KT_PER_MPH) < 1e-9);
+assert.ok(Math.abs(historyParsed[1].gustKt - 13 * KT_PER_MPH) < 1e-9);
+assert.equal(historyParsed[1].dirDeg, 270);
 
 const now = Date.parse('2026-07-15T05:45:00Z');
 const originalNow = Date.now;
@@ -90,20 +117,23 @@ globalThis.fetchWithRetry = async (url) => {
   return { ok: true, json: async () => fixture };
 };
 const live = await fetchObservedWindWillyWall();
-assert.deepEqual(requested, [WILLY_WALL_OBS_URL], 'direct WU browser feed must be primary');
-assert.equal(live.dirDeg, 266);
+assert.deepEqual(requested, [WILLY_WALL_HISTORY_URL], 'WU same-station history must be primary');
+assert.equal(live.latest.dirDeg, 266);
+assert.equal(live.history.length, 1);
 
 requested = [];
 globalThis.fetchWithRetry = async (url) => {
   requested.push(url);
-  if (url === WILLY_WALL_OBS_URL) throw new Error('primary unavailable');
+  if (url === WILLY_WALL_HISTORY_URL || url === WILLY_WALL_OBS_URL) throw new Error('primary unavailable');
   return { ok: true, text: async () => currentReaderText };
 };
 const fallback = await fetchObservedWindWillyWall();
-assert.deepEqual(requested, [WILLY_WALL_OBS_URL, WILLY_WALL_TEXT_FALLBACK_URL]);
-assert.equal(fallback.dirCardinal, 'W');
+assert.deepEqual(requested, [WILLY_WALL_HISTORY_URL, WILLY_WALL_OBS_URL, WILLY_WALL_TEXT_FALLBACK_URL]);
+assert.equal(fallback.latest.dirCardinal, 'W');
+assert.equal(fallback.history.length, 1);
 
 assert.ok(html.includes('stationId=KNJNEWJE43'), 'production endpoint must target Willy Wall');
+assert.ok(html.includes('/observations/all/1day'), 'production endpoint must load Willy Wall history');
 assert.ok(html.includes('Live feed unavailable &middot; check source'), 'failure copy must not claim the station itself is offline');
 assert.ok(html.includes('data-station="robbinsReef">Robbins Reef</button>'), 'Robbins Reef must remain selectable');
 assert.ok(html.includes('data-station="weatherflow"'), 'Willy Wall must remain selectable');

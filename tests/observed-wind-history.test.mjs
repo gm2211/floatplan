@@ -33,17 +33,35 @@ assert.equal(result.latest.dirCardinal, 'SSW');
 
 assert.match(html, /windHistory: windBundle && windBundle\.history/,
   'observed history must survive in the cached observed source group');
-assert.match(html, /var obsHistoryPts =/);
-assert.doesNotMatch(html, /obsHistoryPts = \(state\.obsWindStation[^\n]+=== 'robbinsReef'/,
-  'Robbins measured history remains visible when Willy Wall supplies the headline reading');
-assert.match(html, /smoothPathD\(segment, x, y\).*var\(--violet\)/s,
-  'the chart must draw a violet measured-wind path');
+assert.match(html, /function observedWindHistoryForStation/,
+  'measured history must be selected from the same station as the headline reading');
+assert.match(html, /observedWindHistoryForStation\(selectedObsStation\)/,
+  'the chart must not silently substitute Robbins history for Willy Wall');
+assert.match(html, /linearPathD\(segment, x, y\).*var\(--violet\)/s,
+  'measured samples must use non-overshooting linear interpolation');
 assert.match(html, /splitObservedWindSegments\(obsHistoryPts\)/,
   'short-cadence observations must not bridge long sensor outages');
-assert.match(html, /Robbins measured/);
+assert.match(html, /OBS_WIND_STATION_LABELS\[selectedObsStation\].*measured/s,
+  'the measured trace legend must name its actual station');
+assert.doesNotMatch(html, /Robbins Reef is the continuous measured reference/,
+  'the chart must not claim a different station is the selected station history');
 assert.match(html, /var obsX = x\(obsW\.ms\)/,
   'the latest marker belongs at its observation timestamp, not artificially on the now line');
 assert.match(html, /OBS_WIND_STATION_LABELS\[selectedObsStation\]/,
   'the endpoint label names the selected observation station');
+assert.match(html, /obsWindWeatherflowHistory: \[\]/,
+  'Willy Wall history must have its own state slot');
+assert.match(html, /state\.obsWindWeatherflowHistory = data && data\.history/,
+  'Willy Wall history must survive loading');
+assert.match(html, /function selectObsWindStation[\s\S]*?renderObsWindRow[\s\S]*?rerenderWindCard\(\)/,
+  'changing observation stations must immediately redraw the chart history');
+
+const linearStart = html.indexOf('function linearPathD');
+const linearEnd = html.indexOf('/* ============================== Smooth curve path', linearStart);
+assert.ok(linearStart >= 0 && linearEnd > linearStart, 'linear measured path helper not found');
+(0, eval)(html.slice(linearStart, linearEnd));
+assert.equal(linearPathD([
+  { ms: 0, v: 5 }, { ms: 5, v: 10 }, { ms: 10, v: 5 }
+], value => value, value => value), 'M0.0,5.0 L5.0,10.0 L10.0,5.0');
 
 console.log('Observed wind history assertions passed');

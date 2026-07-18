@@ -1564,6 +1564,7 @@ var WILLY_WALL_SOURCE_URL = 'https://www.wunderground.com/dashboard/pws/KNJNEWJE
 // browser endpoint. The key is WU's published web-client key (not a sailor credential), so
 // Willy Wall remains zero-setup. Keep the dashboard itself as the displayed verification
 // source and the text reader as a fallback if WU changes or temporarily rejects the feed.
+var WILLY_WALL_HISTORY_URL = 'https://api.weather.com/v2/pws/observations/all/1day?stationId=KNJNEWJE43&format=json&units=e&apiKey=e1f10a1e78da46f5b10a1e78da96f525&numericPrecision=decimal';
 var WILLY_WALL_OBS_URL = 'https://api.weather.com/v2/pws/observations/current?stationId=KNJNEWJE43&format=json&units=e&apiKey=e1f10a1e78da46f5b10a1e78da96f525&numericPrecision=decimal';
 var WILLY_WALL_TEXT_FALLBACK_URL = 'https://r.jina.ai/http://www.wunderground.com/dashboard/pws/KNJNEWJE43';
 var ZONE_MARINE = 'ANZ338';
@@ -2021,15 +2022,18 @@ function fetchObservedWind() {
   }).catch(function () { return null; });
 }
 
-function parseWillyWallObservation(json) {
+function parseWillyWallObservationRow(row) {
   try {
-    var row = json && json.observations && json.observations[0];
     var imperial = row && row.imperial;
     if (!row || !imperial) return null;
 
-    var sustainedMph = imperial.windSpeed != null ? parseFloat(imperial.windSpeed) : NaN;
-    var gustMph = imperial.windGust != null ? parseFloat(imperial.windGust) : NaN;
-    var dirDeg = row.winddir != null ? parseFloat(row.winddir) : NaN;
+    var sustainedRaw = imperial.windSpeed != null ? imperial.windSpeed : imperial.windspeedAvg;
+    var gustRaw = imperial.windGust != null ? imperial.windGust :
+      (imperial.windgustHigh != null ? imperial.windgustHigh : imperial.windgustAvg);
+    var directionRaw = row.winddir != null ? row.winddir : row.winddirAvg;
+    var sustainedMph = sustainedRaw != null ? parseFloat(sustainedRaw) : NaN;
+    var gustMph = gustRaw != null ? parseFloat(gustRaw) : NaN;
+    var dirDeg = directionRaw != null ? parseFloat(directionRaw) : NaN;
     if (!isFinite(sustainedMph) || sustainedMph < 0) return null;
 
     var tsMs = row.obsTimeUtc ? Date.parse(row.obsTimeUtc) : NaN;
@@ -2045,6 +2049,20 @@ function parseWillyWallObservation(json) {
       dirCardinal: null
     };
   } catch (e) { return null; }
+}
+
+function parseWillyWallObservationSeries(json) {
+  var seen = {};
+  return ((json && json.observations) || []).map(parseWillyWallObservationRow).filter(function (point) {
+    if (!point || point.ms == null || seen[point.ms]) return false;
+    seen[point.ms] = true;
+    return true;
+  }).sort(function (a, b) { return a.ms - b.ms; });
+}
+
+function parseWillyWallObservation(json) {
+  var history = parseWillyWallObservationSeries(json);
+  return history.length ? history[history.length - 1] : null;
 }
 
 function parseWillyWallText(text) {
@@ -2069,20 +2087,31 @@ function parseWillyWallText(text) {
   } catch (e) { return null; }
 }
 function fetchObservedWindWillyWall() {
-  return fetchWithRetry(WILLY_WALL_OBS_URL, { maxRetries: 1 }).then(function (res) {
-    if (!res.ok) throw new Error('Willy Wall feed: HTTP ' + res.status);
+  return fetchWithRetry(WILLY_WALL_HISTORY_URL, { maxRetries: 1 }).then(function (res) {
+    if (!res.ok) throw new Error('Willy Wall history: HTTP ' + res.status);
     return res.json();
   }).then(function (json) {
-    var data = parseWillyWallObservation(json);
-    if (!data) throw new Error('Willy Wall feed returned no wind observation');
-    return data;
+    var history = parseWillyWallObservationSeries(json);
+    if (!history.length) throw new Error('Willy Wall history returned no wind observations');
+    return { latest: history[history.length - 1], history: history };
   }).catch(function () {
-    // Secondary path only: the WU dashboard remains independently readable even if the
-    // browser feed/key changes. A total failure is represented honestly as null in the UI.
-    return fetchWithRetry(WILLY_WALL_TEXT_FALLBACK_URL, { maxRetries: 0 }).then(function (res) {
-      if (!res.ok) throw new Error('Willy Wall fallback: HTTP ' + res.status);
-      return res.text();
-    }).then(parseWillyWallText).catch(function () { return null; });
+    return fetchWithRetry(WILLY_WALL_OBS_URL, { maxRetries: 1 }).then(function (res) {
+      if (!res.ok) throw new Error('Willy Wall feed: HTTP ' + res.status);
+      return res.json();
+    }).then(function (json) {
+      var latest = parseWillyWallObservation(json);
+      if (!latest) throw new Error('Willy Wall feed returned no wind observation');
+      return { latest: latest, history: [latest] };
+    }).catch(function () {
+      // Last-resort text reader keeps the station independently verifiable if WU changes
+      // both browser endpoints. A total failure is represented honestly as null in the UI.
+      return fetchWithRetry(WILLY_WALL_TEXT_FALLBACK_URL, { maxRetries: 0 }).then(function (res) {
+        if (!res.ok) throw new Error('Willy Wall fallback: HTTP ' + res.status);
+        return res.text();
+      }).then(parseWillyWallText).then(function (latest) {
+        return latest ? { latest: latest, history: [latest] } : null;
+      }).catch(function () { return null; });
+    });
   });
 }
 
@@ -5049,6 +5078,11 @@ function observedWindDataForStation(station) {
   return state.observedRaw ? state.observedRaw.wind : null;
 }
 
+function observedWindHistoryForStation(station) {
+  if (station === 'weatherflow') return state.obsWindWeatherflowHistory || [];
+  return (state.observedRaw && state.observedRaw.windHistory) || [];
+}
+
 // Minutes-ago suffix makes a delayed observation visibly stale rather than silently
 // presenting it as "now".
 function ageSuffix(ms) {
@@ -5076,6 +5110,7 @@ function selectObsWindStation(station) {
   lsSetJSON('obsWindStation', station);
   updateObsWindStationChipActive();
   renderObsWindRow((state.settings && state.settings.limits) || DEFAULT_LIMITS);
+  rerenderWindCard();
 }
 
 function updateWillyWallChipState(available) {
@@ -5399,8 +5434,8 @@ function splitWindPointSegments(points) {
   return segments;
 }
 
-// CO-OPS wind normally arrives every six minutes. Do not bridge an outage long enough to
-// make the measured trace look continuous; three missed samples starts a new segment.
+// CO-OPS and Wunderground observations normally arrive every five or six minutes. Do not
+// bridge an outage long enough to make the measured trace look continuous.
 function splitObservedWindSegments(points) {
   var segments = [], current = [];
   (points || []).forEach(function (p) {
@@ -5689,10 +5724,10 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
 
   var sustainedVals = rows.map(function (r) { return r.sustained; }).filter(function (v) { return v != null; });
   var gustVals = rows.map(function (r) { return r.gust; }).filter(function (v) { return v != null; });
-  // Robbins Reef is the continuous measured reference for the chart regardless of which
-  // headline station is selected. Willy Wall currently exposes only a latest observation;
-  // hiding the Robbins trace when Willy is selected would collapse history back to one dot.
-  var obsHistoryPts = ((state.observedRaw && state.observedRaw.windHistory) || []).filter(function (point) {
+  // Draw only the selected station's own timestamped history. Connecting Robbins Reef to
+  // Willy Wall would fabricate a measurement between two different locations.
+  var selectedObsStation = state.obsWindStation || 'robbinsReef';
+  var obsHistoryPts = observedWindHistoryForStation(selectedObsStation).filter(function (point) {
     return point && point.ms >= domStart && point.ms <= Math.min(domEnd, nowMs) &&
       point.sustainedKt != null && isFinite(point.sustainedKt);
   }).map(function (point) { return { ms: point.ms, v: point.sustainedKt }; });
@@ -5729,16 +5764,15 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
 
   if (obsHistoryPts.length > 1) {
     obsPath = splitObservedWindSegments(obsHistoryPts).filter(function (segment) { return segment.length > 1; }).map(function (segment) {
-      return '<path d="' + smoothPathD(segment, x, y) + '" fill="none" stroke="var(--violet)" stroke-width="2"/>';
+      return '<path d="' + linearPathD(segment, x, y) + '" fill="none" stroke="var(--violet)" stroke-width="2"/>';
     }).join('');
-    if (obsPath && legendEl) legendEl.innerHTML += '<span><span class="swatch swatch-obs"></span>Robbins measured</span>';
+    if (obsPath && legendEl) legendEl.innerHTML += '<span><span class="swatch swatch-obs"></span>' +
+      escapeHtml(OBS_WIND_STATION_LABELS[selectedObsStation] || 'Observed') + ' measured</span>';
   }
 
-  // Mark the latest live reading at its actual observation time, at the end of the measured
-  // trace. Willy Wall currently exposes only its latest reading, so that source retains the
-  // single marker while Robbins Reef uses NOAA's recent history.
+  // Mark the latest live reading at its actual observation time, at the end of that same
+  // station's measured trace. Never move it to the now line or extrapolate beyond it.
   var obsMarker = '';
-  var selectedObsStation = state.obsWindStation || 'robbinsReef';
   var obsW = observedWindDataForStation(selectedObsStation);
   if (obsW && obsW.ms >= domStart && obsW.ms <= domEnd && observedWindIsFresh(obsW, nowMs) && obsW.sustainedKt <= yMax) {
     var obsX = x(obsW.ms);
@@ -6378,6 +6412,15 @@ function composeWeatherHeadline(rows, departureMs, returnMs, sunEvents) {
   var showers = windowShowerSummary(rows, departureMs, returnMs);
   parts.push(showers.thunder ? '<span class="wx-alert">' + escapeHtml(showers.text) + '</span>' : escapeHtml(showers.text));
   return parts.join(' &middot; ');
+}
+
+// Measured observations use honest piecewise-linear interpolation. It connects adjacent
+// timestamped samples without inventing overshoot between noisy sensor readings.
+function linearPathD(pts, xFn, yFn) {
+  if (!pts || !pts.length) return '';
+  return pts.map(function (point, idx) {
+    return (idx ? ' L' : 'M') + xFn(point.ms).toFixed(1) + ',' + yFn(point.v).toFixed(1);
+  }).join('');
 }
 
 /* ============================== Smooth curve path (Catmull-Rom -> cubic Bezier) ======= */
@@ -7816,7 +7859,7 @@ var state = {
   levelPredictedRaw: null, levelObservedRaw: null,
   gridpointRaw: null, hourlyRaw: null, alertsRaw: null, stormAlertsRaw: null, stormCellsRaw: null, marineTextRaw: null,
   observedRaw: null, windModelsRaw: null, windModelSeries: null, windModel: 'nws',
-  obsWindStation: 'robbinsReef', obsWindWeatherflowRaw: null,
+  obsWindStation: 'robbinsReef', obsWindWeatherflowRaw: null, obsWindWeatherflowHistory: [],
   obsCurrentStation: 'hudson', kvkCurrentRaw: null, kvkCurrentHistoryRaw: [], newarkCurrentRaw: null,
   narrowsCurrentRaw: null, narrowsCurrentHistoryRaw: [],
   curvePoints: [], slackEvents: [], gridSeries: null,
@@ -7995,12 +8038,13 @@ function loadNarrowsCurrent() {
 // and links straight to the source rather than silently switching the sailor to another sensor.
 function loadWillyWall() {
   return fetchObservedWindWillyWall().then(function (data) {
-    state.obsWindWeatherflowRaw = data;
-    updateWillyWallChipState(!!data);
+    state.obsWindWeatherflowRaw = data && data.latest ? data.latest : null;
+    state.obsWindWeatherflowHistory = data && data.history ? data.history : [];
+    updateWillyWallChipState(!!state.obsWindWeatherflowRaw);
     if (state.obsWindStation === 'weatherflow') {
       renderObsWindRow((state.settings && state.settings.limits) || DEFAULT_LIMITS);
     }
-    return !!data;
+    return !!state.obsWindWeatherflowRaw;
   });
 }
 function parseGridpointSeries(data) {
