@@ -137,6 +137,20 @@ button { font-family: inherit; }
 
 .field-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; flex-wrap: wrap; }
 .field-row label { font-size: 14px; color: var(--ink-dim); }
+.departure-control { display: flex; align-items: center; gap: 6px; flex: 1 1 300px; min-width: 0; justify-content: flex-end; }
+.departure-control input { flex: 1 1 auto; min-width: 0; }
+.meridiem-toggle {
+  display: grid; grid-template-columns: repeat(2, 44px); flex: 0 0 auto;
+  height: var(--control-height); overflow: hidden; border: 1px solid var(--border); border-radius: 8px;
+}
+.meridiem-toggle button {
+  border: 0; border-left: 1px solid var(--border); padding: 0; background: var(--bg); color: var(--ink-dim);
+  font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; touch-action: manipulation;
+}
+.meridiem-toggle button:first-child { border-left: 0; }
+.meridiem-toggle button.active { background: var(--accent); color: var(--accent-ink); }
+.meridiem-toggle button:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.meridiem-toggle button:disabled { cursor: default; opacity: 0.45; }
 input[type="datetime-local"], input[type="number"], input[type="text"], input[type="tel"], select, textarea {
   background: var(--bg); color: var(--ink); border: 1px solid var(--border); border-radius: 8px;
   padding: 8px 10px; font-size: 14px; font-family: inherit;
@@ -1066,9 +1080,15 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
 
   <section class="card" id="planCard">
     <h2>Sail Plan</h2>
-    <div class="field-row">
+    <div class="field-row departure-row">
       <label for="departureInput">Departure</label>
-      <input type="datetime-local" id="departureInput">
+      <div class="departure-control">
+        <input type="datetime-local" id="departureInput">
+        <div class="meridiem-toggle" role="group" aria-label="Departure AM or PM">
+          <button type="button" data-meridiem="am" aria-label="Set departure to AM" aria-pressed="false">AM</button>
+          <button type="button" data-meridiem="pm" aria-label="Set departure to PM" aria-pressed="false">PM</button>
+        </div>
+      </div>
     </div>
     <div class="field-row">
       <label>Duration</label>
@@ -1685,6 +1705,28 @@ function parseDatetimeLocalAsNY(value) {
   var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
   if (!m) return null;
   return nyWallTimeToUtcMs(+m[1], +m[2], +m[3], +m[4], +m[5]);
+}
+
+// datetime-local stores a 24-hour wall-clock string even when the browser displays a
+// locale-specific 12-hour field. These helpers change only HH, preserving the date,
+// minutes, and any optional seconds without involving the device timezone.
+function datetimeLocalMeridiem(value) {
+  var match = /^(\d{4}-\d{2}-\d{2}T)(\d{2})(:\d{2}(?::\d{2}(?:\.\d+)?)?)$/.exec(value || '');
+  if (!match) return null;
+  var hour = +match[2];
+  if (hour < 0 || hour > 23) return null;
+  return hour < 12 ? 'am' : 'pm';
+}
+
+function withDatetimeLocalMeridiem(value, meridiem) {
+  var match = /^(\d{4}-\d{2}-\d{2}T)(\d{2})(:\d{2}(?::\d{2}(?:\.\d+)?)?)$/.exec(value || '');
+  meridiem = String(meridiem || '').toLowerCase();
+  if (!match || (meridiem !== 'am' && meridiem !== 'pm')) return null;
+  var hour = +match[2];
+  if (hour < 0 || hour > 23) return null;
+  if (meridiem === 'am' && hour >= 12) hour -= 12;
+  if (meridiem === 'pm' && hour < 12) hour += 12;
+  return match[1] + pad2(hour) + match[3];
 }
 
 // Default departure: next 30-minute boundary at least 30 min from now. America/New_York
@@ -8626,6 +8668,7 @@ function applySharedPlan(plan) {
   }
   lsSetJSON('durationMode', state.durationMode);
   $('departureInput').value = msToDatetimeLocalNY(state.departureMs);
+  syncDepartureMeridiemControl();
   setDurationActive(state.durationMode);
   updateCustomDurationVisibility();
   persistDurationPlan();
@@ -9705,6 +9748,22 @@ function updateCustomDurationVisibility() {
 function persistDurationPlan() {
   lsSetJSON('plan', { departureMs: state.departureMs, durationHours: state.durationHours });
 }
+function syncDepartureMeridiemControl() {
+  var period = datetimeLocalMeridiem($('departureInput').value);
+  document.querySelectorAll('.meridiem-toggle button').forEach(function (button) {
+    var active = period === button.dataset.meridiem;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    button.disabled = period == null;
+  });
+}
+function setDepartureMeridiem(meridiem) {
+  var input = $('departureInput');
+  var nextValue = withDatetimeLocalMeridiem(input.value, meridiem);
+  if (nextValue == null || nextValue === input.value) return;
+  input.value = nextValue;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
 function onDurationModeChanged(mode) {
   state.durationMode = mode;
   lsSetJSON('durationMode', mode);
@@ -10021,6 +10080,7 @@ function init() {
   state.durationHours = (state.durationMode === 'custom') ? state.customDurationHours : parseInt(state.durationMode, 10);
   if (restoredExpiredWindow) persistDurationPlan();
   $('departureInput').value = msToDatetimeLocalNY(state.departureMs);
+  syncDepartureMeridiemControl();
   $('customDurationInput').value = state.customDurationHours;
   setDurationActive(state.durationMode);
   updateCustomDurationVisibility();
@@ -10048,6 +10108,11 @@ function init() {
   $('departureInput').addEventListener('change', function () {
     onDepartureChanged();
     persistDurationPlan();
+    syncDepartureMeridiemControl();
+  });
+  $('departureInput').addEventListener('input', syncDepartureMeridiemControl);
+  document.querySelectorAll('.meridiem-toggle button').forEach(function (button) {
+    button.addEventListener('click', function () { setDepartureMeridiem(button.dataset.meridiem); });
   });
   document.querySelectorAll('#durationChips .chip').forEach(function (chip) {
     chip.addEventListener('click', function () { onDurationModeChanged(chip.dataset.hours); });

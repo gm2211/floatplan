@@ -43,7 +43,7 @@ All thresholds in **knots**. All wind data converted to knots regardless of sour
 
 ## Plan inputs
 
-- Departure: date + time pickers. Default: today, next half-hour boundary at least 30 min out.
+- Departure: native date + time picker with adjacent touch-friendly AM/PM buttons. The buttons preserve the selected date/minutes and stay synchronized with typing or the native picker. Default: today, next half-hour boundary at least 30 min out.
 - Duration: 2 / 3 / 4 / 5 / 6 h chips (default 3 h).
 - "Save plan" button → snapshots verdict inputs (max sustained, max gust, alert ids, thunder flag, current summary) + timestamp into localStorage → enables Monitor mode.
 
