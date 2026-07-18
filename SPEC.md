@@ -95,7 +95,7 @@ Logic over current predictions within the window:
 - Hourly rows (or compact chart + rows) covering window ±2 h: time, wind dir arrow + cardinal, sustained kt, gust kt, colored per limits (green/yellow/red cell backgrounds).
 - Above it: window summary — dominant direction, range sustained, max gust.
 - Observed Now offers the Hudson-relevant Robbins Reef NOAA station and Willy Wall. Do not offer East River stations. Keep the observed row geometry fixed across selections and unavailable states; its reserved comparison badge classifies like-for-like measured versus forecast wind with a 3 kt tolerance as above, within, below, or unavailable.
-- The wind chart plots the selected observation station's own timestamped history. Interpolate linearly only between adjacent, fresh same-station samples; never connect different stations, extrapolate past the latest reading, bridge an outage longer than 18 minutes, or smooth measured spikes into invented extrema.
+- The wind chart plots Robbins Reef and Willy Wall as separate measured histories regardless of the station selected in Observed Now. Give each trace its own station-named legend, endpoint, and scrub value. Interpolate linearly only between adjacent, fresh samples from that same station; never connect different stations, extrapolate past the latest reading, bridge an outage longer than 18 minutes, or smooth measured spikes into invented extrema.
 
 ## Weather strip + radar
 

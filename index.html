@@ -296,6 +296,7 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .chart-legend .legend-status { color: var(--ink-dim); font-size: 10px; }
 .chart-legend .swatch-pred { background: var(--navy); }
 .chart-legend .swatch-obs { background: var(--violet); }
+.chart-legend .swatch-obs-willy-wall { background: var(--measured-current); }
 .timeline-mode-row { margin-bottom: 10px; }
 .chart-legend .swatch-sustained { background: var(--accent); }
 .chart-legend .swatch-gust { background: var(--ink-dim); opacity: 0.8; }
@@ -5449,6 +5450,21 @@ function splitObservedWindSegments(points) {
   return segments;
 }
 
+// Measured wind is only meaningful between adjacent samples from the SAME station.
+// Return null before/after a station's trace and across outages rather than extending the
+// endpoint or fabricating a bridge. This is used by the scrubber, while the renderer uses
+// the same segment splitter for the visible paths.
+function interpolateObservedWindAtMs(points, ms) {
+  var segments = splitObservedWindSegments(points || []);
+  for (var i = 0; i < segments.length; i++) {
+    var segment = segments[i];
+    if (!segment.length || ms < segment[0].ms || ms > segment[segment.length - 1].ms) continue;
+    if (segment.length === 1) return ms === segment[0].ms ? segment[0].v : null;
+    return interpRowsValue(segment, ms, 'v');
+  }
+  return null;
+}
+
 function windLegendLineSvg(color, dash, width, opacity) {
   return '<svg class="line-key" viewBox="0 0 24 8" aria-hidden="true">' +
     '<line x1="1" y1="4" x2="23" y2="4" stroke="' + color + '" stroke-width="' + width + '" stroke-opacity="' + opacity + '"' +
@@ -5724,14 +5740,22 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
 
   var sustainedVals = rows.map(function (r) { return r.sustained; }).filter(function (v) { return v != null; });
   var gustVals = rows.map(function (r) { return r.gust; }).filter(function (v) { return v != null; });
-  // Draw only the selected station's own timestamped history. Connecting Robbins Reef to
-  // Willy Wall would fabricate a measurement between two different locations.
-  var selectedObsStation = state.obsWindStation || 'robbinsReef';
-  var obsHistoryPts = observedWindHistoryForStation(selectedObsStation).filter(function (point) {
-    return point && point.ms >= domStart && point.ms <= Math.min(domEnd, nowMs) &&
-      point.sustainedKt != null && isFinite(point.sustainedKt);
-  }).map(function (point) { return { ms: point.ms, v: point.sustainedKt }; });
-  var obsVals = obsHistoryPts.map(function (point) { return point.v; });
+  // The chart is a comparison surface, independent of the Observed Now station picker.
+  // Keep each station in its own series so paths, interpolation, and scrub values can never
+  // jump from Robbins Reef to Willy Wall merely because their timestamps are adjacent.
+  var observedChartSeries = [
+    { station: 'robbinsReef', label: OBS_WIND_STATION_LABELS.robbinsReef, color: 'var(--violet)', swatch: 'swatch-obs' },
+    { station: 'weatherflow', label: OBS_WIND_STATION_LABELS.weatherflow, color: 'var(--measured-current)', swatch: 'swatch-obs-willy-wall' }
+  ].map(function (series) {
+    series.points = observedWindHistoryForStation(series.station).filter(function (point) {
+      return point && point.ms >= domStart && point.ms <= Math.min(domEnd, nowMs) &&
+        point.sustainedKt != null && isFinite(point.sustainedKt);
+    }).map(function (point) { return { ms: point.ms, v: point.sustainedKt }; });
+    return series;
+  });
+  var obsVals = observedChartSeries.reduce(function (values, series) {
+    return values.concat(series.points.map(function (point) { return point.v; }));
+  }, []);
   var yMax = Math.max(limits.noGoGust, sustainedVals.length ? Math.max.apply(null, sustainedVals) : 0,
     gustVals.length ? Math.max.apply(null, gustVals) : 0,
     obsVals.length ? Math.max.apply(null, obsVals) : 0) + 3;
@@ -5762,29 +5786,33 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
     }).join('');
   }
 
-  if (obsHistoryPts.length > 1) {
-    obsPath = splitObservedWindSegments(obsHistoryPts).filter(function (segment) { return segment.length > 1; }).map(function (segment) {
-      return '<path d="' + linearPathD(segment, x, y) + '" fill="none" stroke="var(--violet)" stroke-width="2"/>';
+  observedChartSeries.forEach(function (series) {
+    var seriesPath = splitObservedWindSegments(series.points).filter(function (segment) {
+      return segment.length > 1;
+    }).map(function (segment) {
+      return '<path d="' + linearPathD(segment, x, y) + '" fill="none" stroke="' + series.color + '" stroke-width="2"/>';
     }).join('');
-    if (obsPath && legendEl) legendEl.innerHTML += '<span><span class="swatch swatch-obs"></span>' +
-      escapeHtml(OBS_WIND_STATION_LABELS[selectedObsStation] || 'Observed') + ' measured</span>';
-  }
+    obsPath += seriesPath;
+    if (series.points.length && legendEl) {
+      legendEl.innerHTML += '<span><span class="swatch ' + series.swatch + '"></span>' +
+        escapeHtml(series.label) + ' measured</span>';
+    }
+  });
 
-  // Mark the latest live reading at its actual observation time, at the end of that same
-  // station's measured trace. Never move it to the now line or extrapolate beyond it.
-  var obsMarker = '';
-  var obsW = observedWindDataForStation(selectedObsStation);
-  if (obsW && obsW.ms >= domStart && obsW.ms <= domEnd && observedWindIsFresh(obsW, nowMs) && obsW.sustainedKt <= yMax) {
-    var obsX = x(obsW.ms);
-    var obsY = y(obsW.sustainedKt);
-    var labelRight = obsX <= W - padR - 55;
-    obsMarker = '<circle cx="' + obsX.toFixed(1) + '" cy="' + obsY.toFixed(1) + '" r="4" fill="var(--violet)" stroke="var(--bg-card)" stroke-width="1.2"/>' +
-      '<text x="' + (labelRight ? obsX + 7 : obsX - 7).toFixed(1) + '" y="' + (obsY + 3).toFixed(1) +
-      '" font-size="9" text-anchor="' + (labelRight ? 'start' : 'end') + '" fill="var(--violet)">' +
-      escapeHtml(OBS_WIND_STATION_LABELS[selectedObsStation] || 'Observed') + ' ' + round1(obsW.sustainedKt) + '</text>';
-    if (!obsPath && legendEl) legendEl.innerHTML += '<span><span class="swatch swatch-obs"></span>' +
-      escapeHtml(OBS_WIND_STATION_LABELS[selectedObsStation] || 'Observed') + ' now</span>';
-  }
+  // Name both trace endpoints at their actual final sample. Small opposing label offsets
+  // keep similar station readings legible without moving either marker off its data point.
+  var obsMarker = observedChartSeries.map(function (series, seriesIndex) {
+    if (!series.points.length) return '';
+    var endpoint = series.points[series.points.length - 1];
+    var obsX = x(endpoint.ms);
+    var obsY = y(endpoint.v);
+    var labelRight = obsX <= W - padR - 70;
+    var labelY = obsY + (seriesIndex === 0 ? -5 : 11);
+    return '<circle cx="' + obsX.toFixed(1) + '" cy="' + obsY.toFixed(1) + '" r="4" fill="' + series.color + '" stroke="var(--bg-card)" stroke-width="1.2"/>' +
+      '<text x="' + (labelRight ? obsX + 7 : obsX - 7).toFixed(1) + '" y="' + labelY.toFixed(1) +
+      '" font-size="9" text-anchor="' + (labelRight ? 'start' : 'end') + '" fill="' + series.color + '">' +
+      escapeHtml(series.label) + ' ' + round1(endpoint.v) + '</text>';
+  }).join('');
 
   // Direction arrow row: thin to one per 2h once hourly spacing would crowd the glyphs.
   // Each arrow carries its cardinal (16-point compass) letters underneath so direction is
@@ -5824,6 +5852,12 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
       var gInterp = interpRowsValue(rows, ms, 'gust');
       if (sInterp != null) dots.push({ x: sx, y: y(sInterp), color: accent });
       if (gInterp != null) dots.push({ x: sx, y: y(gInterp), color: inkDim });
+      observedChartSeries.forEach(function (series) {
+        var measured = interpolateObservedWindAtMs(series.points, ms);
+        if (measured == null) return;
+        out.push('<div>' + escapeHtml(series.label) + ' measured ' + round1(measured) + ' kt</div>');
+        dots.push({ x: sx, y: y(measured), color: series.color });
+      });
       return { html: out.join(''), dots: dots };
     });
   }
@@ -8044,6 +8078,9 @@ function loadWillyWall() {
     if (state.obsWindStation === 'weatherflow') {
       renderObsWindRow((state.settings && state.settings.limits) || DEFAULT_LIMITS);
     }
+    // Both measured traces belong on every specific-model wind chart, regardless of which
+    // station is selected for the Observed Now headline.
+    rerenderWindCard();
     return !!state.obsWindWeatherflowRaw;
   });
 }
