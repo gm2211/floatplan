@@ -253,13 +253,8 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .twilight-icon.dusk { color: var(--ink-dim); }
 .twilight-values { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .twilight-relative { display: block; margin-top: 1px; color: var(--ink-dim); font-size: 10.5px; }
-.twilight-sail-delta {
-  display: flex; justify-content: flex-end; align-items: baseline; flex-wrap: wrap;
-  gap: 0 6px; margin: -5px 0 5px 29px; color: var(--ink-dim); font-size: 10.5px;
-  font-variant-numeric: tabular-nums;
-}
-.twilight-sail-delta-label { color: var(--accent); font-weight: 650; }
-.twilight-sail-delta .after { color: var(--yellow); font-weight: 650; }
+.twilight-sail-end-delta::before { content: " · "; }
+.twilight-sail-end-delta.before { color: var(--yellow); font-weight: 650; }
 
 .direction-body { display: flex; gap: 14px; align-items: center; }
 .direction-text { flex: 1; }
@@ -1217,12 +1212,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     </div>
     <div class="observed-row twilight-row">
       <span class="twilight-event"><svg class="twilight-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18h18M7 18a5 5 0 0 1 10 0M12 3v7M9 7l3 3 3-3"/></svg><span>Sunset</span></span>
-      <span class="twilight-values"><span id="twilightSunset">--</span><span class="twilight-relative" id="twilightSunsetRelative"></span></span>
-    </div>
-    <div class="twilight-sail-delta hidden" id="twilightSunsetSailDelta" aria-live="polite">
-      <span class="twilight-sail-delta-label">Sail vs sunset</span>
-      <span aria-hidden="true">&middot;</span><span id="twilightSailStartDelta"></span>
-      <span aria-hidden="true">&middot;</span><span id="twilightSailBackDelta"></span>
+      <span class="twilight-values"><span id="twilightSunset">--</span><span class="twilight-relative"><span id="twilightSunsetRelative"></span><span class="twilight-sail-end-delta hidden" id="twilightSunsetSailEndDelta"></span></span></span>
     </div>
     <div class="observed-row twilight-row">
       <span class="twilight-event"><svg class="twilight-icon dusk" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h18M7 12a5 5 0 0 0 10 0M5 18h14"/></svg><span>Civil dusk &mdash; steer-by-sight ends</span></span>
@@ -6019,12 +6009,12 @@ function formatTimeFromNow(targetMs, nowMs) {
   return future ? 'in ' + duration : duration + ' ago';
 }
 
-function formatSailEventDelta(label, atMs, eventMs, eventLabel) {
-  if (![atMs, eventMs].every(isFinite)) return null;
+function formatTwilightToSailEnd(eventMs, sailEndMs) {
+  if (![eventMs, sailEndMs].every(isFinite)) return null;
   // Compare the same minute values shown by fmtTime(). Solar calculations retain seconds,
   // but exposing those hidden seconds here could make “8:25 PM” read as 3h 26m after 5 PM.
-  var diffMinutes = Math.floor(eventMs / 60000) - Math.floor(atMs / 60000);
-  if (diffMinutes === 0) return label + ' at ' + eventLabel;
+  var diffMinutes = Math.floor(eventMs / 60000) - Math.floor(sailEndMs / 60000);
+  if (diffMinutes === 0) return { text: 'at sail end', before: false };
   var totalMinutes = Math.abs(diffMinutes);
   var days = Math.floor(totalMinutes / 1440);
   var hours = Math.floor((totalMinutes % 1440) / 60);
@@ -6033,19 +6023,9 @@ function formatSailEventDelta(label, atMs, eventMs, eventLabel) {
   if (days) parts.push(days + 'd');
   if (hours) parts.push(hours + 'h');
   if (!days && minutes) parts.push(minutes + 'm');
-  return label + ' ' + parts.join(' ') + (diffMinutes > 0 ? ' before' : ' after');
-}
-
-function twilightSailDelta(departureMs, returnMs, sunsetMs) {
-  if (![departureMs, returnMs, sunsetMs].every(isFinite) || returnMs < departureMs) return null;
-  var startText = formatSailEventDelta('Start', departureMs, sunsetMs, 'sunset');
-  var backText = formatSailEventDelta('Back', returnMs, sunsetMs, 'sunset');
-  if (!startText || !backText) return null;
   return {
-    startText: startText,
-    backText: backText,
-    backAfter: returnMs > sunsetMs,
-    ariaLabel: 'Sail versus sunset. ' + startText + '. ' + backText + '.'
+    text: parts.join(' ') + (diffMinutes < 0 ? ' before sail end' : ' after sail end'),
+    before: diffMinutes < 0
   };
 }
 
@@ -6093,14 +6073,11 @@ function renderSunTwilightCard(departureMs, returnMs) {
   setText('twilightSunset', fmtTime(t.sunsetMs));
   setText('twilightCivilDusk', fmtTime(t.civilDuskMs));
   setText('twilightNauticalDusk', fmtTime(t.nauticalDuskMs));
-  var sailDelta = twilightSailDelta(departureMs, returnMs, t.sunsetMs);
-  var sailDeltaEl = $('twilightSunsetSailDelta');
-  setText('twilightSailStartDelta', sailDelta ? sailDelta.startText : '');
-  setText('twilightSailBackDelta', sailDelta ? sailDelta.backText : '');
-  $('twilightSailBackDelta').classList.toggle('after', !!sailDelta && sailDelta.backAfter);
-  sailDeltaEl.classList.toggle('hidden', !sailDelta);
-  if (sailDelta) sailDeltaEl.setAttribute('aria-label', sailDelta.ariaLabel);
-  else sailDeltaEl.removeAttribute('aria-label');
+  var sailEndDelta = formatTwilightToSailEnd(t.sunsetMs, returnMs);
+  var sailEndDeltaEl = $('twilightSunsetSailEndDelta');
+  setText('twilightSunsetSailEndDelta', sailEndDelta ? sailEndDelta.text : '');
+  sailEndDeltaEl.classList.toggle('hidden', !sailEndDelta);
+  sailEndDeltaEl.classList.toggle('before', !!sailEndDelta && sailEndDelta.before);
   twilightCountdownTargets = {
     twilightSunriseRelative: t.sunriseMs,
     twilightSunsetRelative: t.sunsetMs,

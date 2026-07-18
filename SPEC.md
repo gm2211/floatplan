@@ -88,7 +88,7 @@ Logic over current predictions within the window:
 
 ## Sun & twilight panel
 
-- Keep live sunrise, sunset, civil-dusk, and nautical-dusk countdowns. Add one compact line beneath Sunset that compares the planned sail start and return directly with sunset using explicit `before`, `after`, or `at sunset` wording. Tint only a late return, retain the existing after-dark warning, and do not repeat plan deltas beneath every twilight event.
+- Keep live sunrise, sunset, civil-dusk, and nautical-dusk countdowns. On Sunset's existing countdown line, append only the sunset offset from the planned sail end using explicit `before sail end`, `after sail end`, or `at sail end` wording. Do not repeat the sail start or add another comparison row. Tint only a sunset before sail end (a late return), and retain the existing after-dark warning.
 
 ## Wind panel
 
