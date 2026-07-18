@@ -2379,6 +2379,74 @@ function fetchStormCells() {
   });
 }
 
+// SCIT-style history support: the IEM feed's `?valid=` parameter replays a past snapshot,
+// and a past snapshot never changes, so each 5-minute bucket is fetched at most once and
+// cached indefinitely (until pruned). See STORM_HISTORY_LAG_MIN in the storm overlay block.
+function stormHistoryCacheName(bucketMs) { return 'stormAttrHist.' + bucketMs; }
+
+function pruneStormHistoryCache(nowMs) {
+  try {
+    var prefix = cacheKey('stormAttrHist.');
+    var cutoffMs = nowMs - 2 * 3600000;
+    var stale = [];
+    for (var i = 0; i < localStorage.length; i += 1) {
+      var key = localStorage.key(i);
+      if (key && key.indexOf(prefix) === 0) {
+        var bucketMs = Number(key.slice(prefix.length));
+        if (!isFinite(bucketMs) || bucketMs < cutoffMs) stale.push(key);
+      }
+    }
+    stale.forEach(function (key) { localStorage.removeItem(key); });
+  } catch (e) { /* storage unavailable — pruning is best-effort, never fatal */ }
+}
+
+// A failed or missing historical snapshot must never block the current-cell overlay: any
+// error here resolves to null rather than rejecting, so the caller just sees less history.
+function fetchStormCellHistorySnapshot(bucketMs) {
+  var cached = cacheGet(stormHistoryCacheName(bucketMs));
+  if (cached && Array.isArray(cached.data)) return Promise.resolve(cached.data);
+  var url = IEM_STORM_ATTR_URL + '?valid=' + encodeURIComponent(new Date(bucketMs).toISOString());
+  return fetchWithRetry(url, { maxRetries: 1 }).then(function (res) {
+    if (!res.ok) throw new Error('storm history HTTP ' + res.status);
+    return res.json();
+  }).then(function (data) {
+    var features = (data && Array.isArray(data.features)) ? data.features : [];
+    // The raw snapshot is CONUS-wide (~2000 features, ~800 KB) — caching three of those
+    // would crowd the shared localStorage quota and silently break other caches. Keep only
+    // in-domain features, slimmed to the fields the history association actually reads.
+    var slim = features.filter(function (feature) {
+      var c = feature && feature.geometry && feature.geometry.type === 'Point' && feature.geometry.coordinates;
+      return c && c.length >= 2 && pointInDomain(Number(c[1]), Number(c[0]), NORTHEAST_STORM_DOMAIN);
+    }).map(function (feature) {
+      var p = feature.properties || {};
+      return {
+        geometry: { type: 'Point', coordinates: [Number(feature.geometry.coordinates[0]), Number(feature.geometry.coordinates[1])] },
+        properties: { storm_id: p.storm_id, nexrad: p.nexrad, valid: p.valid, drct: p.drct }
+      };
+    });
+    cacheSet(stormHistoryCacheName(bucketMs), slim);
+    return slim;
+  }).catch(function () { return null; });
+}
+
+// Fetches up to three past storm-attribute snapshots (now-10/20/30 min, 5-min bucketed) used
+// to build each cell's centroid history for the client-side SCIT motion fit. Never rejects.
+function fetchStormCellHistory(nowMs) {
+  pruneStormHistoryCache(nowMs);
+  var seenBuckets = {}, bucketMsList = [];
+  STORM_HISTORY_LAG_MIN.forEach(function (lagMin) {
+    var bucketMs = fiveMinBucketMs(nowMs - lagMin * 60000);
+    if (!seenBuckets[bucketMs]) { seenBuckets[bucketMs] = true; bucketMsList.push(bucketMs); }
+  });
+  return Promise.all(bucketMsList.map(function (bucketMs) {
+    return fetchStormCellHistorySnapshot(bucketMs).then(function (features) {
+      return { bucketMs: bucketMs, features: features || [] };
+    });
+  })).then(function (snapshots) {
+    return snapshots.slice().sort(function (a, b) { return a.bucketMs - b.bucketMs; }); // oldest first
+  });
+}
+
 // Optional card: marine zone text forecast. /zones/forecast/ANZ338/forecast is a known
 // 404 — go through the CWF product list instead, per spec.
 function fetchMarineText() {
@@ -7227,7 +7295,10 @@ var radarState = {
   playing: false, playTimer: null, lastFetchMs: 0, mode: 'live', pierMarker: null,
   opacity: DEFAULT_RADAR_OPACITY,
   layerGeneration: 0, stormOverlayEnabled: true, stormFeedAvailable: null, stormCellFeedAvailable: null,
-  stormAlerts: [], stormCells: [], stormTrackBounds: null
+  stormAlerts: [], stormCells: [], stormTrackBounds: null,
+  // One entry per rendered cell/warning-with-motion: { marker, historyPoints, times, track, anchorMs }.
+  // Rebuilt every renderStormOverlays() call; showRadarFrame() moves the markers via setLatLng only.
+  stormFramePositions: []
 };
 
 function normalizeRadarOpacity(value) {
@@ -7454,6 +7525,7 @@ function showRadarFrame(idx) {
   $('radarFrameLabel').textContent = isForecast
     ? ((f.offsetMin > 0 ? ('+' + f.offsetMin + 'm · ') : '') + '≈' + fmtTime(f.timeMs))
     : ('≈' + fmtTime(f.timeMs));
+  updateStormFrameMarkers(f.timeMs);
 }
 // Switches between live NEXRAD and the RainViewer animation: stops any running playback (the frame
 // set is about to change out from under it), swaps mode, persists it, updates the chip
@@ -7672,6 +7744,169 @@ function radarCellProjectedApproachNm(cell, target) {
   return closest;
 }
 
+/* ---- SCIT-style centroid history + least-squares motion fit (Johnson et al. 1998) ---- */
+// Client-side re-implementation of the WSR-88D Build 9 SCIT tracking algorithm: track each
+// radar cell's centroid over up to 10 past scans, fit motion by equal-weight linear least
+// squares, and represent forecast uncertainty as a 99%-probability whisker that widens when
+// the fitted track has been less consistent.
+
+var STORM_HISTORY_LAG_MIN = [10, 20, 30]; // minutes back fetched on every storm-cell refresh
+var STORM_HISTORY_MAX_POINTS = 10; // SCIT caps the centroid history used for the motion fit
+var STORM_HISTORY_ASSOC_MAX_NM = 10 / 1.852; // 10 km, converted to nm
+var STORM_HISTORY_ASSOC_MAX_BEARING_DEG = 60;
+// SCIT forecast-error evaluation: mean position error grows with lead time; the 99% width is
+// taken as roughly 2.5x the mean error at each evaluated interval. A (0 min, 0 nm) anchor is
+// implicit — at zero lead time there is no forecast uncertainty, only the observed centroid.
+var STORM_UNCERTAINTY_LEAD_MIN = [0, 15, 30, 45, 60];
+var STORM_UNCERTAINTY_BASE99_NM = [0, 1.5, 3.6, 5.8, 8.0];
+
+// A lighter parse than parseIemStormCell: only used to associate a *past* snapshot's features
+// with a current cell, so it must not apply the "is this stale/slow right now" filters that
+// legitimately reject a feature when reasoning about the present.
+function parseIemStormCellPosition(feature) {
+  var coordinates = feature && feature.geometry && feature.geometry.type === 'Point' && feature.geometry.coordinates;
+  var p = (feature && feature.properties) || {};
+  if (!coordinates || coordinates.length < 2) return null;
+  var lat = Number(coordinates[1]), lon = Number(coordinates[0]);
+  var validMs = new Date(p.valid || '').getTime();
+  if (!isFinite(lat) || !isFinite(lon) || !isFinite(validMs)) return null;
+  var fromDeg = stormNumericOrNull(p.drct);
+  return {
+    id: String(p.storm_id || '').trim() || '--',
+    radar: String(p.nexrad || '').trim() || 'NEXRAD',
+    lat: lat, lon: lon, validMs: validMs,
+    bearingDeg: fromDeg == null ? null : (fromDeg + 180) % 360
+  };
+}
+
+// SCIT associates a past detection with the cell's *first-guess* position — the current
+// centroid backtracked along the reported motion to the candidate's scan time. Gating on
+// distance from the current position instead would reject the true ancestor of any fast
+// mover (a 30 kt cell sits ~15 nm upstream after 30 minutes) and latch onto unrelated
+// neighbors, poisoning the least-squares fit in exactly the crowded squall-line cases
+// where tracking matters most. Same radar + storm_id remains authoritative, but only when
+// it also lands near the first-guess position (SCIT ids do get recycled between storms).
+function findHistoricalCellMatch(cell, snapshotFeatures) {
+  var candidates = (snapshotFeatures || []).map(parseIemStormCellPosition).filter(Boolean);
+  function expectedPositionAt(validMs) {
+    var distanceNm = (isFinite(cell.speedKt) ? cell.speedKt : 0) * ((cell.validMs - validMs) / 3600000);
+    if (!(distanceNm > 0)) return { lat: cell.lat, lon: cell.lon };
+    var backtracked = destinationPoint(cell.lat, cell.lon, (cell.bearingDeg + 180) % 360, distanceNm);
+    return { lat: backtracked[0], lon: backtracked[1] };
+  }
+  var sameId = candidates.filter(function (c) { return c.radar === cell.radar && c.id === cell.id; })[0];
+  if (sameId && stormCellDistanceNm(expectedPositionAt(sameId.validMs), sameId) <= STORM_HISTORY_ASSOC_MAX_NM * 1.5) {
+    return sameId;
+  }
+  var best = null, bestNm = Infinity;
+  candidates.forEach(function (c) {
+    if (c.bearingDeg == null) return;
+    var distanceNm = stormCellDistanceNm(expectedPositionAt(c.validMs), c);
+    if (distanceNm > STORM_HISTORY_ASSOC_MAX_NM) return;
+    if (bearingDifferenceDeg(cell.bearingDeg, c.bearingDeg) > STORM_HISTORY_ASSOC_MAX_BEARING_DEG) return;
+    if (distanceNm < bestNm) { bestNm = distanceNm; best = c; }
+  });
+  return best;
+}
+
+// snapshots: [{ bucketMs, features }], any order. Returns a chronological [{ms,lat,lon}]
+// array capped at STORM_HISTORY_MAX_POINTS and always ending with the current observation.
+function buildStormCellHistory(cell, snapshots) {
+  var points = (snapshots || [])
+    .filter(function (snapshot) { return snapshot && snapshot.bucketMs < cell.validMs; })
+    .map(function (snapshot) { return findHistoricalCellMatch(cell, snapshot.features); })
+    .filter(Boolean)
+    .map(function (match) { return { ms: match.validMs, lat: match.lat, lon: match.lon }; });
+  points.push({ ms: cell.validMs, lat: cell.lat, lon: cell.lon });
+  points.sort(function (a, b) { return a.ms - b.ms; });
+  var deduped = points.filter(function (point, index) { return index === 0 || point.ms !== points[index - 1].ms; });
+  return deduped.length > STORM_HISTORY_MAX_POINTS ? deduped.slice(-STORM_HISTORY_MAX_POINTS) : deduped;
+}
+
+// Equal-weight linear least squares of position vs time, in a local flat plane centered on
+// the LATEST centroid (SCIT anchors the forecast there, not at the fitted position). Returns
+// null when there isn't enough history to fit, matching the ">=3 points" spec requirement.
+function fitStormCellMotion(historyPoints) {
+  if (!historyPoints || historyPoints.length < 3) return null;
+  var last = historyPoints[historyPoints.length - 1];
+  var latRef = last.lat * Math.PI / 180;
+  var pts = historyPoints.map(function (p) {
+    return {
+      tMin: (p.ms - last.ms) / 60000,
+      x: (p.lon - last.lon) * Math.cos(latRef) * 60, // nm east
+      y: (p.lat - last.lat) * 60 // nm north
+    };
+  });
+  var n = pts.length;
+  var tMean = pts.reduce(function (s, p) { return s + p.tMin; }, 0) / n;
+  var xMean = pts.reduce(function (s, p) { return s + p.x; }, 0) / n;
+  var yMean = pts.reduce(function (s, p) { return s + p.y; }, 0) / n;
+  var sTT = 0, sTX = 0, sTY = 0;
+  pts.forEach(function (p) {
+    var dt = p.tMin - tMean;
+    sTT += dt * dt;
+    sTX += dt * (p.x - xMean);
+    sTY += dt * (p.y - yMean);
+  });
+  if (!(sTT > 0)) return null; // all history points share one timestamp — no slope to fit
+  var bx = sTX / sTT, by = sTY / sTT; // nm/min, east/north components
+  var speedKt = Math.hypot(bx, by) * 60;
+  if (!(speedKt > 0)) return null;
+  var bearingDeg = (Math.atan2(bx, by) * 180 / Math.PI + 360) % 360;
+  // RMS perpendicular distance of each history point from the fitted line — the fit's own
+  // positional uncertainty, independent of any single point's time-matched prediction.
+  var dirLen = Math.hypot(bx, by), ux = bx / dirLen, uy = by / dirLen;
+  var sqSum = 0;
+  pts.forEach(function (p) {
+    var dx = p.x - xMean, dy = p.y - yMean;
+    var cross = dx * uy - dy * ux;
+    sqSum += cross * cross;
+  });
+  var sigmaNm = Math.max(0.3, Math.sqrt(sqSum / n)); // 0.3 nm floor
+  return { speedKt: speedKt, bearingDeg: bearingDeg, sigmaNm: sigmaNm, pointCount: n };
+}
+
+// Chooses fitted-vs-reported motion with a mis-association guard: a fit that disagrees with
+// the radar-reported motion by more than 2x speed or 60° heading is discarded in favor of the
+// reported motion, same as having no usable fit at all (sigmaNm null, source 'reported').
+function resolveStormCellMotion(cell, historyPoints) {
+  var fit = fitStormCellMotion(historyPoints);
+  var pointCount = (historyPoints || []).length;
+  if (!fit) return { speedKt: cell.speedKt, bearingDeg: cell.bearingDeg, sigmaNm: null, source: 'reported', pointCount: pointCount };
+  var speedRatio = fit.speedKt / Math.max(cell.speedKt, 0.001);
+  var headingDiffDeg = bearingDifferenceDeg(fit.bearingDeg, cell.bearingDeg);
+  if (speedRatio > 2 || speedRatio < 0.5 || headingDiffDeg > 60) {
+    return { speedKt: cell.speedKt, bearingDeg: cell.bearingDeg, sigmaNm: null, source: 'reported', pointCount: fit.pointCount };
+  }
+  return { speedKt: fit.speedKt, bearingDeg: fit.bearingDeg, sigmaNm: fit.sigmaNm, source: 'fitted', pointCount: fit.pointCount };
+}
+
+// Piecewise-linear interpolation over the SCIT forecast-error table; flat beyond both ends.
+function stormBase99Nm(leadMinutes) {
+  var xs = STORM_UNCERTAINTY_LEAD_MIN, ys = STORM_UNCERTAINTY_BASE99_NM;
+  if (leadMinutes <= xs[0]) return ys[0];
+  if (leadMinutes >= xs[xs.length - 1]) return ys[ys.length - 1];
+  for (var i = 1; i < xs.length; i += 1) {
+    if (leadMinutes <= xs[i]) {
+      var frac = (leadMinutes - xs[i - 1]) / (xs[i] - xs[i - 1]);
+      return ys[i - 1] + frac * (ys[i] - ys[i - 1]);
+    }
+  }
+  return ys[ys.length - 1];
+}
+
+// q: how much to scale the base 99% whisker for track consistency. A fit's own residual
+// spread narrows or widens it; without a usable fit, a fixed middle-ground factor applies.
+function stormConsistencyFactor(sigmaNm) {
+  if (sigmaNm == null) return 1.25;
+  return Math.max(0.5, Math.min(2.0, sigmaNm / 1.0));
+}
+
+function stormTrackDiameterNm(sigmaNm, leadMinutes) {
+  var raw = stormConsistencyFactor(sigmaNm) * stormBase99Nm(leadMinutes);
+  return Math.max(0.6, Math.min(10, raw));
+}
+
 // Format documented by NWS CAP: timestamp...storm...DDDDEG...SSKT...lat,lon [...].
 // DDD is the direction the event is moving FROM, so the projection bearing is +180°.
 function parseNwsStormMotion(alert) {
@@ -7702,14 +7937,20 @@ function destinationPoint(lat, lon, bearingDeg, distanceNm) {
   return [lat2 * 180 / Math.PI, ((lon2 * 180 / Math.PI + 540) % 360) - 180];
 }
 
-function buildRadarCellProjection(cell) {
+// motion overrides the bearing/speed used to extrapolate (fitted-or-reported per SCIT), but
+// the track always starts from the cell's own latest-observed centroid. Omitting motion
+// keeps the original radar-reported-only behavior for callers that don't have a fit.
+function buildRadarCellProjection(cell, motion) {
   if (!cell) return null;
+  var bearingDeg = (motion && isFinite(motion.bearingDeg)) ? motion.bearingDeg : cell.bearingDeg;
+  var speedKt = (motion && isFinite(motion.speedKt)) ? motion.speedKt : cell.speedKt;
   var times = [0, 15, 30, 45, 60].map(function (minutes) { return cell.validMs + minutes * 60000; });
   return {
     cell: cell,
+    motion: motion || null,
     times: times,
     track: times.map(function (timeMs) {
-      return destinationPoint(cell.lat, cell.lon, cell.bearingDeg, cell.speedKt * ((timeMs - cell.validMs) / 3600000));
+      return destinationPoint(cell.lat, cell.lon, bearingDeg, speedKt * ((timeMs - cell.validMs) / 3600000));
     })
   };
 }
@@ -7721,9 +7962,32 @@ function buildStormTrackTick(point, bearingDeg, halfWidthNm) {
   ];
 }
 
+// Mean of the first polygon's exterior-ring vertices (including the closing duplicate — a
+// simple vertex average, not a true area-weighted centroid, which is plenty for anchoring
+// a single track on typical 4-6 vertex CAP polygons). MultiPolygon uses its first polygon.
+function polygonCentroid(geometry) {
+  if (!geometry) return null;
+  var rings = geometry.type === 'Polygon' ? geometry.coordinates
+    : geometry.type === 'MultiPolygon' ? geometry.coordinates[0] : null;
+  var ring = rings && rings[0];
+  if (!ring || !ring.length) return null;
+  var sumLat = 0, sumLon = 0, count = 0;
+  ring.forEach(function (point) {
+    if (Array.isArray(point) && point.length >= 2 && isFinite(point[0]) && isFinite(point[1])) {
+      sumLon += point[0]; sumLat += point[1]; count += 1;
+    }
+  });
+  return count ? [sumLat / count, sumLon / count] : null;
+}
+
+// One track per warning, anchored at the polygon centroid — NOT one per motion.locations
+// vertex. The CAP text can list 2-3 near-duplicate anchor points along the storm's leading
+// edge, and drawing a parallel track for each was the "messy" per-vertex clutter to remove.
 function buildStormProjection(alert) {
   var motion = parseNwsStormMotion(alert);
   if (!motion) return null;
+  var origin = polygonCentroid(alert.geometry);
+  if (!origin) return null;
   var p = alert.properties || {};
   var endMs = new Date(p.ends || p.expires || '').getTime();
   if (!isFinite(endMs) || endMs <= motion.observedMs) return null;
@@ -7731,11 +7995,9 @@ function buildStormProjection(alert) {
   while (cursor < endMs) { times.push(cursor); cursor += 15 * 60000; }
   if (times[times.length - 1] !== endMs) times.push(endMs);
   return {
-    motion: motion, endMs: endMs, times: times,
-    tracks: motion.locations.map(function (origin) {
-      return times.map(function (timeMs) {
-        return destinationPoint(origin[0], origin[1], motion.bearingDeg, motion.speedKt * ((timeMs - motion.observedMs) / 3600000));
-      });
+    motion: motion, endMs: endMs, times: times, origin: origin,
+    track: times.map(function (timeMs) {
+      return destinationPoint(origin[0], origin[1], motion.bearingDeg, motion.speedKt * ((timeMs - motion.observedMs) / 3600000));
     })
   };
 }
@@ -7759,7 +8021,7 @@ function stormPopupHtml(alert, projection) {
   return html + '<br><a href="' + escapeHtml(sourceUrl) + '" target="_blank" rel="noopener noreferrer">Open original NWS warning</a>';
 }
 
-function radarCellPopupHtml(cell) {
+function radarCellPopupHtml(cell, motion) {
   var sourceUrl = IEM_STORM_ATTR_URL + '?valid=' + encodeURIComponent(new Date(cell.validMs).toISOString());
   var html = '<strong>Radar cell ' + escapeHtml(cell.id) + '</strong> · ' + escapeHtml(cell.radar);
   html += '<br>Scan: ' + escapeHtml(fmtTime(cell.validMs));
@@ -7769,6 +8031,11 @@ function radarCellPopupHtml(cell) {
   if (cell.hailProbability != null) html += '<br>Hail probability: ' + cell.hailProbability + '%';
   if (cell.hailSizeIn != null && cell.hailSizeIn > 0) html += ' · up to ' + cell.hailSizeIn + ' in';
   if (cell.tvs || cell.meso) html += '<br>' + (cell.tvs ? 'TVS: ' + escapeHtml(cell.tvs) : '') + (cell.tvs && cell.meso ? ' · ' : '') + (cell.meso ? 'Meso: ' + escapeHtml(cell.meso) : '');
+  if (motion) {
+    var radiusNm60 = stormTrackDiameterNm(motion.sigmaNm, 60) / 2;
+    html += '<br>Track uncertainty: 99% within ±' + radiusNm60.toFixed(1) + ' nm at +60 min';
+    html += '<br>' + (motion.source === 'fitted' ? ('motion: fitted from ' + motion.pointCount + ' radar scans') : 'motion: radar-reported');
+  }
   html += '<br><small>One-hour linear SCIT projection from the radar-reported direction and speed. Cells can change course, split, or dissipate.</small>';
   return html + '<br><a href="' + escapeHtml(sourceUrl) + '" target="_blank" rel="noopener noreferrer">Open original NEXRAD attributes</a>';
 }
@@ -7779,6 +8046,52 @@ function clearStormTrackLayer() {
   radarState.warningLayer = null;
   radarState.stormCellLayer = null;
   radarState.stormTrackBounds = null;
+  radarState.stormFramePositions = []; // stale marker references die with the layer groups above
+}
+
+// points: chronological [{ms,lat,lon}]. Clamps to the first/last point outside its span
+// instead of extrapolating — used both for observed history and for the forecast track.
+function interpolateAlongSeries(points, timeMs) {
+  if (!points || !points.length) return null;
+  var first = points[0];
+  if (points.length === 1 || timeMs <= first.ms) return [first.lat, first.lon];
+  var last = points[points.length - 1];
+  if (timeMs >= last.ms) return [last.lat, last.lon];
+  for (var i = 1; i < points.length; i += 1) {
+    if (timeMs <= points[i].ms) {
+      var prev = points[i - 1], next = points[i];
+      var span = next.ms - prev.ms;
+      var frac = span > 0 ? (timeMs - prev.ms) / span : 0;
+      return [prev.lat + (next.lat - prev.lat) * frac, prev.lon + (next.lon - prev.lon) * frac];
+    }
+  }
+  return [last.lat, last.lon];
+}
+
+// At/before the latest observation, animate along the OBSERVED history; after it, animate
+// along the forecast track (clamped to +60 min). The two branches agree exactly at anchorMs
+// since both series place the cell/warning at its own centroid there.
+function stormPositionAtTime(entry, timeMs) {
+  if (!entry) return null;
+  if (isFinite(entry.anchorMs) && timeMs <= entry.anchorMs) {
+    return interpolateAlongSeries(entry.historyPoints, timeMs);
+  }
+  var forecastPoints = (entry.times || []).map(function (ms, index) {
+    var point = entry.track && entry.track[index];
+    return point ? { ms: ms, lat: point[0], lon: point[1] } : null;
+  }).filter(Boolean);
+  return interpolateAlongSeries(forecastPoints, timeMs);
+}
+
+// Moves each registered marker to its position at the displayed radar-frame time. Geometry
+// (tracks, whiskers, labels) never rebuilds here — only marker.setLatLng, so this is cheap
+// enough to call on every frame change/tick of playback.
+function updateStormFrameMarkers(frameTimeMs) {
+  if (!radarState.map || !radarState.stormFramePositions || !radarState.stormFramePositions.length) return;
+  radarState.stormFramePositions.forEach(function (entry) {
+    var position = stormPositionAtTime(entry, frameTimeMs);
+    if (position && entry.marker) entry.marker.setLatLng(position);
+  });
 }
 
 function setRadarStormStatus(message, tone) {
@@ -7832,13 +8145,16 @@ function renderRadarStormLegend(items) {
   if (hidden) legend.removeAttribute('open');
 }
 
-function renderStormOverlays(alerts, cells) {
+function renderStormOverlays(alerts, cells, historySnapshots) {
   if (!radarState.map) return;
   clearStormTrackLayer();
   radarState.stormAlerts = (alerts || []).filter(stormAlertInDomain);
   radarState.stormCells = dedupeRadarStormCells(
     (cells || []).map(function (feature) { return parseIemStormCell(feature, Date.now()); }).filter(Boolean)
   );
+  // Defaults to the last-fetched history so every existing call site keeps working unchanged;
+  // callers that have fresher snapshots on hand (or none, e.g. tests) can pass them directly.
+  var snapshots = historySnapshots || (typeof state !== 'undefined' && state.stormCellHistorySnapshots) || [];
   var mapBounds = radarState.map.getBounds();
   var visibleDomain = { south: mapBounds.getSouth(), west: mapBounds.getWest(), north: mapBounds.getNorth(), east: mapBounds.getEast() };
   var displayedStormCells = selectRadarStormCells(radarState.stormCells, visibleDomain, 4);
@@ -7849,6 +8165,7 @@ function renderStormOverlays(alerts, cells) {
     return;
   }
   var warningGroup = L.layerGroup(), cellGroup = L.layerGroup(), warningMotionCount = 0, allBounds = [];
+  var framePositions = [];
   radarState.stormAlerts.forEach(function (feature) {
     var color = warningColorForEvent(feature.properties && feature.properties.event);
     var projection = buildStormProjection(feature);
@@ -7860,23 +8177,37 @@ function renderStormOverlays(alerts, cells) {
     }
     if (projection) {
       warningMotionCount += 1;
-      projection.tracks.forEach(function (track, trackIndex) {
-        L.polyline(track, { color: color, weight: 2, opacity: 0.9, dashArray: '6 6' }).bindPopup(popup).addTo(warningGroup);
-        track.forEach(function (point, pointIndex) {
-          allBounds.push(point);
-          if (trackIndex === 0 && pointIndex > 0) {
-            L.circleMarker(point, { radius: 3, color: color, weight: 1.5, fillColor: color, fillOpacity: 0.9 })
-              .bindTooltip(fmtTime(projection.times[pointIndex]), { permanent: true, direction: 'right', className: 'storm-time-label' }).addTo(warningGroup);
-          }
-        });
+      // Single centroid-anchored track (see buildStormProjection) — no more per-vertex loop,
+      // so every point along it (not just a first-track special case) gets a tooltip.
+      L.polyline(projection.track, { color: color, weight: 2, opacity: 0.9, dashArray: '6 6' }).bindPopup(popup).addTo(warningGroup);
+      projection.track.forEach(function (point, pointIndex) {
+        allBounds.push(point);
+        if (pointIndex === 0) return;
+        var isEndpoint = pointIndex === projection.track.length - 1;
+        L.circleMarker(point, { radius: 3, color: color, weight: 1.5, fillColor: color, fillOpacity: 0.9 })
+          .bindTooltip(fmtTime(projection.times[pointIndex]), { permanent: isEndpoint, direction: 'right', className: 'storm-time-label' }).addTo(warningGroup);
+      });
+      // Animated position marker (smaller, warning color) — the track/tick geometry above
+      // stays put; only this marker moves as the radar frame time changes.
+      var warningMarker = L.circleMarker(projection.track[0], { radius: 3.5, color: color, weight: 1.5, fillColor: color, fillOpacity: 0.95 }).addTo(warningGroup);
+      framePositions.push({
+        marker: warningMarker,
+        historyPoints: [{ ms: projection.motion.observedMs, lat: projection.origin[0], lon: projection.origin[1] }],
+        times: projection.times, track: projection.track, anchorMs: projection.motion.observedMs
       });
     }
   });
 
   displayedStormCells.forEach(function (cell) {
-    var projection = buildRadarCellProjection(cell);
-    var popup = radarCellPopupHtml(cell);
+    var history = buildStormCellHistory(cell, snapshots);
+    var motion = resolveStormCellMotion(cell, history);
+    var projection = buildRadarCellProjection(cell, motion);
+    var popup = radarCellPopupHtml(cell, motion);
     var cellTrackColor = resolvedTheme() === 'dark' ? '#f8fafc' : '#084c61';
+    if (history.length > 1) {
+      // Observed motion so far, drawn behind the forecast line: thinner, solid, translucent.
+      L.polyline(history.map(function (p) { return [p.lat, p.lon]; }), { color: cellTrackColor, weight: 1.3, opacity: 0.45 }).addTo(cellGroup);
+    }
     L.polyline(projection.track, { color: cellTrackColor, weight: 2.4, opacity: 0.96 })
       .bindPopup(popup).addTo(cellGroup);
     L.circleMarker(projection.track[0], {
@@ -7886,16 +8217,26 @@ function renderStormOverlays(alerts, cells) {
       allBounds.push(point);
       if (pointIndex === 0) return;
       var isEndpoint = pointIndex === projection.track.length - 1;
-      L.polyline(buildStormTrackTick(point, cell.bearingDeg, 0.7), { color: cellTrackColor, weight: 2, opacity: 0.96 })
+      // Whisker width is the 99%-probability diameter for this lead time, scaled by how
+      // consistent the fitted track has been — narrower when steady, wider when erratic.
+      var leadMinutes = (projection.times[pointIndex] - cell.validMs) / 60000;
+      var halfWidthNm = stormTrackDiameterNm(motion.sigmaNm, leadMinutes) / 2;
+      L.polyline(buildStormTrackTick(point, motion.bearingDeg, halfWidthNm), { color: cellTrackColor, weight: 2, opacity: 0.96 })
         .bindPopup(popup).addTo(cellGroup);
       L.circleMarker(point, { radius: 1.8, color: cellTrackColor, weight: 1, fillColor: cellTrackColor, fillOpacity: 1 })
         .bindTooltip(fmtTime(projection.times[pointIndex]), { permanent: isEndpoint, direction: 'right', className: 'storm-time-label' }).addTo(cellGroup);
     });
+    // Animated position marker — separate from the static origin marker/tooltip above.
+    var cellMarker = L.circleMarker(projection.track[0], { radius: 5, color: cellTrackColor, weight: 1, fillColor: cellTrackColor, fillOpacity: 1 }).addTo(cellGroup);
+    framePositions.push({ marker: cellMarker, historyPoints: history, times: projection.times, track: projection.track, anchorMs: cell.validMs });
   });
 
   if (radarState.stormAlerts.length) radarState.warningLayer = warningGroup.addTo(radarState.map);
   if (displayedStormCells.length) radarState.stormCellLayer = cellGroup.addTo(radarState.map);
   if (allBounds.length) radarState.stormTrackBounds = L.latLngBounds(allBounds);
+  radarState.stormFramePositions = framePositions;
+  var currentFrame = radarState.frames && radarState.frames[radarState.index];
+  updateStormFrameMarkers(currentFrame ? currentFrame.timeMs : Date.now());
   var hasStorms = radarState.stormAlerts.length || displayedStormCells.length;
   if (!hasStorms) {
     renderRadarStormLegend([]);
@@ -8016,6 +8357,7 @@ var state = {
   currentsSlackRaw: null, currentsCurveRaw: null, tidesRaw: null,
   levelPredictedRaw: null, levelObservedRaw: null,
   gridpointRaw: null, hourlyRaw: null, alertsRaw: null, stormAlertsRaw: null, stormCellsRaw: null, marineTextRaw: null,
+  stormCellHistorySnapshots: [],
   observedRaw: null, windModelsRaw: null, windModelSeries: null, windModel: 'nws',
   obsWindStation: 'robbinsReef', obsWindWeatherflowRaw: null, obsWindWeatherflowHistory: [],
   obsCurrentStation: 'hudson', kvkCurrentRaw: null, kvkCurrentHistoryRaw: [], newarkCurrentRaw: null,
@@ -8471,6 +8813,12 @@ function loadStormCells() {
   }).then(function () {
     radarState.stormCellFeedAvailable = true;
     renderStormOverlays(state.stormAlertsRaw || [], state.stormCellsRaw || []);
+    // History is best-effort and strictly supplementary: the overlay above already rendered
+    // at "zero history" quality, and this only sharpens the SCIT fit/whiskers once it resolves.
+    fetchStormCellHistory(Date.now()).then(function (snapshots) {
+      state.stormCellHistorySnapshots = snapshots;
+      renderStormOverlays(state.stormAlertsRaw || [], state.stormCellsRaw || []);
+    });
     return true;
   }).catch(function () {
     radarState.stormCellFeedAvailable = false;

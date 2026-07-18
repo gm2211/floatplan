@@ -47,14 +47,17 @@ assert.deepEqual(
   [0, 15, 30, 40],
   'projection must use 15-minute steps and include the exact expiration'
 );
-assert.equal(projection.tracks.length, 2);
-assert.equal(projection.tracks[0].length, 4);
-assert.ok(projection.tracks[0][1][1] < motion.locations[0][1], '090° FROM motion must project west');
+// One centroid-anchored track per warning now (declutter: no more one track per
+// motion-description vertex) — origin is the mean of the polygon's exterior-ring vertices,
+// not motion.locations[0]. For this triangular test polygon that mean is [40.6, -74.15].
+assert.deepEqual(projection.origin.map(n => Math.round(n * 100) / 100), [40.6, -74.15]);
+assert.equal(projection.track.length, 4);
+assert.ok(projection.track[1][1] < projection.origin[1], '090° FROM motion must project west');
 
-const firstStep = projection.tracks[0][1];
-const meanLatRad = ((motion.locations[0][0] + firstStep[0]) / 2) * Math.PI / 180;
-const northNm = (firstStep[0] - motion.locations[0][0]) * 60;
-const eastNm = (firstStep[1] - motion.locations[0][1]) * 60 * Math.cos(meanLatRad);
+const firstStep = projection.track[1];
+const meanLatRad = ((projection.origin[0] + firstStep[0]) / 2) * Math.PI / 180;
+const northNm = (firstStep[0] - projection.origin[0]) * 60;
+const eastNm = (firstStep[1] - projection.origin[1]) * 60 * Math.cos(meanLatRad);
 assert.ok(Math.abs(Math.hypot(northNm, eastNm) - 3.75) < 0.03, '15 kt for 15 minutes must project 3.75 nm');
 
 const malformed = structuredClone(alert);
@@ -227,9 +230,16 @@ assert.ok(
   html.includes('{ permanent: isEndpoint, direction: \'right\', className: \'storm-time-label\' }'),
   'only the +60-minute radar-cell label may be permanent; intermediate tick times stay hover-only'
 );
+// Declutter: per-vertex parallel warning tracks are gone in favor of one centroid-anchored
+// track per warning (buildStormProjection.origin / .track), same endpoint-only-permanent
+// labeling rule as radar-cell tracks.
 assert.ok(
-  html.includes("if (trackIndex === 0 && pointIndex > 0)"),
-  'official NWS warning-motion rendering must remain independent from radar-cell decluttering'
+  !stormCode.includes('projection.tracks.forEach'),
+  'per-vertex parallel warning tracks must be removed'
+);
+assert.ok(
+  stormCode.includes('function polygonCentroid('),
+  'warning tracks must anchor at a computed polygon centroid, not per-vertex motion locations'
 );
 
 console.log('warning and radar-cell storm track assertions passed');
