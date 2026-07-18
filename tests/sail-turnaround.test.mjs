@@ -281,6 +281,18 @@ assert.ok(failedTrip.turnMs > departureMs, 'best-effort voyage must include a re
 assert.notEqual(failedTrip.path.at(-1).mode, 'overdue',
   'unsafe diagnostic must keep integrating through return time instead of parking offshore');
 
+// Screenshot regression: the 0.12 nm capture threshold was paired with one-decimal display,
+// so this real 0.131 nm miss was misleadingly rendered as 0.1 nm. Keep the deterministic
+// near-threshold case to protect the distinction between solver state and display precision.
+const nearThresholdMiss = computeSailSim(
+  departureMs, 120 * minute, [{ ms: departureMs, v: -4 }],
+  series(165), series(10), 5, { initialHeading: 'N' }, false, 6
+);
+assert.equal(nearThresholdMiss.converged, false);
+assert.equal(nearThresholdMiss.turnReason, 'missed_mooring');
+assert.ok(nearThresholdMiss.turnErrNm > SAIL_HOME_TOLERANCE_NM && nearThresholdMiss.turnErrNm < 0.15,
+  `fixture should remain just outside the capture radius (${nearThresholdMiss.turnErrNm.toFixed(3)} nm)`);
+
 // The entrance-current prediction is phase guidance, not a literal Pier 25 velocity.
 assert.ok(harborCurrentFactor(PIER25.lat) < harborCurrentFactor(40.67));
 assert.equal(harborCurrentAt([{ ms: 0, v: 2 }], 0, PIER25.lat), 2 * harborCurrentFactor(PIER25.lat));

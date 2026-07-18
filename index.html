@@ -3347,8 +3347,8 @@ function pathUntilHome(path, targetLat, targetCrossNm, toleranceNm) {
 
 // The harbor integrator resolves arrivals to a small mooring circle. Finish the residual
 // distance as an explicit low-speed straight approach instead of teleporting the boat or
-// claiming it is moored tens of metres away. The 15-minute reserve easily contains the
-// worst-case 0.05 nm approach at 2 kt SOG.
+// claiming it is moored inside the capture circle. The solver reserves enough time before
+// arriveByMs for the full 0.12 nm approach at 2 kt SOG.
 function completeMooringApproach(path, targetLat, targetCrossNm, deadlineMs, curvePoints, windDirSeries, windSpeedSeries) {
   if (!path || !path.length) return { path: [], arrivalMs: null, converged: false };
   var out = path.map(function (p) { return Object.assign({}, p); });
@@ -4404,6 +4404,18 @@ function clearSailSimBody() {
   $('sailSimPlayBtn').textContent = '▶';
 }
 
+function formatSailMissNm(value) {
+  var nm = Math.max(0, Number(value) || 0);
+  if (nm < 1) return Math.max(0.01, Math.round(nm * 100) / 100).toFixed(2);
+  return round1(nm).toFixed(1);
+}
+
+function sailSimMissWarning(sim) {
+  return 'No computed route is moored by ' + fmtTime(sim.arriveByMs) + ' (15-minute reserve). At ' +
+    fmtTime(sim.returnMs) + ', this track ends ' + formatSailMissNm(sim.turnErrNm) +
+    ' nm from Pier 25. Allow more time or shift departure.';
+}
+
 function showSailSimUnavailable(message) {
   state.sailSim = null;
   clearSailSimBody();
@@ -4446,8 +4458,7 @@ function setupSailSimControls(sim) {
   if (autoPlay) sailSimUI.rafId = requestAnimationFrame(sailSimTick);
 
   if (sim.converged === false) {
-    $('sailSimWarning').textContent = 'Unsafe plan: the closest computed attempt misses Pier 25 by ' +
-      round1(sim.turnErrNm || 0) + ' nm at ' + fmtTime(sim.returnMs) + '. Shorten the sail or shift departure.';
+    $('sailSimWarning').textContent = sailSimMissWarning(sim);
     showEl($('sailSimWarning'));
   } else {
     hideEl($('sailSimWarning'));
@@ -4729,7 +4740,7 @@ function renderSailSimReadouts(sim, atMs) {
   var furthestLabel;
   if (sim.converged === false) {
     furthestLabel = sim.furthestLabel + ' · best-effort turn ' + fmtTime(sim.turnMs) +
-      ' · misses Pier 25 by ' + round1(sim.turnErrNm || 0) + ' nm at ' + fmtTime(sim.returnMs);
+      ' · ends ' + formatSailMissNm(sim.turnErrNm) + ' nm from Pier 25 at ' + fmtTime(sim.returnMs);
   } else {
     furthestLabel = sim.furthestLabel + (sim.boundaryArrivalMs != null
       ? ' · club limit, turned immediately ' + fmtTime(sim.turnMs)
