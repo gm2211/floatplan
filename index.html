@@ -7851,12 +7851,31 @@ function loadCurrentsSlack() {
       return false;
     });
 }
+
+function currentCurveCoversWindow(points, departureMs, returnMs) {
+  if (!points || !points.length || !isFinite(departureMs) || !isFinite(returnMs)) return false;
+  var minMs = Infinity, maxMs = -Infinity;
+  points.forEach(function (point) {
+    if (!point || !isFinite(point.ms)) return;
+    minMs = Math.min(minMs, point.ms);
+    maxMs = Math.max(maxMs, point.ms);
+  });
+  return minMs <= departureMs && maxMs >= returnMs;
+}
+
 function loadCurrentsCurve() {
   return loadSource('currentsCurve', function () { return fetchCurrentsCurve(state.departureMs); }, 'timelineCard', function (data) {
     state.currentsCurveRaw = data;
     state.curvePoints = buildCurvePoints(data);
   }).then(function () { clearCardError('timelineError'); return true; })
-    .catch(function (err) { showCardError('timelineError', 'Currents (curve): ' + err.message, loadCurrentsCurve); return false; });
+    .catch(function (err) {
+      if (currentCurveCoversWindow(state.curvePoints, state.departureMs, getReturnMs())) {
+        clearCardError('timelineError');
+      } else {
+        showCardError('timelineError', prefixedErrorMessage('Currents (curve)', err), loadCurrentsCurve);
+      }
+      return false;
+    });
 }
 function loadWater() {
   return loadSource('water', function () { return fetchWaterGroup(state.departureMs); }, 'timelineCard', function (data) {
