@@ -248,9 +248,13 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
   border-radius: 999px; padding: 2px 8px; margin-bottom: 6px;
 }
 .card-error {
-  background: var(--red-bg); color: var(--red); border-radius: 8px; padding: 10px; font-size: 13px; margin-top: 8px;
+  min-height: 30px; box-sizing: border-box; display: flex; align-items: center; gap: 8px;
+  background: color-mix(in srgb, var(--yellow-bg) 56%, transparent); color: var(--ink-dim);
+  border: 1px solid color-mix(in srgb, var(--yellow) 28%, var(--border)); border-radius: 7px;
+  padding: 5px 8px; font-size: 11px; line-height: 1.35; margin-top: 8px;
 }
-.card-error button { margin-top: 6px; }
+.card-error-message { flex: 1 1 auto; min-width: 0; }
+.card-error button { flex: 0 0 auto; min-height: 24px; padding: 2px 7px; margin: 0; font-size: 10.5px; }
 .direction-status {
   min-height: 17px; margin-top: 6px; color: var(--ink-dim); font-size: 11px;
   line-height: 1.35;
@@ -2626,6 +2630,11 @@ function computeVerdict(input) {
   var limits = input.limits;
   var reasons = [];
   var windLevel = 'GO';
+  var availability = input.availability || {};
+  var unavailable = [];
+  if (availability.wind === false) unavailable.push('NWS wind');
+  if (availability.hourly === false) unavailable.push('hourly forecast');
+  if (availability.alerts === false) unavailable.push('advisories');
 
   if (maxSustainedKt != null) {
     if (maxSustainedKt > limits.noGoSustained) {
@@ -2668,11 +2677,15 @@ function computeVerdict(input) {
   }
 
   var level = worseLevel(windLevel, alertLevel);
+  if (unavailable.length) {
+    level = worseLevel(level, 'CAUTION');
+    reasons.unshift('Data unavailable: ' + unavailable.join(', ') + ' — showing last-known information where available');
+  }
   if (!reasons.length) {
     reasons.push('Sustained ' + (maxSustainedKt != null ? round1(maxSustainedKt) : 'n/a') +
       ' kt, gusts ' + (maxGustKt != null ? round1(maxGustKt) : 'n/a') + ' kt — within limits');
   }
-  return { level: level, reasons: reasons };
+  return { level: level, reasons: reasons, dataUnavailable: unavailable.length > 0 };
 }
 
 function alertEndMs(props) {
@@ -3767,7 +3780,9 @@ var VERDICT_PILL_LABELS = { GO: 'GO', REEF: 'REEF', CAUTION: 'CAUTION', NOGO: 'N
 function renderVerdict(verdict, windowStart, windowEnd) {
   var banner = $('verdictBanner');
   banner.className = 'verdict-banner ' + VERDICT_CLASSES[verdict.level];
-  setText('verdictLabel', VERDICT_LABELS[verdict.level]);
+  setText('verdictLabel', verdict.dataUnavailable && verdict.level === 'CAUTION'
+    ? 'CAUTION — DATA UNAVAILABLE'
+    : VERDICT_LABELS[verdict.level]);
   setText('verdictSub', 'Window: ' + fmtTime(windowStart) + '–' + fmtTime(windowEnd));
   var pill = $('verdictPill');
   if (pill) {
@@ -6827,12 +6842,16 @@ function severityBadgeClass(sev) {
   return 'badge-' + (SEVERITY_CLASS_WHITELIST[key] || 'unknown');
 }
 
-function renderAdvisories(alerts, departureMs, returnMs) {
+function renderAdvisories(alerts, departureMs, returnMs, available) {
   var list = $('advisoriesList');
   // Red dot on the mobile Alerts tab whenever any advisory is active — the tab shell hides
   // this card on other tabs, so the badge is what says "go look".
   var tabBadge = $('alertsTabBadge');
   if (tabBadge) tabBadge.classList.toggle('hidden', !alerts || !alerts.length);
+  if (available === false && (!alerts || !alerts.length)) {
+    list.innerHTML = '<div class="sub">Advisory status unavailable · retrying automatically</div>';
+    return;
+  }
   if (!alerts || !alerts.length) {
     list.innerHTML = '<div class="no-advisories">&#10003; No active advisories</div>';
     return;
@@ -6840,7 +6859,9 @@ function renderAdvisories(alerts, departureMs, returnMs) {
   var sorted = alerts.slice().sort(function (a, b) {
     return severityRank(b.properties.severity) - severityRank(a.properties.severity);
   });
-  list.innerHTML = sorted.map(function (a, idx) {
+  list.innerHTML = (available === false
+    ? '<div class="sub">Advisory refresh unavailable · showing saved alerts</div>'
+    : '') + sorted.map(function (a, idx) {
     var p = a.properties;
     var inWindow = alertOverlapsWindow(a, departureMs, returnMs);
     var sevClass = severityBadgeClass(p.severity);
@@ -7903,15 +7924,55 @@ function setStormOverlayEnabled(enabled) {
 
 /* ============================== Card error / toast helpers ============================== */
 
-function showCardError(elId, message, retryFn) {
-  var el = $(elId);
-  el.innerHTML = escapeHtml(message) + (retryFn ? '<br><button class="btn-secondary card-retry-btn">Retry</button>' : '');
-  showEl(el);
-  if (retryFn) {
-    el.querySelector('.card-retry-btn').addEventListener('click', function () { hideEl(el); retryFn(); });
+var CARD_RETRY_DELAYS_MS = [30000, 60000, 120000];
+var cardRecoveryState = {};
+function cardRecoveryFor(elId) {
+  if (!cardRecoveryState[elId]) cardRecoveryState[elId] = { timer: null, attempt: 0, retryFn: null };
+  return cardRecoveryState[elId];
+}
+function cancelCardRecovery(elId, resetAttempt) {
+  var recovery = cardRecoveryState[elId];
+  if (!recovery) return;
+  if (recovery.timer != null) clearTimeout(recovery.timer);
+  recovery.timer = null;
+  if (resetAttempt) {
+    recovery.attempt = 0;
+    recovery.retryFn = null;
   }
 }
-function clearCardError(elId) { hideEl($(elId)); }
+function runCardRecovery(elId, retryFn) {
+  cancelCardRecovery(elId, false);
+  return Promise.resolve().then(retryFn).catch(function () { return false; });
+}
+function scheduleCardRecovery(elId, retryFn) {
+  var recovery = cardRecoveryFor(elId);
+  recovery.retryFn = retryFn;
+  if (recovery.timer != null || recovery.attempt >= CARD_RETRY_DELAYS_MS.length) return false;
+  var delay = CARD_RETRY_DELAYS_MS[recovery.attempt++];
+  recovery.timer = setTimeout(function () {
+    recovery.timer = null;
+    runCardRecovery(elId, retryFn);
+  }, delay);
+  return true;
+}
+function showCardError(elId, message, retryFn, options) {
+  var el = $(elId);
+  if (!el) return;
+  options = options || {};
+  el.setAttribute('role', 'status');
+  el.setAttribute('aria-live', 'polite');
+  el.innerHTML = '<span class="card-error-message">' + escapeHtml(message) + '</span>' +
+    (retryFn ? '<button type="button" class="btn-secondary card-retry-btn">Retry now</button>' : '');
+  showEl(el);
+  if (retryFn) {
+    if (options.autoRetry !== false) scheduleCardRecovery(elId, retryFn);
+    el.querySelector('.card-retry-btn').addEventListener('click', function () { runCardRecovery(elId, retryFn); });
+  } else cancelCardRecovery(elId, true);
+}
+function clearCardError(elId) {
+  cancelCardRecovery(elId, true);
+  hideEl($(elId));
+}
 
 function prefixedErrorMessage(prefix, err) {
   var message = (err && err.message) ? err.message : String(err || 'Unknown error');
@@ -7954,6 +8015,24 @@ var state = {
   pendingSharedPlan: null, sharedPlanBaseline: null,
   lastGoodUpdateMs: null
 };
+
+// Cached payloads preserve continuity, but a failed live refresh is not evidence that the
+// sail window remains safe. These critical NWS feeds independently gate a green verdict.
+var criticalSourceHealth = { wind: 'loading', hourly: 'loading', alerts: 'loading' };
+function criticalDataAvailability(departureMs, returnMs) {
+  var windCoversWindow = !isFinite(departureMs) || !isFinite(returnMs) ||
+    maxInWindow(state.gridSeries && state.gridSeries.windSpeedKt, departureMs, returnMs) != null;
+  var hourlyCoversWindow = !isFinite(departureMs) || !isFinite(returnMs) || (state.hourlyRaw || []).some(function (period) {
+    var startMs = new Date(period.startTime).getTime();
+    var endMs = period.endTime ? new Date(period.endTime).getTime() : startMs + 3600000;
+    return isFinite(startMs) && endMs > departureMs && startMs < returnMs;
+  });
+  return {
+    wind: criticalSourceHealth.wind === 'available' && windCoversWindow,
+    hourly: criticalSourceHealth.hourly === 'available' && hourlyCoversWindow,
+    alerts: criticalSourceHealth.alerts === 'available'
+  };
+}
 
 var CURRENT_RETRY_DELAYS_MS = [30000, 60000, 120000];
 var currentRetryState = {
@@ -8169,7 +8248,8 @@ function loadCurrentsCurve() {
       if (currentCurveCoversWindow(state.curvePoints, state.departureMs, getReturnMs())) {
         clearCardError('timelineError');
       } else {
-        showCardError('timelineError', prefixedErrorMessage('Currents (curve)', err), loadCurrentsCurve);
+        showCardError('timelineError', 'Current forecast unavailable · retrying automatically', loadCurrentsCurve,
+          { autoRetry: false });
       }
       scheduleSourceRecompute();
       return false;
@@ -8259,8 +8339,9 @@ function loadGridpoint() {
   return loadSource('gridpoint', function () { return fetchGridpoint(); }, 'windCard', function (data) {
     state.gridpointRaw = data;
     state.gridSeries = parseGridpointSeries(data);
-  }).then(function () { clearCardError('windError'); return true; })
+  }).then(function () { criticalSourceHealth.wind = 'available'; clearCardError('windError'); return true; })
     .catch(function (err) {
+      criticalSourceHealth.wind = 'unavailable';
       showCardError('windError', 'Gridpoint unavailable, using hourly text as fallback: ' + err.message, loadGridpoint);
       recomputeWindowDependentUI();
       return false;
@@ -8324,14 +8405,24 @@ function loadWindModels() {
 function loadHourly() {
   return loadSource('hourly', function () { return fetchHourly(); }, 'weatherCard', function (data) {
     state.hourlyRaw = data;
-  }).then(function () { clearCardError('weatherError'); return true; })
-    .catch(function (err) { showCardError('weatherError', 'Hourly forecast: ' + err.message, loadHourly); return false; });
+  }).then(function () { criticalSourceHealth.hourly = 'available'; clearCardError('weatherError'); return true; })
+    .catch(function () {
+      criticalSourceHealth.hourly = 'unavailable';
+      showCardError('weatherError', 'Hourly forecast unavailable · showing saved data when available', loadHourly);
+      scheduleSourceRecompute();
+      return false;
+    });
 }
 function loadAlerts() {
   return loadSource('alerts', function () { return fetchAlertsMerged(); }, 'advisoriesCard', function (data) {
     state.alertsRaw = data;
-  }).then(function () { clearCardError('advisoriesError'); return true; })
-    .catch(function (err) { showCardError('advisoriesError', 'Alerts: ' + err.message, loadAlerts); return false; });
+  }).then(function () { criticalSourceHealth.alerts = 'available'; clearCardError('advisoriesError'); return true; })
+    .catch(function () {
+      criticalSourceHealth.alerts = 'unavailable';
+      showCardError('advisoriesError', 'Advisory feed unavailable · showing saved alerts when available', loadAlerts);
+      scheduleSourceRecompute();
+      return false;
+    });
 }
 function loadStormAlerts() {
   radarState.stormFeedAvailable = null;
@@ -8424,7 +8515,8 @@ function recomputeWindowDependentUI() {
 
   var verdict = computeVerdict({
     maxSustainedKt: maxSustainedKt, maxGustKt: maxGustKt,
-    thunderHourLabels: thunderHourLabels, alertsInWindow: alertsInWindow, limits: limits
+    thunderHourLabels: thunderHourLabels, alertsInWindow: alertsInWindow, limits: limits,
+    availability: criticalDataAvailability(departureMs, returnMs)
   });
   state.lastVerdict = verdict;
   renderVerdict(verdict, departureMs, returnMs);
@@ -8463,7 +8555,7 @@ function recomputeWindowDependentUI() {
   renderTimelineSvg(state.curvePoints, state.slackEvents, state.levelPredictedPoints, state.levelObservedPoints, state.hiloEvents, departureMs, returnMs, nowMs);
   renderWindCard(state.hourlyRaw, departureMs, returnMs, limits);
   renderWeatherCard(state.hourlyRaw, state.gridSeries, departureMs, returnMs, limits);
-  renderAdvisories(state.alertsRaw, departureMs, returnMs);
+  renderAdvisories(state.alertsRaw, departureMs, returnMs, criticalDataAvailability(departureMs, returnMs).alerts);
   renderStormOverlays(state.stormAlertsRaw, state.stormCellsRaw);
   renderObsWindRow(limits);
   renderObsCurrentRow();
@@ -8476,15 +8568,20 @@ function recomputeWindowDependentUI() {
 }
 
 // Resolves true if at least one source came back fresh this round, false only on a total
-// failure (every source failed) — see updateLastUpdatedDisplay. Every loadX() above already
-// resolves true/false rather than throwing, so Promise.all (not allSettled) is safe here.
+// failure (every source failed) — see updateLastUpdatedDisplay. The wrapper catches both
+// synchronous loader bugs and rejected promises so one source cannot abort the refresh sweep.
+function invokeSourceLoader(loader) {
+  return Promise.resolve().then(loader).catch(function () { return false; });
+}
 function loadAll() {
-  return Promise.all([
-    loadCurrentsSlack(), loadCurrentsCurve(), loadWater(), loadGridpoint(),
-    loadHourly(), loadAlerts(), loadStormAlerts(), loadStormCells(), loadMarineText(), loadRadar(true), loadObserved(),
-    loadKvkCurrent(), loadKvkCurrentHistory(), loadNewarkCurrent(), loadNarrowsCurrent(),
-    loadNarrowsCurrentHistory(), loadWillyWall()
-  ]).then(function (results) {
+  var loaders = [
+    loadCurrentsSlack, loadCurrentsCurve, loadWater, loadGridpoint,
+    loadHourly, loadAlerts, loadStormAlerts, loadStormCells, loadMarineText,
+    function () { return loadRadar(true); }, loadObserved,
+    loadKvkCurrent, loadKvkCurrentHistory, loadNewarkCurrent, loadNarrowsCurrent,
+    loadNarrowsCurrentHistory, loadWillyWall
+  ];
+  return Promise.all(loaders.map(invokeSourceLoader)).then(function (results) {
     return results.some(function (ok) { return ok === true; });
   });
 }
@@ -9763,7 +9860,8 @@ function buildPlanSnapshotForWindow(departureMs, durationHours) {
   var limits = (state.settings && state.settings.limits) || DEFAULT_LIMITS;
   var verdict = computeVerdict({
     maxSustainedKt: maxSustainedKt, maxGustKt: maxGustKt,
-    thunderHourLabels: thunderHourLabels, alertsInWindow: alertsInWindow, limits: limits
+    thunderHourLabels: thunderHourLabels, alertsInWindow: alertsInWindow, limits: limits,
+    availability: criticalDataAvailability(departureMs, returnMs)
   });
   return {
     savedAtMs: Date.now(),
@@ -9883,12 +9981,17 @@ function showChangedBanner(changes) {
   }
 }
 
-// anySucceeded: true/undefined => advance the "last good" timestamp and show it; explicit
-// false (a total loadAll() failure — every source failed) => leave the last-good timestamp
-// alone and show a distinct failure message instead of silently advancing past stale data.
+// Only a refresh with every safety-critical feed available advances the "last good"
+// timestamp. Optional-source success must not make a partial refresh look fully healthy.
 function updateLastUpdatedDisplay(anySucceeded) {
   if (anySucceeded === false) {
     setText('lastUpdated', 'refresh failed ' + fmtClock(Date.now()) + ' — showing last good data');
+    return;
+  }
+  var criticalHealthy = criticalSourceHealth.wind === 'available' &&
+    criticalSourceHealth.hourly === 'available' && criticalSourceHealth.alerts === 'available';
+  if (!criticalHealthy) {
+    setText('lastUpdated', 'partial refresh ' + fmtClock(Date.now()) + ' — critical data unavailable');
     return;
   }
   state.lastGoodUpdateMs = Date.now();

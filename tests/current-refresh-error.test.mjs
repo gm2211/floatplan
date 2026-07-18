@@ -51,7 +51,7 @@ cleared.length = 0;
 assert.equal(await context.loadCurrentsCurve(), false);
 assert.deepEqual(shown, [{
   id: 'timelineError',
-  message: 'Currents (curve): Currents predictions are not available from the requested station.'
-}], 'missing-window cache still exposes a retryable, singly-prefixed error');
+  message: 'Current forecast unavailable · retrying automatically'
+}], 'missing-window cache keeps the chart shell and exposes compact recovery status');
 
 console.log('Current refresh error assertions passed');
