@@ -238,6 +238,7 @@ assert.equal(calmSample.throughWaterKt, 0, 'calm wind cannot propel the sailboat
 const missingWindSample = sailingSample(0, PIER25.lat, 1, 0, [], [], 5, false);
 assert.equal(missingWindSample.courseType, 'infeasible');
 assert.equal(missingWindSample.throughWaterKt, 0, 'missing wind must not invent a healthy reach');
+assert.equal(missingWindSample.windAngleDeg, null, 'missing wind must not be coerced into a north-wind angle');
 assert.equal(sailingSample(0, PIER25.lat, 1, 0, series(90), [], 5, false).courseType, 'infeasible',
   'direction without speed is not a usable sailing forecast');
 assert.equal(sailingSample(0, PIER25.lat, 1, 0, [], series(12), 5, false).courseType, 'infeasible',

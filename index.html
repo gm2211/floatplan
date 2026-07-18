@@ -1706,6 +1706,15 @@ function computeDefaultDepartureMs() {
   return Math.ceil(minAllowed / THIRTY_MIN) * THIRTY_MIN;
 }
 
+// A saved window is useful for a short post-sail review, but carrying yesterday's plan
+// into a new visit eventually falls outside the hourly NWS forecast. Reset it before the
+// simulator can mistake missing wind for a zero-speed boat drifting on current alone.
+var SAVED_SAIL_WINDOW_GRACE_MS = 6 * 3600000;
+function savedSailWindowIsUsable(departureMs, durationHours, nowMs) {
+  if (!isFinite(departureMs) || !isFinite(durationHours) || durationHours <= 0) return false;
+  return departureMs + durationHours * 3600000 >= nowMs - SAVED_SAIL_WINDOW_GRACE_MS;
+}
+
 // NOAA CO-OPS time_zone=gmt strings are UTC but lack an offset suffix
 // ("2026-07-13 06:06"). new Date() on the raw string is Invalid Date in Safari.
 function parseNoaaGmt(str) {
@@ -2968,7 +2977,7 @@ function sailingSample(atMs, lat, headingSign, side, windDirSeries, windSpeedSer
   return {
     vmg: vmg, lateralKt: lateralKt, throughWaterKt: throughWaterKt,
     courseType: strategy.type, side: activeSide, windKt: windKt, windDir: windDir,
-    windAngleDeg: angularDistance(windDir, headingDeg),
+    windAngleDeg: strategy.windAngleDeg == null ? null : angularDistance(windDir, headingDeg),
     strategyReason: workingReach ? reachPair.reason : strategy.reason, strategyHeadings: strategyHeadings,
     workingReach: workingReach,
     headingDeg: headingDeg, desiredBearing: desiredBearing, mode: 'sail'
@@ -4395,6 +4404,24 @@ function clearSailSimBody() {
   $('sailSimPlayBtn').textContent = '▶';
 }
 
+function showSailSimUnavailable(message) {
+  state.sailSim = null;
+  clearSailSimBody();
+  clearCardError('sailSimError');
+  $('sailSimWarning').textContent = message;
+  showEl($('sailSimWarning'));
+}
+
+function sailWindowHasWindCoverage(windDirSeries, windSpeedSeries, departureMs, returnMs) {
+  if (!windDirSeries || !windDirSeries.length || !windSpeedSeries || !windSpeedSeries.length) return false;
+  for (var atMs = departureMs; atMs < returnMs; atMs += 3600000) {
+    if (nearestSeriesValue(windDirSeries, atMs) == null || nearestSeriesValue(windSpeedSeries, atMs) == null) return false;
+  }
+  var lastSampleMs = Math.max(departureMs, returnMs - 1);
+  return nearestSeriesValue(windDirSeries, lastSampleMs) != null &&
+    nearestSeriesValue(windSpeedSeries, lastSampleMs) != null;
+}
+
 function setupSailSimControls(sim) {
   var scrubber = $('sailSimScrubber');
   var playbackEndMs = sailPlaybackEndMs(sim);
@@ -4721,11 +4748,13 @@ function renderSailSimReadouts(sim, atMs) {
     else if (step.workingReach) courseLabel = 'Working reach · ' + (step.side < 0 ? 'port' : 'starboard') + ' leg';
     else if (step.courseType === 'tack') courseLabel = 'Beating · ' + (step.side < 0 ? 'port' : 'starboard') + ' tack';
     else if (step.courseType === 'jibe') courseLabel = 'Broad reach · ' + (step.side < 0 ? 'port' : 'starboard') + ' jibe';
+    else if (step.strategyReason === 'wind-unavailable') courseLabel = 'Forecast wind unavailable';
     else if (step.courseType === 'infeasible') courseLabel = 'No positive-progress sailing course';
     else courseLabel = 'Direct reach on river course';
   }
-  var vmgLabel = step && step.vmg != null ? round1(step.vmg) + ' kt' : '--';
-  var headingLabel = step && step.mode !== 'no-trip' && step.mode !== 'moored' && step.mode !== 'overdue' && isFinite(step.headingDeg)
+  var windUnavailable = step && step.strategyReason === 'wind-unavailable';
+  var vmgLabel = step && !windUnavailable && step.vmg != null ? round1(step.vmg) + ' kt' : '--';
+  var headingLabel = step && !windUnavailable && step.mode !== 'no-trip' && step.mode !== 'moored' && step.mode !== 'overdue' && isFinite(step.headingDeg)
     ? degToCompass(step.headingDeg) + ' ' + Math.round(normalizeBearing(step.headingDeg)) + '°'
     : '--';
   var completedManeuvers = sim.path.filter(function (p) { return p.ms <= atMs && p.maneuver; });
@@ -4745,13 +4774,12 @@ function renderSailSimReadouts(sim, atMs) {
   else if (step.mode === 'docking') strategyLabel = 'Low-speed mooring approach';
   else if (step.navigationAction === 'return-to-mooring') strategyLabel = 'Working reach · correcting toward mooring';
   else if (step.workingReach) strategyLabel = 'Working reach · ' + Math.round(SAIL_REACH_WEAVE_DEG) + '° course changes';
+  else if (step.strategyReason === 'wind-unavailable') strategyLabel = 'Forecast wind unavailable';
   else if (step.courseType === 'infeasible') strategyLabel = 'No positive-progress sailing course';
   else if (step.courseType === 'tack') {
     strategyLabel = tackCount + '/' + plannedTacks + ' tacks' + (strategyHeadingLabel ? ' · ' + strategyHeadingLabel : '');
   } else if (step.courseType === 'jibe') {
     strategyLabel = jibeCount + '/' + plannedJibes + ' jibes' + (strategyHeadingLabel ? ' · ' + strategyHeadingLabel : '');
-  } else if (step.strategyReason === 'wind-unavailable') {
-    strategyLabel = 'Direct course · wind direction unavailable';
   } else {
     strategyLabel = 'Direct reach · tacking is slower';
   }
@@ -4831,10 +4859,18 @@ function computeAndRenderSailSim() {
     showCardError('sailSimError', 'Sail simulator needs the currents curve and a direction recommendation — waiting on data.');
     return;
   }
+  if (!state.gridSeries) {
+    showSailSimUnavailable('Waiting for the NWS wind forecast.');
+    return;
+  }
   var boatSpeedKt = (state.settings && state.settings.boatSpeedKt) || DEFAULT_BOAT_SPEED_KT;
   var motorSpeedKt = (state.settings && state.settings.motorSpeedKt) || DEFAULT_MOTOR_SPEED_KT;
   var windDirSeries = (state.gridSeries && state.gridSeries.windDirection) || [];
   var windSpeedSeries = (state.gridSeries && state.gridSeries.windSpeedKt) || [];
+  if (!sailWindowHasWindCoverage(windDirSeries, windSpeedSeries, state.departureMs, getReturnMs())) {
+    showSailSimUnavailable('NWS wind forecast unavailable for this sail window. Choose a current or future departure.');
+    return;
+  }
   var sim = computeSailSim(state.departureMs, getReturnMs(), state.curvePoints, windDirSeries, windSpeedSeries, boatSpeedKt, state.lastDirectionRec, sailSimUI.motorFirstLeg, motorSpeedKt);
   if (!sim) {
     state.sailSim = null;
@@ -9912,8 +9948,13 @@ function init() {
   setText('monitorIntervalLabel', String(state.settings.monitorInterval));
 
   var savedPlanInput = lsGetJSON('plan', null, true);
-  state.departureMs = (savedPlanInput && savedPlanInput.departureMs) || computeDefaultDepartureMs();
   var savedDurationHours = (savedPlanInput && savedPlanInput.durationHours) || 3;
+  var savedDepartureMs = savedPlanInput && Number(savedPlanInput.departureMs);
+  var restoredExpiredWindow = !!savedPlanInput &&
+    !savedSailWindowIsUsable(savedDepartureMs, savedDurationHours, Date.now());
+  state.departureMs = restoredExpiredWindow
+    ? computeDefaultDepartureMs()
+    : (savedDepartureMs || computeDefaultDepartureMs());
   state.customDurationHours = clampCustomDuration(lsGetJSON('customDuration', DEFAULT_CUSTOM_DURATION_HOURS));
   state.durationMode = lsGetJSON('durationMode', null);
   if (state.durationMode !== '2' && state.durationMode !== '3' && state.durationMode !== 'custom') {
@@ -9924,6 +9965,7 @@ function init() {
     if (state.durationMode === 'custom') state.customDurationHours = clampCustomDuration(savedDurationHours);
   }
   state.durationHours = (state.durationMode === 'custom') ? state.customDurationHours : parseInt(state.durationMode, 10);
+  if (restoredExpiredWindow) persistDurationPlan();
   $('departureInput').value = msToDatetimeLocalNY(state.departureMs);
   $('customDurationInput').value = state.customDurationHours;
   setDurationActive(state.durationMode);
