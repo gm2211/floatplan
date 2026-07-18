@@ -251,6 +251,11 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
   background: var(--red-bg); color: var(--red); border-radius: 8px; padding: 10px; font-size: 13px; margin-top: 8px;
 }
 .card-error button { margin-top: 6px; }
+.direction-status {
+  min-height: 17px; margin-top: 6px; color: var(--ink-dim); font-size: 11px;
+  line-height: 1.35;
+}
+.direction-status.warn { color: var(--yellow); }
 .hidden { display: none !important; }
 
 .twilight-note {
@@ -1259,7 +1264,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
         <p class="sub" id="directionNextMax"></p>
       </div>
     </div>
-    <div class="card-error hidden" id="directionError"></div>
+    <p class="direction-status" id="directionStatus" role="status" aria-live="polite"></p>
     <details class="source-links"><summary>Sources</summary><div class="source-links-body"><span class="computed-source">Recommendation computed from</span><a id="srcDirectionCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA current predictions</a></div></details>
   </section>
 
@@ -1936,12 +1941,16 @@ function fetchCoopsJson(url, label) {
 
 function fetchCurrentsSlack(departureMs) {
   return fetchCoopsJson(buildCurrentsUrl(departureMs, 'MAX_SLACK'), 'Currents (slack)').then(function (json) {
-    return (json.current_predictions && json.current_predictions.cp) || [];
+    var rows = (json.current_predictions && json.current_predictions.cp) || [];
+    if (!rows.length) throw new Error('Currents (slack): no timing predictions returned');
+    return rows;
   });
 }
 function fetchCurrentsCurve(departureMs) {
   return fetchCoopsJson(buildCurrentsUrl(departureMs, '30'), 'Currents (curve)').then(function (json) {
-    return (json.current_predictions && json.current_predictions.cp) || [];
+    var rows = (json.current_predictions && json.current_predictions.cp) || [];
+    if (!rows.length) throw new Error('Currents (curve): no current predictions returned');
+    return rows;
   });
 }
 function fetchTides(departureMs) {
@@ -2540,6 +2549,29 @@ function currentVelocityAt(curvePoints, atMs) {
   }
   return null;
 }
+function currentCurveBounds(points) {
+  if (!points || !points.length) return null;
+  var minMs = Infinity, maxMs = -Infinity;
+  points.forEach(function (point) {
+    if (!point || !isFinite(point.ms)) return;
+    minMs = Math.min(minMs, point.ms);
+    maxMs = Math.max(maxMs, point.ms);
+  });
+  return isFinite(minMs) && isFinite(maxMs) ? { minMs: minMs, maxMs: maxMs } : null;
+}
+var CURRENT_CURVE_MAX_GAP_MS = 45 * 60000;
+function currentVelocityWithinCoverage(curvePoints, atMs) {
+  var bounds = currentCurveBounds(curvePoints);
+  if (!bounds || atMs < bounds.minMs || atMs > bounds.maxMs) return null;
+  for (var i = 0; i < curvePoints.length; i++) {
+    if (curvePoints[i].ms === atMs) return curvePoints[i].v;
+    if (i < curvePoints.length - 1 && curvePoints[i].ms < atMs && curvePoints[i + 1].ms > atMs) {
+      if (curvePoints[i + 1].ms - curvePoints[i].ms > CURRENT_CURVE_MAX_GAP_MS) return null;
+      return currentVelocityAt(curvePoints, atMs);
+    }
+  }
+  return null;
+}
 
 /* ============================== Water level parsing ============================== */
 
@@ -2673,20 +2705,28 @@ function severityRank(sev) { return SEVERITY_RANK[sev] != null ? SEVERITY_RANK[s
 // Signed velocity convention: positive = flood (north/upriver), negative = ebb (south).
 
 function computeDirectionRec(curvePoints, slackEvents, departureMs, returnMs) {
-  var vDep = currentVelocityAt(curvePoints, departureMs);
-  var vMid = currentVelocityAt(curvePoints, (departureMs + returnMs) / 2);
-  var vRet = currentVelocityAt(curvePoints, returnMs);
+  var curveComplete = currentCurveCoversWindow(curvePoints, departureMs, returnMs);
+  var timingComplete = slackTimingCoversWindow(slackEvents, departureMs, returnMs);
+  var vDep = currentVelocityWithinCoverage(curvePoints, departureMs);
+  var vMid = currentVelocityWithinCoverage(curvePoints, (departureMs + returnMs) / 2);
+  var vRet = currentVelocityWithinCoverage(curvePoints, returnMs);
 
-  // Currents predictions haven't loaded (or don't cover this window) yet — this is a
-  // distinct "we don't know" state, never to be conflated with "near slack" (which is a
-  // real, computed answer). The card renders a waiting/error state and hides the compass.
-  if (!curvePoints || !curvePoints.length || vDep == null || vRet == null) {
+  // Never extrapolate a cached curve into another selected window. If the curve includes
+  // departure but not the full round trip, show that measured fact without inventing a
+  // route heading; a recommendation requires coverage through the planned return.
+  if (!curveComplete || vDep == null || vRet == null) {
+    var hasDepartureFact = vDep != null;
     return {
       unavailable: true,
-      headline: 'Currents unavailable — waiting on current predictions to load.',
+      partial: hasDepartureFact,
+      headline: hasDepartureFact
+        ? 'Route recommendation unavailable — current forecast is incomplete.'
+        : 'Current prediction loading…',
       initialHeading: null,
-      stateDep: 'unknown', vDep: null,
-      nextSlack: null, nextMax: null
+      stateDep: hasDepartureFact ? classifyCurrent(vDep) : 'unknown',
+      vDep: hasDepartureFact ? vDep : null,
+      nextSlack: null, nextMax: null,
+      slackTimingAvailable: timingComplete
     };
   }
 
@@ -2745,7 +2785,7 @@ function computeDirectionRec(curvePoints, slackEvents, departureMs, returnMs) {
   // Direction is a sail-plan card, so every displayed current reference starts at the
   // selected departure—not the device clock. Otherwise a future sail can recommend ebb
   // while the arrow and supporting line describe today's flood.
-  var events = slackEvents || [];
+  var events = timingComplete ? slackEvents : [];
   var nextSlack = events.find(function (e) { return e.ms >= departureMs && e.type === 'slack'; });
   var nextMax = events.find(function (e) { return e.ms >= departureMs && e.type && e.type !== 'slack'; });
 
@@ -2755,7 +2795,8 @@ function computeDirectionRec(curvePoints, slackEvents, departureMs, returnMs) {
     stateDep: classifyCurrent(vDep),
     vDep: vDep,
     nextSlack: nextSlack || null,
-    nextMax: nextMax || null
+    nextMax: nextMax || null,
+    slackTimingAvailable: events.length > 0
   };
 }
 
@@ -3749,7 +3790,9 @@ function renderVerdict(verdict, windowStart, windowEnd) {
 function renderDirection(rec) {
   setText('directionHeadline', rec.headline);
   if (rec.unavailable) {
-    setText('directionNow', '');
+    setText('directionNow', rec.partial
+      ? ('At departure: ' + rec.stateDep + ' at ' + round1(Math.abs(rec.vDep)) + ' kt')
+      : '');
     setText('directionNextSlack', '');
     setText('directionNextMax', '');
     hideEl($('compassArrow'));
@@ -3757,10 +3800,11 @@ function renderDirection(rec) {
   }
   showEl($('compassArrow'));
   setText('directionNow', 'At departure: ' + rec.stateDep + (rec.vDep != null ? ' at ' + round1(Math.abs(rec.vDep)) + ' kt' : ''));
-  setText('directionNextSlack', rec.nextSlack ? 'Next slack: ' + fmtTime(rec.nextSlack.ms) : 'Next slack: n/a');
-  setText('directionNextMax', rec.nextMax ?
+  setText('directionNextSlack', !rec.slackTimingAvailable ? 'Next slack: unavailable' :
+    (rec.nextSlack ? 'Next slack: ' + fmtTime(rec.nextSlack.ms) : 'Next slack: n/a'));
+  setText('directionNextMax', !rec.slackTimingAvailable ? 'Next max: unavailable' : (rec.nextMax ?
     ('Next max ' + rec.nextMax.type + ': ' + fmtTime(rec.nextMax.ms) + ' at ' + round1(Math.abs(rec.nextMax.v)) + ' kt') :
-    'Next max: n/a');
+    'Next max: n/a'));
   drawCompassArrow(rec);
 }
 
@@ -7911,6 +7955,75 @@ var state = {
   lastGoodUpdateMs: null
 };
 
+var CURRENT_RETRY_DELAYS_MS = [30000, 60000, 120000];
+var currentRetryState = {
+  slack: { timer: null, attempt: 0 },
+  curve: { timer: null, attempt: 0 }
+};
+var currentLoadInFlight = { slack: null, curve: null };
+var currentFeedState = { slack: 'loading', curve: 'loading' };
+
+function cancelScheduledCurrentRetry(feed) {
+  var retry = currentRetryState[feed];
+  if (!retry || retry.timer == null) return;
+  clearTimeout(retry.timer);
+  retry.timer = null;
+}
+function resetCurrentRetry(feed) {
+  cancelScheduledCurrentRetry(feed);
+  currentRetryState[feed].attempt = 0;
+}
+function scheduleCurrentRetry(feed, loader) {
+  var retry = currentRetryState[feed];
+  if (!retry || retry.timer != null || retry.attempt >= CURRENT_RETRY_DELAYS_MS.length) return false;
+  var delay = CURRENT_RETRY_DELAYS_MS[retry.attempt++];
+  retry.timer = setTimeout(function () {
+    retry.timer = null;
+    loader();
+  }, delay);
+  return true;
+}
+function currentRetryLabel(feed) {
+  var retry = currentRetryState[feed];
+  return retry && (retry.timer != null || retry.attempt < CURRENT_RETRY_DELAYS_MS.length)
+    ? 'retrying automatically'
+    : 'automatic retries paused';
+}
+function renderDirectionDataStatus() {
+  var el = $('directionStatus');
+  if (!el) return;
+  var messages = [];
+  var curveMissing = currentFeedState.curve === 'error' &&
+    !currentCurveCoversWindow(state.curvePoints, state.departureMs, getReturnMs());
+  var slackMissing = currentFeedState.slack === 'error' &&
+    !slackTimingCoversWindow(state.slackEvents, state.departureMs, getReturnMs());
+  if (curveMissing && slackMissing && currentRetryLabel('curve') === 'retrying automatically' &&
+      currentRetryLabel('slack') === 'retrying automatically') {
+    messages.push('Some current data unavailable · retrying automatically');
+  }
+  if (currentFeedState.curve === 'error') {
+    if (currentCurveCoversWindow(state.curvePoints, state.departureMs, getReturnMs())) {
+      messages.push('Current refresh unavailable; showing saved data · ' + currentRetryLabel('curve'));
+    } else if (currentVelocityWithinCoverage(state.curvePoints, state.departureMs) != null) {
+      messages.push('Current forecast incomplete · ' + currentRetryLabel('curve'));
+    } else if (!curveMissing || !slackMissing || !messages.length) {
+      messages.push('Current prediction unavailable · ' + currentRetryLabel('curve'));
+    }
+  }
+  if (currentFeedState.slack === 'error') {
+    if (!curveMissing || !slackMissing || !messages.length) messages.push((slackTimingCoversWindow(state.slackEvents, state.departureMs, getReturnMs())
+      ? 'Slack timing refresh unavailable; showing saved timing'
+      : 'Slack timing unavailable') + ' · ' + currentRetryLabel('slack'));
+  }
+  if (!messages.length && currentFeedState.curve === 'loading' &&
+      !currentCurveCoversWindow(state.curvePoints, state.departureMs, getReturnMs())) {
+    messages.push('Loading current prediction…');
+  }
+  el.textContent = messages.join(' · ');
+  el.className = 'direction-status' + (messages.length &&
+    (currentFeedState.curve === 'error' || currentFeedState.slack === 'error') ? ' warn' : '');
+}
+
 function getReturnMs() { return state.departureMs + state.durationHours * 3600000; }
 
 /* ============================== Generic per-source loader ============================== */
@@ -7984,41 +8097,88 @@ function loadSource(name, fetcherFn, cardElId, applyFn) {
 // already renders its own card-level error — so loadAll() can tell whether *any* source
 // came back fresh this round (see updateLastUpdatedDisplay's "refresh failed" state).
 function loadCurrentsSlack() {
-  return loadSource('currentsSlack', function () { return fetchCurrentsSlack(state.departureMs); }, 'directionCard', function (data) {
+  if (currentLoadInFlight.slack) return currentLoadInFlight.slack;
+  cancelScheduledCurrentRetry('slack');
+  currentFeedState.slack = 'loading';
+  renderDirectionDataStatus();
+  var pending = loadSource('currentsSlack', function () { return fetchCurrentsSlack(state.departureMs); }, 'directionCard', function (data) {
     state.currentsSlackRaw = data;
     state.slackEvents = buildSlackEvents(data);
-  }).then(function () { clearCardError('directionError'); return true; })
+  }).then(function () {
+    currentFeedState.slack = 'fresh';
+    resetCurrentRetry('slack');
+    renderDirectionDataStatus();
+    return true;
+  })
     .catch(function (err) {
-      if (state.slackEvents && state.slackEvents.length) clearCardError('directionError');
-      else showCardError('directionError', prefixedErrorMessage('Currents (slack)', err), loadCurrentsSlack);
+      currentFeedState.slack = 'error';
+      scheduleCurrentRetry('slack', loadCurrentsSlack);
+      renderDirectionDataStatus();
+      scheduleSourceRecompute();
       return false;
     });
+  currentLoadInFlight.slack = pending.then(function (result) {
+    currentLoadInFlight.slack = null;
+    return result;
+  });
+  return currentLoadInFlight.slack;
 }
 
 function currentCurveCoversWindow(points, departureMs, returnMs) {
-  if (!points || !points.length || !isFinite(departureMs) || !isFinite(returnMs)) return false;
-  var minMs = Infinity, maxMs = -Infinity;
-  points.forEach(function (point) {
-    if (!point || !isFinite(point.ms)) return;
-    minMs = Math.min(minMs, point.ms);
-    maxMs = Math.max(maxMs, point.ms);
+  if (!isFinite(departureMs) || !isFinite(returnMs)) return false;
+  var bounds = currentCurveBounds(points);
+  if (!bounds || bounds.minMs > departureMs || bounds.maxMs < returnMs) return false;
+  var relevant = (points || []).filter(function (point) {
+    return point && isFinite(point.ms) && point.ms >= departureMs - CURRENT_CURVE_MAX_GAP_MS &&
+      point.ms <= returnMs + CURRENT_CURVE_MAX_GAP_MS;
+  }).sort(function (a, b) { return a.ms - b.ms; });
+  for (var i = 0; i < relevant.length - 1; i++) {
+    if (relevant[i].ms < returnMs && relevant[i + 1].ms > departureMs &&
+        relevant[i + 1].ms - relevant[i].ms > CURRENT_CURVE_MAX_GAP_MS) return false;
+  }
+  return true;
+}
+
+function slackTimingCoversWindow(events, departureMs, returnMs) {
+  if (!events || !events.length || !isFinite(departureMs) || !isFinite(returnMs)) return false;
+  var lookAheadMs = 12 * 3600000;
+  return events.some(function (event) {
+    return event && isFinite(event.ms) && event.ms >= departureMs && event.ms <= returnMs + lookAheadMs;
   });
-  return minMs <= departureMs && maxMs >= returnMs;
 }
 
 function loadCurrentsCurve() {
-  return loadSource('currentsCurve', function () { return fetchCurrentsCurve(state.departureMs); }, 'timelineCard', function (data) {
+  if (currentLoadInFlight.curve) return currentLoadInFlight.curve;
+  cancelScheduledCurrentRetry('curve');
+  currentFeedState.curve = 'loading';
+  renderDirectionDataStatus();
+  var pending = loadSource('currentsCurve', function () { return fetchCurrentsCurve(state.departureMs); }, 'timelineCard', function (data) {
     state.currentsCurveRaw = data;
     state.curvePoints = buildCurvePoints(data);
-  }).then(function () { clearCardError('timelineError'); return true; })
+  }).then(function () {
+    currentFeedState.curve = 'fresh';
+    resetCurrentRetry('curve');
+    clearCardError('timelineError');
+    renderDirectionDataStatus();
+    return true;
+  })
     .catch(function (err) {
+      currentFeedState.curve = 'error';
+      scheduleCurrentRetry('curve', loadCurrentsCurve);
+      renderDirectionDataStatus();
       if (currentCurveCoversWindow(state.curvePoints, state.departureMs, getReturnMs())) {
         clearCardError('timelineError');
       } else {
         showCardError('timelineError', prefixedErrorMessage('Currents (curve)', err), loadCurrentsCurve);
       }
+      scheduleSourceRecompute();
       return false;
     });
+  currentLoadInFlight.curve = pending.then(function (result) {
+    currentLoadInFlight.curve = null;
+    return result;
+  });
+  return currentLoadInFlight.curve;
 }
 function loadWater() {
   return loadSource('water', function () { return fetchWaterGroup(state.departureMs); }, 'timelineCard', function (data) {
