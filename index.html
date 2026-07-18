@@ -7679,6 +7679,11 @@ function showCardError(elId, message, retryFn) {
 }
 function clearCardError(elId) { hideEl($(elId)); }
 
+function prefixedErrorMessage(prefix, err) {
+  var message = (err && err.message) ? err.message : String(err || 'Unknown error');
+  return message.indexOf(prefix + ':') === 0 ? message : prefix + ': ' + message;
+}
+
 function showToast(msg) {
   var container = $('toastContainer');
   var t = document.createElement('div');
@@ -7793,7 +7798,11 @@ function loadCurrentsSlack() {
     state.currentsSlackRaw = data;
     state.slackEvents = buildSlackEvents(data);
   }).then(function () { clearCardError('directionError'); return true; })
-    .catch(function (err) { showCardError('directionError', 'Currents (slack): ' + err.message, loadCurrentsSlack); return false; });
+    .catch(function (err) {
+      if (state.slackEvents && state.slackEvents.length) clearCardError('directionError');
+      else showCardError('directionError', prefixedErrorMessage('Currents (slack)', err), loadCurrentsSlack);
+      return false;
+    });
 }
 function loadCurrentsCurve() {
   return loadSource('currentsCurve', function () { return fetchCurrentsCurve(state.departureMs); }, 'timelineCard', function (data) {

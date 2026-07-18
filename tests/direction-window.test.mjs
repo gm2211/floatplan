@@ -39,5 +39,9 @@ assert.equal('vNow' in rec, false, 'direction recommendation must not expose wal
 assert.match(html, /At departure: ['"] \+ rec\.stateDep/);
 assert.match(html, /var curState = rec\.stateDep/);
 assert.doesNotMatch(html.slice(start, end), /nowMs|stateNow|vNow/);
+assert.match(html, /function prefixedErrorMessage\(prefix, err\)/);
+assert.match(html, /prefixedErrorMessage\('Currents \(slack\)', err\)/);
+assert.doesNotMatch(html, /'Currents \(slack\): ' \+ err\.message/);
+assert.match(html, /if \(state\.slackEvents && state\.slackEvents\.length\) clearCardError\('directionError'\)/);
 
 console.log('Direction sail-window assertions passed');
