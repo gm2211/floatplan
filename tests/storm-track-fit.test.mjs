@@ -157,4 +157,84 @@ const recycledIdFeature = historyFeature(fastCell.lon, fastCell.lat, { storm_id:
 const recycledResult = findHistoricalCellMatch(fastCell, [recycledIdFeature, ancestorFeature]);
 assert.equal(recycledResult.id, 'G7', 'a same-id candidate far from the first guess must lose to a plausible ancestor');
 
-console.log('SCIT motion fit and uncertainty whisker assertions passed');
+/* ---- (7) stormFrameGeometry re-anchors the whole track to an arbitrary radar-frame time ---- */
+
+assert.ok(stormCode.includes('function stormFrameGeometry'), 'frame-adaptive track geometry block not found');
+
+const motionForCell = { bearingDeg: TRUE_BEARING, speedKt: TRUE_SPEED_KT, sigmaNm: cleanFit.sigmaNm };
+const cellEntry = { historyPoints: cleanHistory, anchorMs: nowMs, motion: motionForCell, horizonMs: STORM_NO_HORIZON_CAP };
+
+// (a) frameTimeMs === anchorMs must reproduce buildRadarCellProjection's static track exactly.
+const atAnchor = stormFrameGeometry(cellEntry, nowMs);
+const staticProjection = buildRadarCellProjection(
+  { lat: TRUE_LAT, lon: TRUE_LON, validMs: nowMs, bearingDeg: TRUE_BEARING, speedKt: TRUE_SPEED_KT },
+  motionForCell
+);
+assert.equal(atAnchor.times.length, 5, 'a cell frame at its own anchor must produce the static 5-point spread');
+assert.ok(
+  Math.abs(atAnchor.pos[0] - TRUE_LAT) < 1e-9 && Math.abs(atAnchor.pos[1] - TRUE_LON) < 1e-9,
+  'pos at anchor must equal the latest observed centroid'
+);
+atAnchor.track.forEach((point, index) => {
+  assert.ok(
+    Math.abs(point[0] - staticProjection.track[index][0]) < 1e-9 && Math.abs(point[1] - staticProjection.track[index][1]) < 1e-9,
+    'track point ' + index + ' at frame===anchor must match the static projection exactly'
+  );
+});
+
+// (b) frameTimeMs 30 min before the anchor must anchor pos on the interpolated observed
+// history, and the forward track must lead FROM that upstream position, not from the anchor.
+const frame30Before = nowMs - 30 * 60000;
+const before = stormFrameGeometry(cellEntry, frame30Before);
+const expectedPos = interpolateAlongSeries(cleanHistory, frame30Before);
+assert.ok(
+  Math.abs(before.pos[0] - expectedPos[0]) < 1e-9 && Math.abs(before.pos[1] - expectedPos[1]) < 1e-9,
+  'pos before the anchor must equal the interpolated observed-history position'
+);
+assert.equal(before.times[0], frame30Before, 'the first time tick must be the displayed frame time itself');
+assert.equal(before.track.length, 5, 'a cell 30 minutes before its anchor must still get the full 5-point forward spread');
+assert.ok(
+  Math.abs(before.track[0][0] - before.pos[0]) < 1e-9 && Math.abs(before.track[0][1] - before.pos[1]) < 1e-9,
+  'the track must start exactly at the frame-time position'
+);
+const stepFromFramePos = destinationPoint(before.pos[0], before.pos[1], TRUE_BEARING, TRUE_SPEED_KT * 0.25);
+assert.ok(
+  Math.abs(before.track[1][0] - stepFromFramePos[0]) < 1e-9 && Math.abs(before.track[1][1] - stepFromFramePos[1]) < 1e-9,
+  'the +15 min track point must extrapolate from the frame-time (upstream) position, not the anchor'
+);
+
+// (c) A warning frame beyond its own endMs must collapse the track to the single final point,
+// frozen at the position projected up to endMs (not extrapolated further past it).
+const warningAnchorMs = nowMs - 60 * 60000;
+const warningEndMs = nowMs;
+const warningEntry = {
+  historyPoints: [{ ms: warningAnchorMs, lat: TRUE_LAT, lon: TRUE_LON }],
+  anchorMs: warningAnchorMs,
+  motion: { bearingDeg: TRUE_BEARING, speedKt: TRUE_SPEED_KT, sigmaNm: null },
+  horizonMs: warningEndMs
+};
+const pastEnd = stormFrameGeometry(warningEntry, warningEndMs + 20 * 60000);
+assert.deepEqual(pastEnd.times, [warningEndMs], 'a frame beyond a warning\'s endMs must collapse times to the single endMs point');
+assert.equal(pastEnd.track.length, 1, 'the track must collapse to a single point once the frame passes the warning\'s end');
+const expectedFinal = destinationPoint(TRUE_LAT, TRUE_LON, TRUE_BEARING, TRUE_SPEED_KT * ((warningEndMs - warningAnchorMs) / 3600000));
+assert.ok(
+  Math.abs(pastEnd.track[0][0] - expectedFinal[0]) < 1e-9 && Math.abs(pastEnd.track[0][1] - expectedFinal[1]) < 1e-9,
+  'the collapsed point must be the position projected up to the warning\'s end, not extrapolated past it'
+);
+assert.ok(
+  Math.abs(pastEnd.pos[0] - expectedFinal[0]) < 1e-9 && Math.abs(pastEnd.pos[1] - expectedFinal[1]) < 1e-9,
+  'pos must freeze at the warning\'s end position once the frame passes it'
+);
+
+// (d) Forward-tick lead times are measured from the DISPLAYED frame, not the original anchor —
+// scrubbing forward 45 minutes still yields the same [0,15,30,45,60] min lead spread, and
+// whisker width (driven by that lead) still grows with lead time.
+const laterFrame = nowMs + 45 * 60000;
+const laterGeom = stormFrameGeometry(cellEntry, laterFrame);
+const leadMinutesFromFrame = laterGeom.times.map((t) => (t - laterFrame) / 60000);
+assert.deepEqual(leadMinutesFromFrame, [0, 15, 30, 45, 60], 'forward-tick lead times must be measured from the displayed frame, not the original anchor');
+const wideningNear = stormTrackDiameterNm(cleanFit.sigmaNm, leadMinutesFromFrame[1]);
+const wideningFar = stormTrackDiameterNm(cleanFit.sigmaNm, leadMinutesFromFrame[4]);
+assert.ok(wideningFar >= wideningNear, 'whisker width computed from lead-from-frame minutes must still grow with lead time');
+
+console.log('SCIT motion fit, uncertainty whisker, and frame-adaptive track geometry assertions passed');

@@ -225,10 +225,23 @@ assert.ok(html.includes('if (body.innerHTML !== nextHtml) body.innerHTML = nextH
 assert.ok(!html.includes("clearStormTrackLayer();\n  setRadarStormStatus('');"), 'map movement must not transiently clear live regions');
 assert.ok(!html.includes('No radar-tracked storm cells or active NWS warnings'), 'normal no-data state must stay silent');
 assert.ok(!html.includes('Storm cell and warning overlay is off.'), 'unchecked state must stay silent');
-assert.ok(html.includes('var isEndpoint = pointIndex === projection.track.length - 1;'), 'radar-cell rendering must identify the +60-minute endpoint');
+// Frame-adaptive geometry replaced the old "compute isEndpoint once per static loop" contract:
+// each entry now keeps a fixed pool of hover-only pointDots plus one always-permanent
+// endpointDot, and updateStormFrameGeometry() decides per playback frame which pool slot (if
+// any) is the current endpoint — see stormFrameGeometry/updateStormFrameGeometry below.
 assert.ok(
-  html.includes('{ permanent: isEndpoint, direction: \'right\', className: \'storm-time-label\' }'),
-  'only the +60-minute radar-cell label may be permanent; intermediate tick times stay hover-only'
+  stormCode.includes('{ permanent: false, direction: \'right\', className: \'storm-time-label\' }'),
+  'intermediate radar-cell/warning tick dots must stay hover-only'
+);
+assert.ok(
+  stormCode.includes('{ permanent: true, direction: \'right\', className: \'storm-time-label\' }'),
+  'each track must have exactly one permanently-labeled endpoint dot'
+);
+assert.ok(stormCode.includes('function stormFrameGeometry('), 'frame-adaptive track geometry function not found');
+assert.ok(stormCode.includes('function updateStormFrameGeometry('), 'frame-adaptive geometry updater not found');
+assert.ok(
+  !stormCode.includes('function updateStormFrameMarkers('),
+  'the old marker-only-moves updater must be replaced, not left alongside the new one'
 );
 // Declutter: per-vertex parallel warning tracks are gone in favor of one centroid-anchored
 // track per warning (buildStormProjection.origin / .track), same endpoint-only-permanent

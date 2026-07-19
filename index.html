@@ -7518,8 +7518,11 @@ var radarState = {
   opacity: DEFAULT_RADAR_OPACITY,
   layerGeneration: 0, stormOverlayEnabled: true, stormFeedAvailable: null, stormCellFeedAvailable: null,
   stormAlerts: [], stormCells: [], stormTrackBounds: null,
-  // One entry per rendered cell/warning-with-motion: { marker, historyPoints, times, track, anchorMs }.
-  // Rebuilt every renderStormOverlays() call; showRadarFrame() moves the markers via setLatLng only.
+  // One entry per rendered cell/warning-with-motion: live Leaflet layer references (trackLine,
+  // whiskerLines, pointDots, endpointDot, historyLine, positionMarker) plus the data fields
+  // stormFrameGeometry() needs (historyPoints, anchorMs, motion, horizonMs). Rebuilt every
+  // renderStormOverlays() call; showRadarFrame() re-anchors the WHOLE track (not just a marker)
+  // to the displayed frame time via updateStormFrameGeometry(), using setLatLngs/setLatLng only.
   stormFramePositions: []
 };
 
@@ -7747,7 +7750,7 @@ function showRadarFrame(idx) {
   $('radarFrameLabel').textContent = isForecast
     ? ((f.offsetMin > 0 ? ('+' + f.offsetMin + 'm · ') : '') + '≈' + fmtTime(f.timeMs))
     : ('≈' + fmtTime(f.timeMs));
-  updateStormFrameMarkers(f.timeMs);
+  updateStormFrameGeometry(f.timeMs);
 }
 // Switches between live NEXRAD and the RainViewer animation: stops any running playback (the frame
 // set is about to change out from under it), swaps mode, persists it, updates the chip
@@ -8290,29 +8293,129 @@ function interpolateAlongSeries(points, timeMs) {
   return [last.lat, last.lon];
 }
 
-// At/before the latest observation, animate along the OBSERVED history; after it, animate
-// along the forecast track (clamped to +60 min). The two branches agree exactly at anchorMs
-// since both series place the cell/warning at its own centroid there.
-function stormPositionAtTime(entry, timeMs) {
+// Cell tracks have no fixed horizon — the +60-minute forecast window slides forward with
+// whichever frame is displayed. Passing this as entry.horizonMs tells stormFrameGeometry to
+// derive the horizon dynamically as frameTimeMs + 60 min on every call, instead of capping at
+// a fixed absolute time the way a warning caps at its own endMs.
+var STORM_NO_HORIZON_CAP = Infinity;
+
+// Recomputes a cell/warning's ENTIRE track geometry — not just a marker position — for an
+// arbitrary radar-frame time, so playback re-anchors the whole track/whiskers/labels/history
+// trail instead of sliding a marker along fixed geometry. entry: { historyPoints (chronological
+// [{ms,lat,lon}], its last point is the anchor/latest observation), anchorMs, motion:
+// {bearingDeg, speedKt, sigmaNm}, horizonMs (a warning's endMs, or STORM_NO_HORIZON_CAP for a
+// cell). Returns:
+//   pos          - the storm's position AT frameTimeMs: interpolated along observed history
+//                  at/before the anchor, else extrapolated forward from the anchor along its
+//                  motion (clamped at horizonMs so a warning's projection never runs past its
+//                  own expiration).
+//   times        - frameTimeMs, then 15-minute steps out to the (possibly slid) horizon, plus
+//                  the exact horizon time. Collapses to a single [horizonMs] once frameTimeMs
+//                  has passed it — there is nothing left to forecast.
+//   track        - destinationPoint(pos, motion.bearingDeg, motion.speedKt * leadHours) per
+//                  time, lead measured from pos's own reference time so track[0] === pos.
+//   historyTrail - observed history up to frameTimeMs with pos appended as the current vertex;
+//                  empty once that would be fewer than 2 points (nothing to draw a line between).
+function stormFrameGeometry(entry, frameTimeMs) {
   if (!entry) return null;
-  if (isFinite(entry.anchorMs) && timeMs <= entry.anchorMs) {
-    return interpolateAlongSeries(entry.historyPoints, timeMs);
+  var motion = entry.motion || {};
+  var anchorMs = entry.anchorMs;
+  var historyPoints = entry.historyPoints || [];
+  var anchor = historyPoints.length ? historyPoints[historyPoints.length - 1] : null;
+  var horizonMs = isFinite(entry.horizonMs) ? entry.horizonMs : (frameTimeMs + 60 * 60000);
+
+  var beforeAnchor = isFinite(anchorMs) && frameTimeMs <= anchorMs;
+  var posMs = beforeAnchor ? frameTimeMs : Math.min(frameTimeMs, horizonMs);
+  var pos = beforeAnchor
+    ? interpolateAlongSeries(historyPoints, posMs)
+    : (anchor ? destinationPoint(anchor.lat, anchor.lon, motion.bearingDeg, motion.speedKt * ((posMs - anchorMs) / 3600000)) : null);
+
+  var times;
+  if (frameTimeMs >= horizonMs) {
+    times = [horizonMs]; // nothing left to forecast — the track collapses to its final point
+  } else {
+    times = [frameTimeMs];
+    var cursor = frameTimeMs + 15 * 60000;
+    while (cursor < horizonMs) { times.push(cursor); cursor += 15 * 60000; }
+    if (times[times.length - 1] !== horizonMs) times.push(horizonMs);
   }
-  var forecastPoints = (entry.times || []).map(function (ms, index) {
-    var point = entry.track && entry.track[index];
-    return point ? { ms: ms, lat: point[0], lon: point[1] } : null;
-  }).filter(Boolean);
-  return interpolateAlongSeries(forecastPoints, timeMs);
+
+  var track = pos ? times.map(function (timeMs) {
+    var leadHours = (timeMs - posMs) / 3600000;
+    return destinationPoint(pos[0], pos[1], motion.bearingDeg, motion.speedKt * leadHours);
+  }) : [];
+
+  var historyTrail = historyPoints.filter(function (p) { return p.ms <= frameTimeMs; });
+  if (pos) historyTrail = historyTrail.concat([{ ms: frameTimeMs, lat: pos[0], lon: pos[1] }]);
+  if (historyTrail.length < 2) historyTrail = [];
+
+  return { pos: pos, times: times, track: track, historyTrail: historyTrail };
 }
 
-// Moves each registered marker to its position at the displayed radar-frame time. Geometry
-// (tracks, whiskers, labels) never rebuilds here — only marker.setLatLng, so this is cheap
-// enough to call on every frame change/tick of playback.
-function updateStormFrameMarkers(frameTimeMs) {
+// Hides a circleMarker without removing/re-adding it (cheap toggle across playback frames) and
+// restores its original opacity when shown again. setStyle mutates .options in place, so the
+// PRE-hide values are cached on the layer at creation time rather than read back off it.
+function setStormDotHidden(dot, hidden) {
+  if (!dot) return;
+  if (hidden) dot.setStyle({ opacity: 0, fillOpacity: 0 });
+  else dot.setStyle({ opacity: dot._stormOpacity, fillOpacity: dot._stormFillOpacity });
+}
+
+function setStormTooltipContent(layer, text) {
+  var tooltip = layer && layer.getTooltip && layer.getTooltip();
+  if (tooltip) tooltip.setContent(text);
+}
+
+// Re-anchors an entry's ENTIRE track — line, whiskers, tick/endpoint labels, and observed
+// history trail — to its position at the displayed radar-frame time. No layer is added or
+// removed here, only setLatLngs/setLatLng/setStyle/tooltip content, so this stays cheap enough
+// for the 600 ms playback tick across ~20 entries.
+function updateStormFrameGeometry(frameTimeMs) {
   if (!radarState.map || !radarState.stormFramePositions || !radarState.stormFramePositions.length) return;
   radarState.stormFramePositions.forEach(function (entry) {
-    var position = stormPositionAtTime(entry, frameTimeMs);
-    if (position && entry.marker) entry.marker.setLatLng(position);
+    var geometry = stormFrameGeometry(entry, frameTimeMs);
+    if (!geometry) return;
+    var track = geometry.track, times = geometry.times;
+    var forwardCount = Math.max(0, track.length - 1); // points beyond track[0]/pos itself
+
+    if (entry.trackLine) entry.trackLine.setLatLngs(track);
+    if (entry.historyLine) entry.historyLine.setLatLngs(geometry.historyTrail.map(function (p) { return [p.lat, p.lon]; }));
+    if (entry.positionMarker && geometry.pos) entry.positionMarker.setLatLng(geometry.pos);
+
+    var whiskerLines = entry.whiskerLines || [], pointDots = entry.pointDots || [];
+    var maxForward = Math.max(whiskerLines.length, pointDots.length);
+    for (var i = 0; i < maxForward; i += 1) {
+      var forwardIndex = i + 1; // index into track/times; index 0 is pos, not a forward tick
+      var active = forwardIndex <= forwardCount;
+      var isLast = active && forwardIndex === forwardCount;
+      if (whiskerLines[i]) {
+        if (active) {
+          var leadMinutes = (times[forwardIndex] - frameTimeMs) / 60000;
+          var halfWidthNm = stormTrackDiameterNm(entry.motion.sigmaNm, leadMinutes) / 2;
+          whiskerLines[i].setLatLngs(buildStormTrackTick(track[forwardIndex], entry.motion.bearingDeg, halfWidthNm));
+        } else {
+          whiskerLines[i].setLatLngs([]);
+        }
+      }
+      if (pointDots[i]) {
+        // The final active tick is this entry's endpoint for the current frame — that slot is
+        // drawn by endpointDot's permanent label instead, so the pool never shows an unlabeled
+        // duplicate dot on top of it.
+        var showAsIntermediate = active && !isLast;
+        setStormDotHidden(pointDots[i], !showAsIntermediate);
+        if (showAsIntermediate) {
+          pointDots[i].setLatLng(track[forwardIndex]);
+          setStormTooltipContent(pointDots[i], fmtTime(times[forwardIndex]));
+        }
+      }
+    }
+    if (entry.endpointDot) {
+      setStormDotHidden(entry.endpointDot, forwardCount < 1);
+      if (forwardCount >= 1) {
+        entry.endpointDot.setLatLng(track[forwardCount]);
+        setStormTooltipContent(entry.endpointDot, fmtTime(times[forwardCount]));
+      }
+    }
   });
 }
 
@@ -8367,6 +8470,25 @@ function renderRadarStormLegend(items) {
   if (hidden) legend.removeAttribute('open');
 }
 
+// Cells always get a fixed 4-point forward spread (+15/+30/+45/+60 min from whichever frame is
+// displayed — see stormFrameGeometry/STORM_NO_HORIZON_CAP), so their whisker/point-dot pools
+// never need resizing.
+var STORM_CELL_FORWARD_STEPS = 4;
+
+// Sizes a warning's whisker/point-dot pool generously enough to cover every radar frame it
+// could ever be evaluated at, not just its own CAP motion timestamp: scrubbing to an OLDER
+// frame than that timestamp asks stormFrameGeometry for MORE 15-minute ticks (frameTimeMs..end
+// is a longer span than observedMs..end), so the pool is sized from the earliest loaded radar
+// frame when one is available. +2 covers ceil-rounding and the trailing exact-endMs tick.
+function stormWarningForwardStepsCap(anchorMs, endMs) {
+  var earliestMs = anchorMs;
+  if (radarState.frames && radarState.frames.length) {
+    earliestMs = Math.min(earliestMs, radarState.frames[0].timeMs);
+  }
+  var spanMs = Math.max(0, endMs - earliestMs);
+  return Math.max(1, Math.ceil(spanMs / (15 * 60000)) + 2);
+}
+
 function renderStormOverlays(alerts, cells, historySnapshots) {
   if (!radarState.map) return;
   clearStormTrackLayer();
@@ -8397,68 +8519,90 @@ function renderStormOverlays(alerts, cells, historySnapshots) {
     if (polygonBounds.isValid()) {
       allBounds.push(polygonBounds.getSouthWest(), polygonBounds.getNorthEast());
     }
-    if (projection) {
-      warningMotionCount += 1;
-      // Single centroid-anchored track (see buildStormProjection) — no more per-vertex loop,
-      // so every point along it (not just a first-track special case) gets a tooltip.
-      L.polyline(projection.track, { color: color, weight: 2, opacity: 0.9, dashArray: '6 6' }).bindPopup(popup).addTo(warningGroup);
-      projection.track.forEach(function (point, pointIndex) {
-        allBounds.push(point);
-        if (pointIndex === 0) return;
-        var isEndpoint = pointIndex === projection.track.length - 1;
-        L.circleMarker(point, { radius: 3, color: color, weight: 1.5, fillColor: color, fillOpacity: 0.9 })
-          .bindTooltip(fmtTime(projection.times[pointIndex]), { permanent: isEndpoint, direction: 'right', className: 'storm-time-label' }).addTo(warningGroup);
-      });
-      // Animated position marker (smaller, warning color) — the track/tick geometry above
-      // stays put; only this marker moves as the radar frame time changes.
-      var warningMarker = L.circleMarker(projection.track[0], { radius: 3.5, color: color, weight: 1.5, fillColor: color, fillOpacity: 0.95 }).addTo(warningGroup);
-      framePositions.push({
-        marker: warningMarker,
-        historyPoints: [{ ms: projection.motion.observedMs, lat: projection.origin[0], lon: projection.origin[1] }],
-        times: projection.times, track: projection.track, anchorMs: projection.motion.observedMs
-      });
+    if (!projection) return;
+    warningMotionCount += 1;
+    var anchorMs = projection.motion.observedMs, horizonMs = projection.endMs;
+    var maxForward = stormWarningForwardStepsCap(anchorMs, horizonMs);
+    // Single centroid-anchored track (see buildStormProjection) — no more per-vertex loop, so
+    // every tick along it (not just a first-track special case) gets a hover label. These start
+    // at the origin with placeholder geometry; updateStormFrameGeometry() below immediately
+    // re-anchors everything to the currently displayed radar frame.
+    var trackLine = L.polyline([], { color: color, weight: 2, opacity: 0.9, dashArray: '6 6' }).bindPopup(popup).addTo(warningGroup);
+    var pointDots = [];
+    for (var wi = 0; wi < maxForward; wi += 1) {
+      var warningDot = L.circleMarker(projection.origin, { radius: 3, color: color, weight: 1.5, fillColor: color, fillOpacity: 0.9 })
+        .bindTooltip('', { permanent: false, direction: 'right', className: 'storm-time-label' }).bindPopup(popup).addTo(warningGroup);
+      warningDot._stormOpacity = 1; warningDot._stormFillOpacity = 0.9;
+      pointDots.push(warningDot);
     }
+    var endpointDot = L.circleMarker(projection.origin, { radius: 3, color: color, weight: 1.5, fillColor: color, fillOpacity: 0.9 })
+      .bindTooltip('', { permanent: true, direction: 'right', className: 'storm-time-label' }).bindPopup(popup).addTo(warningGroup);
+    endpointDot._stormOpacity = 1; endpointDot._stormFillOpacity = 0.9;
+    // Animated position marker (smaller, warning color) — re-anchored to the displayed radar
+    // frame, along with the rest of this entry's geometry, by updateStormFrameGeometry().
+    var positionMarker = L.circleMarker(projection.origin, { radius: 3.5, color: color, weight: 1.5, fillColor: color, fillOpacity: 0.95 }).addTo(warningGroup);
+    framePositions.push({
+      historyPoints: [{ ms: anchorMs, lat: projection.origin[0], lon: projection.origin[1] }],
+      anchorMs: anchorMs,
+      motion: { bearingDeg: projection.motion.bearingDeg, speedKt: projection.motion.speedKt, sigmaNm: null },
+      horizonMs: horizonMs,
+      trackLine: trackLine, whiskerLines: [], pointDots: pointDots, endpointDot: endpointDot, historyLine: null, positionMarker: positionMarker
+    });
   });
 
   displayedStormCells.forEach(function (cell) {
     var history = buildStormCellHistory(cell, snapshots);
     var motion = resolveStormCellMotion(cell, history);
-    var projection = buildRadarCellProjection(cell, motion);
     var popup = radarCellPopupHtml(cell, motion);
     var cellTrackColor = resolvedTheme() === 'dark' ? '#f8fafc' : '#084c61';
+    var origin = [cell.lat, cell.lon];
+    var historyLine = null;
     if (history.length > 1) {
       // Observed motion so far, drawn behind the forecast line: thinner, solid, translucent.
-      L.polyline(history.map(function (p) { return [p.lat, p.lon]; }), { color: cellTrackColor, weight: 1.3, opacity: 0.45 }).addTo(cellGroup);
+      historyLine = L.polyline(history.map(function (p) { return [p.lat, p.lon]; }), { color: cellTrackColor, weight: 1.3, opacity: 0.45 }).addTo(cellGroup);
     }
-    L.polyline(projection.track, { color: cellTrackColor, weight: 2.4, opacity: 0.96 })
-      .bindPopup(popup).addTo(cellGroup);
-    L.circleMarker(projection.track[0], {
+    // Placeholder geometry only — updateStormFrameGeometry() below re-anchors the whole track
+    // (line, whiskers, dots) to the currently displayed radar frame right after this loop.
+    var trackLine = L.polyline([], { color: cellTrackColor, weight: 2.4, opacity: 0.96 }).bindPopup(popup).addTo(cellGroup);
+    // Static origin marker/tooltip — anchors on the latest ACTUAL detection and never moves,
+    // unlike every other layer in this entry, which re-anchors to the displayed radar frame.
+    L.circleMarker(origin, {
       radius: 5, color: cellTrackColor, weight: 2, fillColor: resolvedTheme() === 'dark' ? '#0b1622' : '#ffffff', fillOpacity: 0.9
     }).bindTooltip('Cell ' + cell.id + ' · ' + cell.radar, { direction: 'top' }).bindPopup(popup).addTo(cellGroup);
-    projection.track.forEach(function (point, pointIndex) {
-      allBounds.push(point);
-      if (pointIndex === 0) return;
-      var isEndpoint = pointIndex === projection.track.length - 1;
+    var whiskerLines = [], pointDots = [];
+    for (var ci = 0; ci < STORM_CELL_FORWARD_STEPS; ci += 1) {
       // Whisker width is the 99%-probability diameter for this lead time, scaled by how
       // consistent the fitted track has been — narrower when steady, wider when erratic.
-      var leadMinutes = (projection.times[pointIndex] - cell.validMs) / 60000;
-      var halfWidthNm = stormTrackDiameterNm(motion.sigmaNm, leadMinutes) / 2;
-      L.polyline(buildStormTrackTick(point, motion.bearingDeg, halfWidthNm), { color: cellTrackColor, weight: 2, opacity: 0.96 })
-        .bindPopup(popup).addTo(cellGroup);
-      L.circleMarker(point, { radius: 1.8, color: cellTrackColor, weight: 1, fillColor: cellTrackColor, fillOpacity: 1 })
-        .bindTooltip(fmtTime(projection.times[pointIndex]), { permanent: isEndpoint, direction: 'right', className: 'storm-time-label' }).addTo(cellGroup);
-    });
+      whiskerLines.push(L.polyline([], { color: cellTrackColor, weight: 2, opacity: 0.96 }).bindPopup(popup).addTo(cellGroup));
+      var cellDot = L.circleMarker(origin, { radius: 1.8, color: cellTrackColor, weight: 1, fillColor: cellTrackColor, fillOpacity: 1 })
+        .bindTooltip('', { permanent: false, direction: 'right', className: 'storm-time-label' }).bindPopup(popup).addTo(cellGroup);
+      cellDot._stormOpacity = 1; cellDot._stormFillOpacity = 1;
+      pointDots.push(cellDot);
+    }
+    var endpointDot = L.circleMarker(origin, { radius: 1.8, color: cellTrackColor, weight: 1, fillColor: cellTrackColor, fillOpacity: 1 })
+      .bindTooltip('', { permanent: true, direction: 'right', className: 'storm-time-label' }).bindPopup(popup).addTo(cellGroup);
+    endpointDot._stormOpacity = 1; endpointDot._stormFillOpacity = 1;
     // Animated position marker — separate from the static origin marker/tooltip above.
-    var cellMarker = L.circleMarker(projection.track[0], { radius: 5, color: cellTrackColor, weight: 1, fillColor: cellTrackColor, fillOpacity: 1 }).addTo(cellGroup);
-    framePositions.push({ marker: cellMarker, historyPoints: history, times: projection.times, track: projection.track, anchorMs: cell.validMs });
+    var positionMarker = L.circleMarker(origin, { radius: 5, color: cellTrackColor, weight: 1, fillColor: cellTrackColor, fillOpacity: 1 }).addTo(cellGroup);
+    framePositions.push({
+      historyPoints: history, anchorMs: cell.validMs, motion: motion, horizonMs: STORM_NO_HORIZON_CAP,
+      trackLine: trackLine, whiskerLines: whiskerLines, pointDots: pointDots, endpointDot: endpointDot, historyLine: historyLine, positionMarker: positionMarker
+    });
   });
 
   if (radarState.stormAlerts.length) radarState.warningLayer = warningGroup.addTo(radarState.map);
   if (displayedStormCells.length) radarState.stormCellLayer = cellGroup.addTo(radarState.map);
-  if (allBounds.length) radarState.stormTrackBounds = L.latLngBounds(allBounds);
   radarState.stormFramePositions = framePositions;
   var currentFrame = radarState.frames && radarState.frames[radarState.index];
-  updateStormFrameMarkers(currentFrame ? currentFrame.timeMs : Date.now());
+  updateStormFrameGeometry(currentFrame ? currentFrame.timeMs : Date.now());
+  // Bounds reflect the latest/initial frame's geometry (matching the old static render exactly
+  // at the newest frame) — read off the live track-line layers now that they hold it.
+  framePositions.forEach(function (entry) {
+    if (!entry.trackLine) return;
+    var trackBounds = entry.trackLine.getBounds();
+    if (trackBounds.isValid()) allBounds.push(trackBounds.getSouthWest(), trackBounds.getNorthEast());
+  });
+  if (allBounds.length) radarState.stormTrackBounds = L.latLngBounds(allBounds);
   var hasStorms = radarState.stormAlerts.length || displayedStormCells.length;
   if (!hasStorms) {
     renderRadarStormLegend([]);
