@@ -1003,6 +1003,12 @@ body.mobile-tabs .tabbar { display: flex; }
 }
 
 @media (max-width: 699px) {
+  /* iOS Safari auto-zooms the page when a focused control's font is under 16px — and the
+     zoom sticks after the keyboard closes, clipping the topbar title at the edges and
+     carrying the fixed tabbar out of the visual viewport. 16px controls keep focus from
+     ever rescaling the page, so the mobile shell stays anchored while scrolling. */
+  input[type="datetime-local"], input[type="number"], input[type="text"],
+  input[type="tel"], select, textarea, .plan-code-field { font-size: 16px; }
   /* Settings as an iOS sheet: pinned to the bottom edge, full width, rounded top, grabber
      handle, springy slide-up. Desktop keeps the centered modal (base .overlay rules). */
   .overlay { align-items: flex-end; padding: 0; }
