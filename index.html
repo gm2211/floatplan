@@ -363,6 +363,8 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .sailsim-wind-label { fill: var(--ink); }
 .sailsim-current-vector { stroke-linecap: round; stroke-linejoin: round; }
 .sailsim-current-label { font-weight: 700; letter-spacing: 0.04em; }
+.sailsim-water { fill: none; stroke-linecap: round; }
+.sailsim-wind-caption, .sailsim-current-caption { font-weight: 600; }
 .sailsim-no-sail-sector { fill: var(--red); fill-opacity: 0.12; }
 .sailsim-no-sail-boundary {
   fill: none; stroke: var(--red); stroke-opacity: 0.62; stroke-width: 1px;
@@ -4743,6 +4745,68 @@ function sailProjectedSectorPath(cx, cy, windFromDeg, halfAngleDeg, radius, xPix
   return points.length ? 'M' + cx.toFixed(1) + ',' + cy.toFixed(1) + ' L' + points.join(' L') + ' Z' : '';
 }
 
+var SAIL_WATER_ROWS = 6;
+var SAIL_WATER_COLS = 2;
+var SAIL_WATER_MIN_PX_PER_SEC = 2;
+var SAIL_WATER_MAX_PX_PER_SEC = 9;
+var SAIL_WATER_DASH_HALF_LEN = 4;
+
+function properMod(value, modulus) {
+  var r = value % modulus;
+  return r < 0 ? r + modulus : r;
+}
+
+// Deterministic layout for the channel's animated water field (legibility feedback: "is blue
+// arrow supposed to be current while white wind? not very clear"). A sparse grid of short
+// dashes, one drift band per row so the whole field never pops into a new position in
+// lockstep; each dash's offset within its own band is a pure function of the wall clock, not
+// Math.random, so identical (curKt, nowMs) inputs always render identical output. Flood
+// (curKt >= 0) drifts up-river, i.e. screen-up (see latToY: higher latitude means smaller y);
+// ebb drifts screen-down. nowMs is the wall clock at render time, not the simulated playback
+// position, so the water keeps flowing regardless of which moment of the voyage is shown.
+// Null/NaN current means there is nothing local to animate, so callers must skip the group
+// entirely rather than draw a colorless placeholder.
+function sailWaterStrokes(curKt, padTop, innerH, nowMs, reduced) {
+  if (curKt == null || !isFinite(curKt)) return null;
+  var flood = curKt >= 0;
+  var speedPxPerSec = clamp(Math.abs(curKt) * 3, SAIL_WATER_MIN_PX_PER_SEC, SAIL_WATER_MAX_PX_PER_SEC);
+  var signedPxPerSec = flood ? -speedPxPerSec : speedPxPerSec;
+  var cycleLen = innerH / SAIL_WATER_ROWS;
+  var totalDashes = SAIL_WATER_ROWS * SAIL_WATER_COLS;
+  var nowSec = reduced ? 0 : nowMs / 1000;
+  var dashes = [];
+  for (var r = 0; r < SAIL_WATER_ROWS; r++) {
+    var bandTopY = padTop + r * cycleLen;
+    for (var c = 0; c < SAIL_WATER_COLS; c++) {
+      var idx = r * SAIL_WATER_COLS + c;
+      var phase = (idx / totalDashes) * cycleLen;
+      var yOffset = reduced ? phase : properMod(nowSec * signedPxPerSec + phase, cycleLen);
+      dashes.push({ col: c, y: bandTopY + yOffset });
+    }
+  }
+  return { color: flood ? 'var(--flood)' : 'var(--ebb)', dashes: dashes, pxPerSec: signedPxPerSec, cycleLen: cycleLen };
+}
+
+// Builds the water field as one clipped <g>. When motion is allowed, data-water-anim (plus
+// the render timestamp and drift rate) lets the standalone rAF loop in ensureSailWaterAnimLoop
+// keep nudging this exact group's own transform between full SVG rebuilds — see that loop's
+// comment for why a transform-only nudge is needed at all. Reduced motion omits those data
+// attributes entirely, which is also how the loop tells a static render from an animated one.
+function sailWaterGroupSvg(curKt, chX0, chX1, padTop, innerH, nowMs, reduced) {
+  var field = sailWaterStrokes(curKt, padTop, innerH, nowMs, reduced);
+  if (!field) return '';
+  var col0X = chX0 + (chX1 - chX0) * 0.32, col1X = chX0 + (chX1 - chX0) * 0.68;
+  var lines = field.dashes.map(function (d) {
+    var cx = d.col === 0 ? col0X : col1X;
+    return '<line x1="' + (cx - SAIL_WATER_DASH_HALF_LEN).toFixed(1) + '" y1="' + d.y.toFixed(1) +
+      '" x2="' + (cx + SAIL_WATER_DASH_HALF_LEN).toFixed(1) + '" y2="' + d.y.toFixed(1) + '"/>';
+  }).join('');
+  var animAttrs = reduced ? '' : ' data-water-anim="1" data-render-ms="' + Math.round(nowMs) +
+    '" data-px-per-sec="' + field.pxPerSec.toFixed(3) + '" data-cycle-len="' + field.cycleLen.toFixed(2) + '"';
+  return '<g class="sailsim-water" clip-path="url(#sailSimChannelClip)" stroke="' + field.color +
+    '" stroke-width="1.5" stroke-opacity="0.3"' + animAttrs + '>' + lines + '</g>';
+}
+
 function renderSailSimSvg(sim, atMs) {
   var W = 360, H = 270, padTop = 14, padBottom = 24;
   var innerH = H - padTop - padBottom;
@@ -4772,11 +4836,20 @@ function renderSailSimSvg(sim, atMs) {
   var windAvailable = windDir != null && isFinite(windDir);
   // NWS directions are bearings the wind comes FROM; the brush strokes travel downwind.
   var windFlowTowardDeg = windAvailable ? normalizeBearing(windDir + 180) : null;
+  // Computed once, up front, so both the background water field and the current arrows
+  // further below read the identical instantaneous value.
+  var curKt = sailValueAt(sim.path, atMs, 'c');
 
   var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">' +
     '<defs><clipPath id="sailSimChannelClip"><rect x="' + chX0 + '" y="' + padTop + '" width="' +
     (chX1 - chX0) + '" height="' + innerH + '"/></clipPath></defs>';
   svg += '<rect x="' + chX0 + '" y="' + padTop + '" width="' + (chX1 - chX0) + '" height="' + innerH + '" fill="var(--track)"/>';
+
+  // Animated water: a low-opacity, flood/ebb-colored dash field drifting in the current's
+  // own direction and speed — addresses the "blue arrow vs white wind, not clear" legibility
+  // feedback by giving current a second, unmistakably distinct visual language. Drawn first
+  // so it always sits beneath every vector, label, and the hull itself.
+  svg += sailWaterGroupSvg(curKt, chX0, chX1, padTop, innerH, Date.now(), sailSimReducedMotion());
 
   // Wind is one outlined vector, never a field of river-like strokes. The arrow shows where
   // the air moves; the caption says where it comes from. Current uses filled, colored arrows
@@ -4795,6 +4868,8 @@ function renderSailSimSvg(sim, atMs) {
       ' M' + windHeadX.toFixed(1) + ',' + windHeadY.toFixed(1) +
       ' L' + (windHeadX - flowVector.x * 5 - windPerpX * 3).toFixed(1) + ',' + (windHeadY - flowVector.y * 5 - windPerpY * 3).toFixed(1) + '"/>' +
       '</g>';
+    svg += '<text class="sailsim-wind-caption" x="' + (chX0 + 2) + '" y="' + (windCy + 17).toFixed(1) +
+      '" font-size="7" letter-spacing="0.04em" fill="var(--ink-dim)">WIND</text>';
   }
   svg += '<line x1="' + chX0 + '" y1="' + padTop + '" x2="' + chX0 + '" y2="' + (H - padBottom) + '" stroke="var(--ink-dim)" stroke-opacity="0.5"/>';
   svg += '<line x1="' + chX1 + '" y1="' + padTop + '" x2="' + chX1 + '" y2="' + (H - padBottom) + '" stroke="var(--ink-dim)" stroke-opacity="0.5"/>';
@@ -4841,8 +4916,8 @@ function renderSailSimSvg(sim, atMs) {
       ' ' + (chX0 - 1) + ',' + (turnY + 4).toFixed(1) + '" fill="var(--violet)"/>';
   }
 
-  // Current arrows: filled and semantic-colored, with length proportional to |c(t)|.
-  var curKt = sailValueAt(sim.path, atMs, 'c');
+  // Current arrows: filled and semantic-colored, with length proportional to |c(t)|. curKt
+  // itself was already read above, alongside the water field, so both stay in lockstep.
   [0.31, 0.69].forEach(function (frac) {
     var ay = padTop + frac * innerH;
     var mag = curKt == null ? 0 : clamp(Math.abs(curKt) / 2.5, 0, 1);
@@ -4858,6 +4933,11 @@ function renderSailSimSvg(sim, atMs) {
       '<polygon points="' + ax.toFixed(1) + ',' + apexY.toFixed(1) + ' ' + (ax - 4).toFixed(1) + ',' + tipY.toFixed(1) +
       ' ' + (ax + 4).toFixed(1) + ',' + tipY.toFixed(1) + '"/></g>';
   });
+  // A tiny caption ties the filled/colored current arrows to their meaning, mirroring the
+  // WIND caption near the outlined wind vector below — the two symbol styles alone were too
+  // subtle a distinction on their own.
+  svg += '<text class="sailsim-current-caption" x="' + (chX0 + 18) + '" y="' + (padTop + 0.31 * innerH + 3).toFixed(1) +
+    '" font-size="7" letter-spacing="0.04em" fill="var(--ink-dim)">CURRENT</text>';
 
   // The wake uses the simulation's integrated lateral displacement. Tack/jibe markers come
   // only from actual maneuver events, so a T/J means the planner changed sailed heading and
@@ -4952,6 +5032,43 @@ function renderSailSimSvg(sim, atMs) {
 
   svg += '</svg>';
   $('sailSimSvgWrap').innerHTML = svg;
+  ensureSailWaterAnimLoop();
+}
+
+// The sail-sim SVG is fully rebuilt on every playback tick (sailSimTick) and once per scrub,
+// but while the sim just sits paused nothing re-renders at all — without this, the water
+// field's wall-clock-driven drift (sailWaterStrokes) would look alive only during playback
+// and freeze the instant the user hits pause. This single global rAF loop is the fix: it
+// nudges only the existing water group's own transform attribute, reading the drift rate and
+// render timestamp back off that group's own data attributes, so it never needs to know
+// anything about the wider sim. It re-checks for the group on every frame and quietly stops
+// itself the moment the group is gone — a fresh rebuild replaced the DOM node, the card was
+// cleared, or reduced motion is honored (that render path never sets data-water-anim) — so no
+// explicit teardown call is required anywhere else.
+var sailWaterAnim = { rafId: null };
+
+function sailWaterAnimGroupEl() {
+  var wrap = $('sailSimSvgWrap');
+  return wrap ? wrap.querySelector('.sailsim-water[data-water-anim]') : null;
+}
+
+function sailWaterAnimTick() {
+  var el = sailWaterAnimGroupEl();
+  if (!el) { sailWaterAnim.rafId = null; return; }
+  var pxPerSec = parseFloat(el.getAttribute('data-px-per-sec')) || 0;
+  var cycleLen = parseFloat(el.getAttribute('data-cycle-len')) || 0;
+  var renderMs = parseFloat(el.getAttribute('data-render-ms'));
+  if (cycleLen > 0 && isFinite(renderMs)) {
+    var elapsedSec = (Date.now() - renderMs) / 1000;
+    el.setAttribute('transform', 'translate(0,' + properMod(elapsedSec * pxPerSec, cycleLen).toFixed(2) + ')');
+  }
+  sailWaterAnim.rafId = requestAnimationFrame(sailWaterAnimTick);
+}
+
+function ensureSailWaterAnimLoop() {
+  if (sailWaterAnim.rafId != null) return;
+  if (!sailWaterAnimGroupEl()) return;
+  sailWaterAnim.rafId = requestAnimationFrame(sailWaterAnimTick);
 }
 
 function renderSailSimReadouts(sim, atMs) {
