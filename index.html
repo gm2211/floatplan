@@ -311,6 +311,15 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .chart-legend .swatch-gust { background: var(--ink-dim); opacity: 0.8; }
 .chart-legend .line-key { width: 24px; height: 8px; margin-right: 4px; vertical-align: middle; overflow: visible; }
 .chart-legend .legend-key-label { font-weight: 650; color: var(--ink-dim); }
+/* Legend entries that double as trace visibility toggles (wind card): real buttons so they
+   stay keyboard-reachable, styled to blend into the plain-text legend until hovered/dimmed. */
+.chart-legend .legend-toggle {
+  display: inline-flex; align-items: center; border: none; background: none; padding: 0;
+  margin: 0; font: inherit; color: inherit; cursor: pointer;
+}
+.chart-legend .legend-toggle:hover { color: var(--ink); }
+.chart-legend .legend-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.chart-legend .legend-toggle.off { opacity: 0.45; text-decoration: line-through; }
 .chart-footnote { font-size: 10.5px; color: var(--ink-dim); margin-top: 4px; }
 .source-links {
   margin-top: 10px; padding-top: 7px; border-top: 1px solid var(--border);
@@ -5752,6 +5761,137 @@ function windAxisTicksHtml(domStart, domEnd, xFn, W, padL, padR, axisY, inkDim) 
   }).join('');
 }
 
+// Wind chart trace visibility (legend toggles): forecast (NWS/model sustained + gust lines),
+// Robbins Reef measured, and Willy Wall measured can each be hidden independently without
+// losing the underlying data — chart furniture (reef/no-go bands, axes, sail window wash)
+// always stays; only the toggled trace and its end-of-trace label disappear. Persisted
+// locally so the choice survives a reload; a missing key or corrupted value falls back to
+// visible (true) rather than hiding a trace the user never asked to hide.
+var DEFAULT_WIND_TRACE_VISIBILITY = { forecast: true, robbinsReef: true, willyWall: true };
+function windTraceVisible(key) {
+  var vis = state.windTraceVisibility;
+  return !vis || vis[key] !== false;
+}
+function toggleWindTraceVisibility(key) {
+  var current = state.windTraceVisibility || DEFAULT_WIND_TRACE_VISIBILITY;
+  var next = {
+    forecast: current.forecast !== false,
+    robbinsReef: current.robbinsReef !== false,
+    willyWall: current.willyWall !== false
+  };
+  next[key] = !next[key];
+  state.windTraceVisibility = next;
+  lsSetJSON('windTraceVisibility', next);
+  rerenderWindCard();
+}
+// Real <button> elements (not spans) so the toggle is keyboard-reachable like any other
+// control on the page — no bespoke key handler needed. A hidden trace's chip renders dimmed
+// and struck-through (.legend-toggle.off, in the <style> block) with aria-pressed reflecting
+// the current state.
+function windLegendToggleButtonHtml(key, innerHtml) {
+  var visible = windTraceVisible(key);
+  return '<button type="button" class="legend-toggle' + (visible ? '' : ' off') +
+    '" data-wind-trace="' + key + '" aria-pressed="' + (visible ? 'true' : 'false') + '">' +
+    innerHtml + '</button>';
+}
+// One chip covers every prediction line in whichever view is active: NWS sustained+gust on
+// the single-model views, all four models' sustained+gust companions on 'all'.
+function windLegendForecastToggleHtml() {
+  return windLegendToggleButtonHtml('forecast',
+    '<span class="legend-key-label">forecast</span> ' +
+    '<span class="swatch swatch-sustained"></span>sustained ' +
+    '<span class="swatch swatch-gust"></span>gust');
+}
+function windLegendObsToggleHtml(series) {
+  return windLegendToggleButtonHtml(series.visKey,
+    '<span class="swatch ' + series.swatch + '"></span>' + escapeHtml(series.label) + ' measured');
+}
+// The legend is rebuilt from scratch on every renderWindChart call, so any listeners bound to
+// the previous markup are already gone with it — safe to (re)wire unconditionally each render.
+function wireWindLegendToggles(legendEl) {
+  if (!legendEl) return;
+  legendEl.querySelectorAll('[data-wind-trace]').forEach(function (btn) {
+    btn.addEventListener('click', function () { toggleWindTraceVisibility(btn.dataset.windTrace); });
+  });
+}
+
+// The chart is a comparison surface, independent of the Observed Now station picker. Keep
+// each station in its own series so paths, interpolation, and scrub values can never jump
+// from Robbins Reef to Willy Wall merely because their timestamps are adjacent. Shared by
+// every wind-model view (NWS/GFS/ECMWF/ICON/All) so the same two measured traces — and their
+// visibility toggles — behave identically no matter which forecast series is on screen. A
+// toggled-off station simply gets an empty points array: nothing left to draw or label.
+function buildObservedWindChartSeries(domStart, domEnd, nowMs) {
+  return [
+    { station: 'robbinsReef', visKey: 'robbinsReef', label: OBS_WIND_STATION_LABELS.robbinsReef, color: 'var(--violet)', swatch: 'swatch-obs' },
+    { station: 'weatherflow', visKey: 'willyWall', label: OBS_WIND_STATION_LABELS.weatherflow, color: 'var(--measured-current)', swatch: 'swatch-obs-willy-wall' }
+  ].map(function (series) {
+    series.points = windTraceVisible(series.visKey) ? observedWindHistoryForStation(series.station).filter(function (point) {
+      return point && point.ms >= domStart && point.ms <= Math.min(domEnd, nowMs) &&
+        point.sustainedKt != null && isFinite(point.sustainedKt);
+    }).map(function (point) { return { ms: point.ms, v: point.sustainedKt }; }) : [];
+    return series;
+  });
+}
+function windObservedPathsHtml(observedChartSeries, x, y) {
+  return observedChartSeries.map(function (series) {
+    return splitObservedWindSegments(series.points).filter(function (segment) {
+      return segment.length > 1;
+    }).map(function (segment) {
+      return '<path d="' + linearPathD(segment, x, y) + '" fill="none" stroke="' + series.color + '" stroke-width="2"/>';
+    }).join('');
+  }).join('');
+}
+// Name both trace endpoints at their actual final sample. Small opposing label offsets keep
+// similar station readings legible without moving either marker off its data point.
+function windObservedMarkersHtml(observedChartSeries, x, y, W, padR) {
+  return observedChartSeries.map(function (series, seriesIndex) {
+    if (!series.points.length) return '';
+    var endpoint = series.points[series.points.length - 1];
+    var obsX = x(endpoint.ms);
+    var obsY = y(endpoint.v);
+    var labelRight = obsX <= W - padR - 70;
+    var labelY = obsY + (seriesIndex === 0 ? -5 : 11);
+    return '<circle cx="' + obsX.toFixed(1) + '" cy="' + obsY.toFixed(1) + '" r="4" fill="' + series.color + '" stroke="var(--bg-card)" stroke-width="1.2"/>' +
+      '<text x="' + (labelRight ? obsX + 7 : obsX - 7).toFixed(1) + '" y="' + labelY.toFixed(1) +
+      '" font-size="9" text-anchor="' + (labelRight ? 'start' : 'end') + '" fill="' + series.color + '">' +
+      escapeHtml(series.label) + ' ' + round1(endpoint.v) + '</text>';
+  }).join('');
+}
+function windObservedScrubEntries(observedChartSeries, ms, x, y) {
+  var lines = [], dots = [];
+  observedChartSeries.forEach(function (series) {
+    var measured = interpolateObservedWindAtMs(series.points, ms);
+    if (measured == null) return;
+    lines.push('<div>' + escapeHtml(series.label) + ' measured ' + round1(measured) + ' kt</div>');
+    dots.push({ x: x(ms), y: y(measured), color: series.color });
+  });
+  return { lines: lines, dots: dots };
+}
+// Single-model (NWS/GFS/ECMWF/ICON) sustained+gust paths, gated behind the 'forecast' legend
+// toggle — hidden means an empty rows filter, so nothing is drawn (the sail-window wash and
+// reef/no-go bands are chart furniture built elsewhere and are unaffected either way).
+function windForecastPathsHtml(rows, forecastVisible, x, y, baseline, accent, inkDim) {
+  var sustainedPts = forecastVisible ? rows.filter(function (r) { return r.sustained != null; }).map(function (r) { return { ms: r.ms, v: r.sustained }; }) : [];
+  var gustPts = forecastVisible ? rows.filter(function (r) { return r.gust != null; }).map(function (r) { return { ms: r.ms, v: r.gust }; }) : [];
+  var areaPath = '', sustainedPath = '', gustPath = '';
+  if (sustainedPts.length) {
+    splitWindPointSegments(sustainedPts).forEach(function (segment) {
+      var lineD = smoothPathD(segment, x, y);
+      var areaD = lineD + ' L' + x(segment[segment.length - 1].ms).toFixed(1) + ',' + baseline +
+        ' L' + x(segment[0].ms).toFixed(1) + ',' + baseline + ' Z';
+      areaPath += '<path d="' + areaD + '" fill="' + accent + '" fill-opacity="0.15" stroke="none"/>';
+      sustainedPath += '<path d="' + lineD + '" fill="none" stroke="' + accent + '" stroke-width="2.5"/>';
+    });
+  }
+  if (gustPts.length) {
+    gustPath = splitWindPointSegments(gustPts).map(function (segment) {
+      return '<path d="' + smoothPathD(segment, x, y) + '" fill="none" stroke="' + inkDim + '" stroke-width="1.5" stroke-dasharray="3,2" stroke-opacity="0.8"/>';
+    }).join('');
+  }
+  return { areaPath: areaPath, sustainedPath: sustainedPath, gustPath: gustPath };
+}
+
 // Fixed departureMs-2h..+18h window (same convention as renderWeatherChart) — a day-scale
 // view regardless of the planned sail duration; the sail-window band still marks the actual
 // departure/return span within it. Reads state.windModel/state.gridSeries/state.windModelSeries
@@ -5791,16 +5931,22 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
   var winX1 = x(clamp(departureMs, domStart, domEnd)), winX2 = x(clamp(returnMs, domStart, domEnd));
 
   if (model === 'all') {
+    var forecastVisibleAll = windTraceVisible('forecast');
     var seriesByModel = {}, allVals = [];
     WIND_MODEL_ORDER.forEach(function (mk) {
-      var rows = windRowsForModel(mk, domStart, domEnd).filter(function (r) { return r.sustained != null || r.gust != null; });
+      var rows = forecastVisibleAll ? windRowsForModel(mk, domStart, domEnd).filter(function (r) { return r.sustained != null || r.gust != null; }) : [];
       seriesByModel[mk] = rows;
       rows.forEach(function (r) {
         if (r.sustained != null) allVals.push(r.sustained);
         if (r.gust != null) allVals.push(r.gust);
       });
     });
-    var yMaxAll = Math.max(limits.noGoGust, allVals.length ? Math.max.apply(null, allVals) : 0) + 3;
+    var observedSeriesAll = buildObservedWindChartSeries(domStart, domEnd, nowMs);
+    var obsValsAll = observedSeriesAll.reduce(function (values, series) {
+      return values.concat(series.points.map(function (point) { return point.v; }));
+    }, []);
+    var yMaxAll = Math.max(limits.noGoGust, allVals.length ? Math.max.apply(null, allVals) : 0,
+      obsValsAll.length ? Math.max.apply(null, obsValsAll) : 0) + 3;
     var yAll = function (v) { return padT + (H - padT - padB) - (v / yMaxAll) * (H - padT - padB); };
     var bandsAll = windRefBandsHtml(limits, yMaxAll, W, padL, padR, yAll);
     var sailShadeAll = '<rect x="' + winX1.toFixed(1) + '" y="' + padT + '" width="' + Math.max(0, winX2 - winX1).toFixed(1) + '" height="' + (H - padT - padB) + '" fill="' + accent + '" fill-opacity="0.10"/>';
@@ -5829,10 +5975,12 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
           (WIND_MODEL_DASH[mk] !== 'none' ? ' stroke-dasharray="' + WIND_MODEL_DASH[mk] + '"' : '') + '/>';
       }).join('');
     }).join('');
+    var obsPathAll = windObservedPathsHtml(observedSeriesAll, x, yAll);
+    var obsMarkerAll = windObservedMarkersHtml(observedSeriesAll, x, yAll, W, padR);
 
     wrap.innerHTML = '<svg viewBox="0 0 ' + W.toFixed(1) + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">' +
       sailShadeAll + windYAxisHtml(yMaxAll, yAll, W, padL, padR, padT, inkDim) +
-      bandsAll.shapes + windowTickGuides + gustLines + sustainedLines + windowTickLabels + nowLine + bandsAll.labels +
+      bandsAll.shapes + windowTickGuides + gustLines + sustainedLines + obsPathAll + windowTickLabels + nowLine + obsMarkerAll + bandsAll.labels +
       windAxisTicksHtml(domStart, domEnd, x, W, padL, padR, H - 3, inkDim) +
       '</svg>';
 
@@ -5840,26 +5988,31 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
       legendEl.innerHTML = '<span class="legend-key-label">Models</span>' + WIND_MODEL_ORDER.map(function (mk) {
         return '<span>' + windLegendLineSvg(WIND_MODEL_COLOR[mk], WIND_MODEL_DASH[mk], 2, WIND_MODEL_OPACITY[mk]) +
           WIND_MODEL_LABELS[mk] + '</span>';
-      }).join('') + '<span class="legend-key-label">Series</span>' +
-        '<span>' + windLegendLineSvg('var(--ink)', 'none', 2, 0.85) + 'sustained</span>' +
-        '<span>' + windLegendLineSvg('var(--ink)', WIND_GUST_DASH, 1.1, 0.5) + 'gust</span>';
+      }).join('') + windLegendForecastToggleHtml() +
+        observedSeriesAll.map(function (series) { return windLegendObsToggleHtml(series); }).join('');
+      wireWindLegendToggles(legendEl);
     }
     var svgElAll = wrap.querySelector('svg');
     if (svgElAll) {
       attachChartScrub(svgElAll, xToMs, function (ms) {
         var lines = [], dots = [];
-        WIND_MODEL_ORDER.forEach(function (mk) {
-          var row = findWindRowForMs(seriesByModel[mk], ms);
-          if (!row || (row.sustained == null && row.gust == null)) return;
-          var line = WIND_MODEL_LABELS[mk] + ' ' + (row.sustained != null ? round1(row.sustained) + ' kt' : 'sustained unavailable');
-          if (row.gust != null) line += ' · gust ' + round1(row.gust);
-          lines.push('<div>' + escapeHtml(line) + '</div>');
-          // Both visible companion lines get a scrub dot at the exact scrubbed instant.
-          var sustainedInterp = interpRowsValue(seriesByModel[mk], ms, 'sustained');
-          var gustInterp = interpRowsValue(seriesByModel[mk], ms, 'gust');
-          if (sustainedInterp != null) dots.push({ x: x(ms), y: yAll(sustainedInterp), color: WIND_MODEL_COLOR[mk] });
-          if (gustInterp != null) dots.push({ x: x(ms), y: yAll(gustInterp), color: WIND_MODEL_COLOR[mk] });
-        });
+        if (forecastVisibleAll) {
+          WIND_MODEL_ORDER.forEach(function (mk) {
+            var row = findWindRowForMs(seriesByModel[mk], ms);
+            if (!row || (row.sustained == null && row.gust == null)) return;
+            var line = WIND_MODEL_LABELS[mk] + ' ' + (row.sustained != null ? round1(row.sustained) + ' kt' : 'sustained unavailable');
+            if (row.gust != null) line += ' · gust ' + round1(row.gust);
+            lines.push('<div>' + escapeHtml(line) + '</div>');
+            // Both visible companion lines get a scrub dot at the exact scrubbed instant.
+            var sustainedInterp = interpRowsValue(seriesByModel[mk], ms, 'sustained');
+            var gustInterp = interpRowsValue(seriesByModel[mk], ms, 'gust');
+            if (sustainedInterp != null) dots.push({ x: x(ms), y: yAll(sustainedInterp), color: WIND_MODEL_COLOR[mk] });
+            if (gustInterp != null) dots.push({ x: x(ms), y: yAll(gustInterp), color: WIND_MODEL_COLOR[mk] });
+          });
+        }
+        var obsScrubAll = windObservedScrubEntries(observedSeriesAll, ms, x, yAll);
+        lines = lines.concat(obsScrubAll.lines);
+        dots = dots.concat(obsScrubAll.dots);
         if (!lines.length) return null;
         return { html: '<div class="scrub-time">' + escapeHtml(fmtTime(ms)) + '</div>' + lines.join(''), dots: dots };
       });
@@ -5868,10 +6021,9 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
   }
 
   var rows = windRowsForModel(model, domStart, domEnd);
-  if (legendEl) {
-    legendEl.innerHTML = '<span><span class="swatch swatch-sustained"></span>forecast sustained</span><span><span class="swatch swatch-gust"></span>forecast gust</span>';
-  }
+  var forecastVisible = windTraceVisible('forecast');
   if (!rows.length) {
+    if (legendEl) legendEl.innerHTML = '';
     var noDataText = model === 'nws'
       ? 'No NWS wind data in this chart window.'
       : (!state.windModelSeries
@@ -5881,21 +6033,9 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
     return;
   }
 
-  var sustainedVals = rows.map(function (r) { return r.sustained; }).filter(function (v) { return v != null; });
-  var gustVals = rows.map(function (r) { return r.gust; }).filter(function (v) { return v != null; });
-  // The chart is a comparison surface, independent of the Observed Now station picker.
-  // Keep each station in its own series so paths, interpolation, and scrub values can never
-  // jump from Robbins Reef to Willy Wall merely because their timestamps are adjacent.
-  var observedChartSeries = [
-    { station: 'robbinsReef', label: OBS_WIND_STATION_LABELS.robbinsReef, color: 'var(--violet)', swatch: 'swatch-obs' },
-    { station: 'weatherflow', label: OBS_WIND_STATION_LABELS.weatherflow, color: 'var(--measured-current)', swatch: 'swatch-obs-willy-wall' }
-  ].map(function (series) {
-    series.points = observedWindHistoryForStation(series.station).filter(function (point) {
-      return point && point.ms >= domStart && point.ms <= Math.min(domEnd, nowMs) &&
-        point.sustainedKt != null && isFinite(point.sustainedKt);
-    }).map(function (point) { return { ms: point.ms, v: point.sustainedKt }; });
-    return series;
-  });
+  var sustainedVals = forecastVisible ? rows.map(function (r) { return r.sustained; }).filter(function (v) { return v != null; }) : [];
+  var gustVals = forecastVisible ? rows.map(function (r) { return r.gust; }).filter(function (v) { return v != null; }) : [];
+  var observedChartSeries = buildObservedWindChartSeries(domStart, domEnd, nowMs);
   var obsVals = observedChartSeries.reduce(function (values, series) {
     return values.concat(series.points.map(function (point) { return point.v; }));
   }, []);
@@ -5911,51 +6051,17 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
   // windCellClass's color still drives the hourly table rows and every other wind "cell".
   var sailShade = '<rect x="' + winX1.toFixed(1) + '" y="' + padT + '" width="' + Math.max(0, winX2 - winX1).toFixed(1) + '" height="' + (H - padT - padB) + '" fill="' + accent + '" fill-opacity="0.12"/>';
 
-  var sustainedPts = rows.filter(function (r) { return r.sustained != null; }).map(function (r) { return { ms: r.ms, v: r.sustained }; });
-  var gustPts = rows.filter(function (r) { return r.gust != null; }).map(function (r) { return { ms: r.ms, v: r.gust }; });
-  var areaPath = '', sustainedPath = '', gustPath = '', obsPath = '';
-  if (sustainedPts.length) {
-    splitWindPointSegments(sustainedPts).forEach(function (segment) {
-      var lineD = smoothPathD(segment, x, y);
-      var areaD = lineD + ' L' + x(segment[segment.length - 1].ms).toFixed(1) + ',' + baseline +
-        ' L' + x(segment[0].ms).toFixed(1) + ',' + baseline + ' Z';
-      areaPath += '<path d="' + areaD + '" fill="' + accent + '" fill-opacity="0.15" stroke="none"/>';
-      sustainedPath += '<path d="' + lineD + '" fill="none" stroke="' + accent + '" stroke-width="2.5"/>';
-    });
-  }
-  if (gustPts.length) {
-    gustPath = splitWindPointSegments(gustPts).map(function (segment) {
-      return '<path d="' + smoothPathD(segment, x, y) + '" fill="none" stroke="' + inkDim + '" stroke-width="1.5" stroke-dasharray="3,2" stroke-opacity="0.8"/>';
-    }).join('');
-  }
+  var forecastPaths = windForecastPathsHtml(rows, forecastVisible, x, y, baseline, accent, inkDim);
+  var areaPath = forecastPaths.areaPath, sustainedPath = forecastPaths.sustainedPath, gustPath = forecastPaths.gustPath;
 
-  observedChartSeries.forEach(function (series) {
-    var seriesPath = splitObservedWindSegments(series.points).filter(function (segment) {
-      return segment.length > 1;
-    }).map(function (segment) {
-      return '<path d="' + linearPathD(segment, x, y) + '" fill="none" stroke="' + series.color + '" stroke-width="2"/>';
-    }).join('');
-    obsPath += seriesPath;
-    if (series.points.length && legendEl) {
-      legendEl.innerHTML += '<span><span class="swatch ' + series.swatch + '"></span>' +
-        escapeHtml(series.label) + ' measured</span>';
-    }
-  });
+  var obsPath = windObservedPathsHtml(observedChartSeries, x, y);
+  var obsMarker = windObservedMarkersHtml(observedChartSeries, x, y, W, padR);
 
-  // Name both trace endpoints at their actual final sample. Small opposing label offsets
-  // keep similar station readings legible without moving either marker off its data point.
-  var obsMarker = observedChartSeries.map(function (series, seriesIndex) {
-    if (!series.points.length) return '';
-    var endpoint = series.points[series.points.length - 1];
-    var obsX = x(endpoint.ms);
-    var obsY = y(endpoint.v);
-    var labelRight = obsX <= W - padR - 70;
-    var labelY = obsY + (seriesIndex === 0 ? -5 : 11);
-    return '<circle cx="' + obsX.toFixed(1) + '" cy="' + obsY.toFixed(1) + '" r="4" fill="' + series.color + '" stroke="var(--bg-card)" stroke-width="1.2"/>' +
-      '<text x="' + (labelRight ? obsX + 7 : obsX - 7).toFixed(1) + '" y="' + labelY.toFixed(1) +
-      '" font-size="9" text-anchor="' + (labelRight ? 'start' : 'end') + '" fill="' + series.color + '">' +
-      escapeHtml(series.label) + ' ' + round1(endpoint.v) + '</text>';
-  }).join('');
+  if (legendEl) {
+    legendEl.innerHTML = windLegendForecastToggleHtml() +
+      observedChartSeries.map(function (series) { return windLegendObsToggleHtml(series); }).join('');
+    wireWindLegendToggles(legendEl);
+  }
 
   // Direction arrow row: thin to one per 2h once hourly spacing would crowd the glyphs.
   // Each arrow carries its cardinal (16-point compass) letters underneath so direction is
@@ -5981,26 +6087,25 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
   var svgEl = wrap.querySelector('svg');
   if (svgEl) {
     attachChartScrub(svgEl, xToMs, function (ms) {
-      var row = findWindRowForMs(rows, ms);
-      if (!row || (row.sustained == null && row.gust == null)) return null;
-      var dirLabel = degToCompass(row.dir);
+      var row = forecastVisible ? findWindRowForMs(rows, ms) : null;
       var out = ['<div class="scrub-time">' + escapeHtml(fmtTime(ms)) + '</div>'];
-      out.push('<div>' + escapeHtml(dirLabel) + (row.dir != null ? ' ' + Math.round(row.dir) + '°' : '') + '</div>');
-      out.push('<div>' + (row.sustained != null ? round1(row.sustained) + ' kt' : '-- kt') +
-        (row.gust != null ? ' · gust ' + round1(row.gust) : '') + '</div>');
-      out.push('<div class="sub">' + escapeHtml(WIND_MODEL_LABELS[model] || model) + '</div>');
       var dots = [];
       var sx = x(ms);
-      var sInterp = interpRowsValue(rows, ms, 'sustained');
-      var gInterp = interpRowsValue(rows, ms, 'gust');
-      if (sInterp != null) dots.push({ x: sx, y: y(sInterp), color: accent });
-      if (gInterp != null) dots.push({ x: sx, y: y(gInterp), color: inkDim });
-      observedChartSeries.forEach(function (series) {
-        var measured = interpolateObservedWindAtMs(series.points, ms);
-        if (measured == null) return;
-        out.push('<div>' + escapeHtml(series.label) + ' measured ' + round1(measured) + ' kt</div>');
-        dots.push({ x: sx, y: y(measured), color: series.color });
-      });
+      if (row && (row.sustained != null || row.gust != null)) {
+        var dirLabel = degToCompass(row.dir);
+        out.push('<div>' + escapeHtml(dirLabel) + (row.dir != null ? ' ' + Math.round(row.dir) + '°' : '') + '</div>');
+        out.push('<div>' + (row.sustained != null ? round1(row.sustained) + ' kt' : '-- kt') +
+          (row.gust != null ? ' · gust ' + round1(row.gust) : '') + '</div>');
+        out.push('<div class="sub">' + escapeHtml(WIND_MODEL_LABELS[model] || model) + '</div>');
+        var sInterp = interpRowsValue(rows, ms, 'sustained');
+        var gInterp = interpRowsValue(rows, ms, 'gust');
+        if (sInterp != null) dots.push({ x: sx, y: y(sInterp), color: accent });
+        if (gInterp != null) dots.push({ x: sx, y: y(gInterp), color: inkDim });
+      }
+      var obsScrub = windObservedScrubEntries(observedChartSeries, ms, x, y);
+      out = out.concat(obsScrub.lines);
+      dots = dots.concat(obsScrub.dots);
+      if (out.length <= 1) return null;
       return { html: out.join(''), dots: dots };
     });
   }
@@ -8359,6 +8464,7 @@ var state = {
   gridpointRaw: null, hourlyRaw: null, alertsRaw: null, stormAlertsRaw: null, stormCellsRaw: null, marineTextRaw: null,
   stormCellHistorySnapshots: [],
   observedRaw: null, windModelsRaw: null, windModelSeries: null, windModel: 'nws',
+  windTraceVisibility: { forecast: true, robbinsReef: true, willyWall: true },
   obsWindStation: 'robbinsReef', obsWindWeatherflowRaw: null, obsWindWeatherflowHistory: [],
   obsCurrentStation: 'hudson', kvkCurrentRaw: null, kvkCurrentHistoryRaw: [], newarkCurrentRaw: null,
   narrowsCurrentRaw: null, narrowsCurrentHistoryRaw: [],
@@ -10849,6 +10955,12 @@ function init() {
       selectObsWindStation(chip.dataset.station);
     });
   });
+
+  // Wind chart legend toggles (forecast/Robbins Reef/Willy Wall): requireObject rejects a
+  // corrupted or wrong-shaped value in favor of DEFAULT_WIND_TRACE_VISIBILITY; a missing
+  // individual key within an otherwise-valid object still reads as visible via
+  // windTraceVisible's `!== false` check, so a partial save never hides an untouched trace.
+  state.windTraceVisibility = lsGetJSON('windTraceVisibility', DEFAULT_WIND_TRACE_VISIBILITY, true);
 
   state.obsCurrentStation = lsGetJSON('obsCurrentStation', 'hudson');
   if (state.obsCurrentStation !== 'hudson' && !OBS_CURRENT_REFERENCES[state.obsCurrentStation]) {

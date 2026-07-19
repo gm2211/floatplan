@@ -43,8 +43,8 @@ assert.match(html, /linearPathD\(segment, x, y\).*series\.color/s,
   'measured samples must use non-overshooting linear interpolation');
 assert.match(html, /splitObservedWindSegments\(series\.points\)/,
   'each station trace must independently split around sensor outages');
-assert.match(html, /escapeHtml\(series\.label\)[\s\S]*?measured<\/span>/,
-  'each measured trace legend must name its station');
+assert.match(html, /function windLegendObsToggleHtml[\s\S]*?escapeHtml\(series\.label\) \+ ' measured'/,
+  'each measured trace legend toggle must name its station');
 assert.doesNotMatch(html, /Robbins Reef is the continuous measured reference/,
   'the chart must not claim a different station is the selected station history');
 assert.match(html, /var obsX = x\(endpoint\.ms\)/,
