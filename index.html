@@ -4747,9 +4747,10 @@ function sailProjectedSectorPath(cx, cy, windFromDeg, halfAngleDeg, radius, xPix
 
 var SAIL_WATER_ROWS = 6;
 var SAIL_WATER_COLS = 2;
-var SAIL_WATER_MIN_PX_PER_SEC = 2;
-var SAIL_WATER_MAX_PX_PER_SEC = 9;
-var SAIL_WATER_DASH_HALF_LEN = 4;
+var SAIL_WATER_MIN_PX_PER_SEC = 0.8;
+var SAIL_WATER_MAX_PX_PER_SEC = 3.5;
+var SAIL_WATER_SQUIGGLE_HEIGHT = 14;
+var SAIL_WATER_SQUIGGLE_AMP = 3;
 
 function properMod(value, modulus) {
   var r = value % modulus;
@@ -4758,18 +4759,18 @@ function properMod(value, modulus) {
 
 // Deterministic layout for the channel's animated water field (legibility feedback: "is blue
 // arrow supposed to be current while white wind? not very clear"). A sparse grid of short
-// dashes, one drift band per row so the whole field never pops into a new position in
-// lockstep; each dash's offset within its own band is a pure function of the wall clock, not
-// Math.random, so identical (curKt, nowMs) inputs always render identical output. Flood
-// (curKt >= 0) drifts up-river, i.e. screen-up (see latToY: higher latitude means smaller y);
-// ebb drifts screen-down. nowMs is the wall clock at render time, not the simulated playback
-// position, so the water keeps flowing regardless of which moment of the voyage is shown.
-// Null/NaN current means there is nothing local to animate, so callers must skip the group
-// entirely rather than draw a colorless placeholder.
+// vertical wavy squiggles, one drift band per row so the whole field never pops into a new
+// position in lockstep; each squiggle's offset within its own band is a pure function of the
+// wall clock, not Math.random, so identical (curKt, nowMs) inputs always render identical
+// output. Flood (curKt >= 0) drifts up-river, i.e. screen-up (see latToY: higher latitude means
+// smaller y); ebb drifts screen-down. nowMs is the wall clock at render time, not the simulated
+// playback position, so the water keeps flowing regardless of which moment of the voyage is
+// shown. Null/NaN current means there is nothing local to animate, so callers must skip the
+// group entirely rather than draw a colorless placeholder.
 function sailWaterStrokes(curKt, padTop, innerH, nowMs, reduced) {
   if (curKt == null || !isFinite(curKt)) return null;
   var flood = curKt >= 0;
-  var speedPxPerSec = clamp(Math.abs(curKt) * 3, SAIL_WATER_MIN_PX_PER_SEC, SAIL_WATER_MAX_PX_PER_SEC);
+  var speedPxPerSec = clamp(Math.abs(curKt) * 1.5, SAIL_WATER_MIN_PX_PER_SEC, SAIL_WATER_MAX_PX_PER_SEC);
   var signedPxPerSec = flood ? -speedPxPerSec : speedPxPerSec;
   var cycleLen = innerH / SAIL_WATER_ROWS;
   var totalDashes = SAIL_WATER_ROWS * SAIL_WATER_COLS;
@@ -4787,6 +4788,20 @@ function sailWaterStrokes(curKt, padTop, innerH, nowMs, reduced) {
   return { color: flood ? 'var(--flood)' : 'var(--ebb)', dashes: dashes, pxPerSec: signedPxPerSec, cycleLen: cycleLen };
 }
 
+// A single squiggle: a gentle 2-arch sine-like wave running top-to-bottom from (cx, topY),
+// built from two quadratic arcs that alternate lateral direction (right then left) so the
+// stroke reads as a short ripple of current rather than a straight dash. Pure arithmetic, no
+// Math.random, so identical (cx, topY) inputs always produce identical path data.
+function sailWaterSquigglePath(cx, topY) {
+  var segH = (SAIL_WATER_SQUIGGLE_HEIGHT / 2).toFixed(1);
+  var ctrlY = (SAIL_WATER_SQUIGGLE_HEIGHT / 4).toFixed(1);
+  var amp = SAIL_WATER_SQUIGGLE_AMP.toFixed(1);
+  var negAmp = (-SAIL_WATER_SQUIGGLE_AMP).toFixed(1);
+  return 'M' + cx.toFixed(1) + ',' + topY.toFixed(1) +
+    ' q' + amp + ',' + ctrlY + ' 0,' + segH +
+    ' q' + negAmp + ',' + ctrlY + ' 0,' + segH;
+}
+
 // Builds the water field as one clipped <g>. When motion is allowed, data-water-anim (plus
 // the render timestamp and drift rate) lets the standalone rAF loop in ensureSailWaterAnimLoop
 // keep nudging this exact group's own transform between full SVG rebuilds — see that loop's
@@ -4796,15 +4811,14 @@ function sailWaterGroupSvg(curKt, chX0, chX1, padTop, innerH, nowMs, reduced) {
   var field = sailWaterStrokes(curKt, padTop, innerH, nowMs, reduced);
   if (!field) return '';
   var col0X = chX0 + (chX1 - chX0) * 0.32, col1X = chX0 + (chX1 - chX0) * 0.68;
-  var lines = field.dashes.map(function (d) {
+  var paths = field.dashes.map(function (d) {
     var cx = d.col === 0 ? col0X : col1X;
-    return '<line x1="' + (cx - SAIL_WATER_DASH_HALF_LEN).toFixed(1) + '" y1="' + d.y.toFixed(1) +
-      '" x2="' + (cx + SAIL_WATER_DASH_HALF_LEN).toFixed(1) + '" y2="' + d.y.toFixed(1) + '"/>';
+    return '<path d="' + sailWaterSquigglePath(cx, d.y) + '"/>';
   }).join('');
   var animAttrs = reduced ? '' : ' data-water-anim="1" data-render-ms="' + Math.round(nowMs) +
     '" data-px-per-sec="' + field.pxPerSec.toFixed(3) + '" data-cycle-len="' + field.cycleLen.toFixed(2) + '"';
   return '<g class="sailsim-water" clip-path="url(#sailSimChannelClip)" stroke="' + field.color +
-    '" stroke-width="1.5" stroke-opacity="0.3"' + animAttrs + '>' + lines + '</g>';
+    '" stroke-width="1.2" stroke-opacity="0.3"' + animAttrs + '>' + paths + '</g>';
 }
 
 function renderSailSimSvg(sim, atMs) {
