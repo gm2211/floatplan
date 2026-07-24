@@ -5,11 +5,24 @@ const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const startMarker = '/* ============================== Storm cell + warning overlay';
 const endMarker = '/* ============================== Card error / toast helpers';
 const stormCode = html.slice(html.indexOf(startMarker), html.indexOf(endMarker));
+const radarLagMatch = html.match(/var RADAR_LAG_STEPS_MIN = \[([^\]]+)\]/);
+assert.ok(radarLagMatch, 'radar playback lag list not found');
+globalThis.RADAR_LAG_STEPS_MIN = radarLagMatch[1].split(',').map(value => Number(value.trim()));
+globalThis.STORM_HISTORY_LAG_MIN = RADAR_LAG_STEPS_MIN.filter(lagMin => lagMin > 0);
+globalThis.fiveMinBucketMs = (timeMs) => Math.floor(timeMs / 300000) * 300000;
 
 assert.ok(stormCode.includes('function fitStormCellMotion'), 'SCIT least-squares fit block not found');
 assert.ok(stormCode.includes('function resolveStormCellMotion'), 'fitted-vs-reported motion chooser not found');
 assert.ok(stormCode.includes('function findHistoricalCellMatch'), 'history association block not found');
 assert.ok(stormCode.includes('function stormTrackDiameterNm'), 'uncertainty whisker sizing block not found');
+assert.ok(
+  html.includes('var STORM_HISTORY_LAG_MIN = RADAR_LAG_STEPS_MIN.filter(function (lagMin) { return lagMin > 0; });'),
+  'storm history fetches must stay derived from every historical radar-loop frame'
+);
+assert.ok(
+  stormCode.includes('var STORM_FIT_MAX_POINTS = 10;'),
+  'each frame-relative SCIT fit must remain capped at 10 points'
+);
 
 globalThis.STORM_WARNING_RE = /^(Tornado Warning|Severe Thunderstorm Warning|Special Marine Warning)$/i;
 globalThis.NORTHEAST_STORM_DOMAIN = { south: 37, west: -82.5, north: 47.5, east: -65 };
@@ -157,6 +170,27 @@ const recycledIdFeature = historyFeature(fastCell.lon, fastCell.lat, { storm_id:
 const recycledResult = findHistoricalCellMatch(fastCell, [recycledIdFeature, ancestorFeature]);
 assert.equal(recycledResult.id, 'G7', 'a same-id candidate far from the first guess must lose to a plausible ancestor');
 
+// Historical snapshots must retain their own reported motion so an older playback frame can
+// fall back to the report known then instead of the current cell's latest report.
+const reportSnapshotMs = nowMs - 10 * 60000;
+const reportSnapshotPosition = destinationPoint(TRUE_LAT, TRUE_LON, 270, 2);
+const historyWithReports = buildStormCellHistory(
+  {
+    id: 'R1', radar: 'KOKX', lat: TRUE_LAT, lon: TRUE_LON, validMs: nowMs,
+    bearingDeg: 90, speedKt: 20
+  },
+  [{
+    bucketMs: reportSnapshotMs,
+    features: [historyFeature(reportSnapshotPosition[1], reportSnapshotPosition[0], {
+      storm_id: 'R1', nexrad: 'KOKX', valid: new Date(reportSnapshotMs).toISOString(),
+      drct: 270, sknt: 12
+    })]
+  }]
+);
+assert.equal(historyWithReports[0].bearingDeg, 90, 'a past history point must retain its reported bearing');
+assert.equal(historyWithReports[0].speedKt, 12, 'a past history point must retain its reported speed');
+assert.equal(historyWithReports.at(-1).speedKt, 20, 'the current point must retain its separate latest report');
+
 /* ---- (7) stormFrameGeometry re-anchors the whole track to an arbitrary radar-frame time ---- */
 
 assert.ok(stormCode.includes('function stormFrameGeometry'), 'frame-adaptive track geometry block not found');
@@ -236,5 +270,236 @@ assert.deepEqual(leadMinutesFromFrame, [0, 15, 30, 45, 60], 'forward-tick lead t
 const wideningNear = stormTrackDiameterNm(cleanFit.sigmaNm, leadMinutesFromFrame[1]);
 const wideningFar = stormTrackDiameterNm(cleanFit.sigmaNm, leadMinutesFromFrame[4]);
 assert.ok(wideningFar >= wideningNear, 'whisker width computed from lead-from-frame minutes must still grow with lead time');
+
+/* ---- (8) radar-cell playback recomputes motion from the frame-known history prefix ---- */
+
+function reportedHistoryPoint(ms, distanceNm, speedKt, bearingDeg = TRUE_BEARING) {
+  const point = destinationPoint(TRUE_LAT, TRUE_LON, TRUE_BEARING, distanceNm);
+  return { ms, lat: point[0], lon: point[1], bearingDeg, speedKt };
+}
+
+const prefixStartMs = Date.parse('2026-07-15T10:00:00Z');
+const changingSpeedHistory = [
+  reportedHistoryPoint(prefixStartMs, 0, 10),
+  reportedHistoryPoint(prefixStartMs + 10 * 60000, 10 / 6, 10),
+  reportedHistoryPoint(prefixStartMs + 20 * 60000, 20 / 6, 10),
+  reportedHistoryPoint(prefixStartMs + 30 * 60000, 20 / 6 + 3, 18),
+  reportedHistoryPoint(prefixStartMs + 40 * 60000, 20 / 6 + 6, 18)
+];
+const frameRelativeEntry = {
+  historyPoints: changingSpeedHistory,
+  anchorMs: changingSpeedHistory.at(-1).ms,
+  motion: { bearingDeg: 180, speedKt: 30, sigmaNm: null },
+  horizonMs: STORM_NO_HORIZON_CAP,
+  frameRelativeMotion: true
+};
+
+const oldestSupportedFrameState = stormCellFrameState(frameRelativeEntry, prefixStartMs);
+assert.ok(oldestSupportedFrameState, 'the oldest fetched radar frame must retain a reported-motion state');
+assert.equal(oldestSupportedFrameState.knownPoints.length, 1);
+
+const fullLoopCurrentMs = prefixStartMs + 50 * 60000;
+const fullLoopCellPoint = destinationPoint(TRUE_LAT, TRUE_LON, TRUE_BEARING, 10 * 50 / 60);
+const fullLoopCell = {
+  id: 'LOOP', radar: 'KOKX', lat: fullLoopCellPoint[0], lon: fullLoopCellPoint[1],
+  validMs: fullLoopCurrentMs, bearingDeg: TRUE_BEARING, speedKt: 10
+};
+const fullLoopSnapshots = STORM_HISTORY_LAG_MIN.map(lagMin => {
+  const validMs = fullLoopCurrentMs - lagMin * 60000;
+  const point = destinationPoint(TRUE_LAT, TRUE_LON, TRUE_BEARING, 10 * (50 - lagMin) / 60);
+  return {
+    bucketMs: validMs,
+    features: [historyFeature(point[1], point[0], {
+      storm_id: 'LOOP', valid: new Date(validMs).toISOString(), drct: 270, sknt: 10
+    })]
+  };
+});
+const fullLoopHistory = buildStormCellHistory(fullLoopCell, fullLoopSnapshots);
+assert.equal(
+  fullLoopHistory.length,
+  STORM_HISTORY_LAG_MIN.length + 1,
+  'building a complete playback history must retain all historical frames plus the current scan'
+);
+assert.equal(
+  fullLoopHistory[0].ms,
+  fullLoopCurrentMs - Math.max(...STORM_HISTORY_LAG_MIN) * 60000,
+  'the oldest displayed radar frame must survive the production history builder'
+);
+const olderAnimatedFrameMs = fullLoopCurrentMs - 120 * 60000;
+const animatedBuckets = stormHistoryBucketList(fullLoopCurrentMs, [olderAnimatedFrameMs]);
+assert.ok(
+  animatedBuckets.includes(fiveMinBucketMs(olderAnimatedFrameMs)),
+  'an Animated RainViewer frame older than 50 minutes must add its own history bucket'
+);
+const fullLoopOldestState = stormCellFrameState({
+  historyPoints: fullLoopHistory,
+  anchorMs: fullLoopCurrentMs,
+  motion: { bearingDeg: TRUE_BEARING, speedKt: 10, sigmaNm: null },
+  horizonMs: STORM_NO_HORIZON_CAP,
+  frameRelativeMotion: true
+}, fullLoopHistory[0].ms);
+assert.ok(fullLoopOldestState, 'the production-built history must render a track at the oldest radar frame');
+const fullLoopLatestState = stormCellFrameState({
+  historyPoints: fullLoopHistory,
+  anchorMs: fullLoopCurrentMs,
+  motion: { bearingDeg: TRUE_BEARING, speedKt: 10, sigmaNm: null },
+  horizonMs: STORM_NO_HORIZON_CAP,
+  frameRelativeMotion: true
+}, fullLoopCurrentMs);
+assert.equal(
+  fullLoopLatestState.motion.pointCount,
+  10,
+  'the newest frame may retain 11 visible history points but must cap its SCIT fit at 10'
+);
+
+const earlyFrameState = stormCellFrameState(frameRelativeEntry, changingSpeedHistory[2].ms);
+const lateFrameState = stormCellFrameState(frameRelativeEntry, changingSpeedHistory[4].ms);
+assert.equal(earlyFrameState.knownPoints.length, 3, 'an older frame fit must contain only observations known by that frame');
+assert.equal(lateFrameState.knownPoints.length, 5, 'a later frame fit may use the newly-known observations');
+assert.equal(earlyFrameState.motion.source, 'fitted');
+assert.equal(lateFrameState.motion.source, 'fitted');
+assert.ok(
+  lateFrameState.motion.speedKt > earlyFrameState.motion.speedKt + 2,
+  'different frame prefixes must be able to produce materially different fitted motion'
+);
+assert.ok(
+  Math.abs(earlyFrameState.motion.speedKt - 10) < 0.5,
+  'the early frame must recover its own 10 kt prefix instead of leaking the faster latest fit'
+);
+
+/* ---- (9) a short prefix falls back to that frame's last known radar report ---- */
+
+const reportChangeHistory = [
+  reportedHistoryPoint(prefixStartMs, 0, 9, 90),
+  reportedHistoryPoint(prefixStartMs + 10 * 60000, 1.5, 11, 90),
+  reportedHistoryPoint(prefixStartMs + 20 * 60000, 3.5, 28, 180)
+];
+const reportChangeEntry = {
+  historyPoints: reportChangeHistory,
+  anchorMs: reportChangeHistory.at(-1).ms,
+  motion: { bearingDeg: 180, speedKt: 28, sigmaNm: null },
+  horizonMs: STORM_NO_HORIZON_CAP,
+  frameRelativeMotion: true
+};
+const fallbackAtSecondReport = stormCellFrameState(reportChangeEntry, reportChangeHistory[1].ms);
+assert.equal(fallbackAtSecondReport.motion.source, 'reported');
+assert.equal(fallbackAtSecondReport.motion.bearingDeg, 90, 'fallback must not use a later scan\'s reported bearing');
+assert.equal(fallbackAtSecondReport.motion.speedKt, 11, 'fallback must not use a later scan\'s reported speed');
+
+/* ---- (10) the complete observed trail stays visible throughout playback ---- */
+
+const earlyFrameGeometry = stormFrameGeometry(frameRelativeEntry, changingSpeedHistory[1].ms);
+const lateFrameGeometry = stormFrameGeometry(frameRelativeEntry, changingSpeedHistory[4].ms);
+assert.deepEqual(
+  earlyFrameGeometry.historyTrail.map(point => point.ms),
+  changingSpeedHistory.map(point => point.ms),
+  'an early frame must still return the complete observed centroid trail for the history layer'
+);
+assert.deepEqual(
+  lateFrameGeometry.historyTrail.map(point => point.ms),
+  changingSpeedHistory.map(point => point.ms),
+  'the same complete observed trail must remain visible at the latest frame'
+);
+assert.equal(earlyFrameGeometry.motion.source, 'reported', 'two frame-known points must use the early reported fallback');
+assert.notEqual(
+  earlyFrameGeometry.motion.speedKt,
+  lateFrameGeometry.motion.speedKt,
+  'forecast geometry must carry the motion resolved specifically for each displayed frame'
+);
+
+/* ---- (11) the playback updater mutates every live layer from the frame result ---- */
+
+assert.ok(
+  html.includes('updateStormFrameGeometry(f.timeMs);'),
+  'showRadarFrame must update storm geometry with the displayed frame timestamp'
+);
+
+function mockPathLayer() {
+  return {
+    latLngs: null,
+    popupContent: '',
+    setLatLngs(value) { this.latLngs = structuredClone(value); },
+    setPopupContent(value) { this.popupContent = value; }
+  };
+}
+
+function mockPointLayer() {
+  const tooltip = { content: '', setContent(value) { this.content = value; } };
+  return {
+    latLng: null,
+    style: null,
+    _stormOpacity: 1,
+    _stormFillOpacity: 1,
+    popupContent: '',
+    setLatLng(value) { this.latLng = structuredClone(value); },
+    setStyle(value) { this.style = structuredClone(value); },
+    setPopupContent(value) { this.popupContent = value; },
+    getTooltip() { return tooltip; },
+    tooltip
+  };
+}
+
+const liveTrack = mockPathLayer();
+const liveHistory = mockPathLayer();
+const liveWhiskers = Array.from({ length: 4 }, mockPathLayer);
+const liveDots = Array.from({ length: 4 }, mockPointLayer);
+const liveEndpoint = mockPointLayer();
+const livePosition = mockPointLayer();
+const liveEntry = {
+  ...frameRelativeEntry,
+  cell: {
+    id: 'X1', radar: 'KOKX', lat: TRUE_LAT, lon: TRUE_LON,
+    validMs: changingSpeedHistory.at(-1).ms, fromDeg: 270, bearingDeg: 90,
+    speedKt: 18, maxDbz: 55, topKft: 35
+  },
+  trackLine: liveTrack,
+  historyLine: liveHistory,
+  whiskerLines: liveWhiskers,
+  pointDots: liveDots,
+  endpointDot: liveEndpoint,
+  positionMarker: livePosition
+};
+
+globalThis.radarState = { map: {}, stormFramePositions: [liveEntry] };
+globalThis.fmtTime = (timeMs) => new Date(timeMs).toISOString();
+globalThis.escapeHtml = (value) => String(value);
+globalThis.degToCompass = (value) => String(value) + '°';
+
+updateStormFrameGeometry(changingSpeedHistory[1].ms);
+const earlyLiveTrack = structuredClone(liveTrack.latLngs);
+const earlyLiveHistory = structuredClone(liveHistory.latLngs);
+const earlyEndpointLabel = liveEndpoint.tooltip.content;
+const earlyPopup = liveTrack.popupContent;
+
+updateStormFrameGeometry(changingSpeedHistory[4].ms);
+assert.notDeepEqual(
+  liveTrack.latLngs,
+  earlyLiveTrack,
+  'scrubbing to another radar frame must replace the rendered forecast-track geometry'
+);
+assert.deepEqual(
+  liveHistory.latLngs,
+  earlyLiveHistory,
+  'the complete observed-history layer must stay visible and unchanged while forecast frames move'
+);
+assert.equal(
+  liveHistory.latLngs.length,
+  changingSpeedHistory.length,
+  'the live history layer must contain every observed centroid'
+);
+assert.notEqual(
+  liveEndpoint.tooltip.content,
+  earlyEndpointLabel,
+  'the permanent endpoint label must update for the selected frame'
+);
+assert.notEqual(
+  liveTrack.popupContent,
+  earlyPopup,
+  'the animated track popup must refresh its scan and fitted/reported motion for the selected frame'
+);
+assert.match(earlyPopup, /Displayed radar frame: 2026-07-15T10:10:00.000Z/);
+assert.match(liveTrack.popupContent, /Displayed radar frame: 2026-07-15T10:40:00.000Z/);
+assert.ok(liveWhiskers.every(layer => Array.isArray(layer.latLngs) && layer.latLngs.length === 2));
+assert.ok(Array.isArray(livePosition.latLng), 'the animated position marker must move with the frame');
 
 console.log('SCIT motion fit, uncertainty whisker, and frame-adaptive track geometry assertions passed');

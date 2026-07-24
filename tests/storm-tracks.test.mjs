@@ -13,6 +13,7 @@ globalThis.STORM_WARNING_RE = /^(Tornado Warning|Severe Thunderstorm Warning|Spe
 globalThis.NORTHEAST_STORM_DOMAIN = { south: 37, west: -82.5, north: 47.5, east: -65 };
 globalThis.ALERTS_STORM_REGION_URL = 'https://api.weather.gov/alerts/active';
 globalThis.IEM_STORM_ATTR_URL = 'https://mesonet.agron.iastate.edu/geojson/nexrad_attr.py';
+globalThis.STORM_HISTORY_LAG_MIN = [50, 45, 40, 35, 30, 25, 20, 15, 10, 5];
 
 // Evaluate the production pure parser/projection functions. Leaflet and DOM-dependent
 // render functions are only declared here and are never invoked by these assertions.
