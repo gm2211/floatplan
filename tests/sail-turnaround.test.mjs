@@ -308,24 +308,33 @@ assert.match(html, /grid-template-rows:\s*repeat\(5,\s*52px\)\s*72px/);
 assert.match(html, /\.sailsim-readout-row\s*\{[^}]*height:\s*52px/);
 
 // The strip must expose the sailing geometry rather than hiding it behind a generic arrow:
-// a heading-oriented top-down hull, the polar's exact no-sail cone centered on true wind
-// FROM. Current is a separate filled, semantic-colored vector field.
-assert.match(html, /class="sailsim-boat-hull"[^>]*d="M0,-10\.5 C4\.2,-7\.1/);
+// a compact heading-oriented top-down hull, the polar's exact no-sail cone centered on true
+// wind FROM, and equal pixels-per-nm in both axes. Current is a separate semantic vector.
+assert.match(html, /class="sailsim-boat-hull"[^>]*d="M0,-7 C2\.8,-4\.7/);
+assert.match(html, /var xPixelsPerNm = yPixelsPerNm;/,
+  'wake geometry must use an equal nautical-mile scale rather than exaggerating lateral motion');
 assert.match(html, /var boatDeg = sailProjectedCompassBearing\(rawBoatDeg, xPixelsPerNm, yPixelsPerNm\)/);
 assert.doesNotMatch(html, /waterNorthKt|waterAlongKt = headingNow/);
 assert.match(html, /data-water-bearing=/);
 assert.match(html, /data-ground-bearing=/);
-assert.match(html, /sailProjectedSectorPath\(boatX, boatY, windDir, SAIL_CLOSE_HAULED_DEG, 32, xPixelsPerNm, yPixelsPerNm\)/);
+assert.match(html, /sailProjectedSectorPath\(boatX, boatY, windDir, SAIL_CLOSE_HAULED_DEG, 22, xPixelsPerNm, yPixelsPerNm\)/);
 assert.match(html, /sailProjectedCompassBearing\(windFlowTowardDeg, xPixelsPerNm, yPixelsPerNm\)/);
 assert.match(html, /windFlowTowardDeg = windAvailable \? normalizeBearing\(windDir \+ 180\)/);
 assert.match(html, /NWS ['"] \+ fmtTime\(atMs\) \+ ['"] &middot; WIND FROM ['"] \+ degToCompass\(windDir\)/);
 assert.match(html, /var windDir = step && isFinite\(step\.windDir\)/);
 assert.match(html, /class="sailsim-wind-vector"/);
 assert.match(html, /class="sailsim-current-vector"/);
+assert.match(html, /var hasDirectionalCurrent = curKt != null && Math\.abs\(curKt\) >= 0\.1;/,
+  'slack classification must not render a directional current arrow');
 assert.match(html, /class="sailsim-planned-track"/);
+assert.match(html, /if \(p\.ms <= atMs\) return;/,
+  'planned route must exclude the already completed wake');
 assert.match(html, /class="sailsim-wake" data-mode=/);
-assert.match(html, /class="sailsim-maneuver" data-state="planned" data-type=/);
+assert.doesNotMatch(html, /class="sailsim-maneuver" data-state="planned"/,
+  'future maneuvers stay in the dashed route instead of crowding the plot with badges');
 assert.match(html, /class="sailsim-maneuver" data-state="completed" data-type=/);
+assert.match(html, /maneuverMarks\.slice\(-SAIL_VISIBLE_MANEUVER_MARKS\)/,
+  'dense completed maneuvers must not cover the plotted wake');
 assert.match(html, /CURRENT &middot;/);
 assert.doesNotMatch(html, /sailsim-wind-streak/);
 assert.doesNotMatch(html, /sailsim-ferry/);

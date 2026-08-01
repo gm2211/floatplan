@@ -3,7 +3,7 @@ import fs from 'node:fs';
 
 const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const initStart = html.indexOf('function init()');
-const switcherStart = html.indexOf('// Wind model switcher (item 2)', initStart);
+const switcherStart = html.indexOf('// Wind model switcher:', initStart);
 const switcherEnd = html.indexOf('radarState.mode =', switcherStart);
 
 assert.ok(initStart >= 0 && switcherStart > initStart && switcherEnd > switcherStart,
@@ -12,11 +12,17 @@ assert.ok(initStart >= 0 && switcherStart > initStart && switcherEnd > switcherS
 const switcher = html.slice(switcherStart, switcherEnd);
 assert.ok(switcher.includes("state.windModel = 'nws';"),
   'every page load must reset the visible and rendered model to NWS');
+assert.ok(switcher.includes('state.windModelAutoFallback = false;'),
+  'startup must distinguish a user selection from an automatic fallback selection');
 assert.ok(switcher.includes("localStorage.removeItem(cacheKey('windModel'))"),
   'startup must remove the legacy persisted model choice');
 assert.ok(!switcher.includes("lsGetJSON('windModel'"),
-  'startup must not restore a comparison chip before its lazy data is available');
+  'startup must not restore a stale comparison chip before current coverage is resolved');
 assert.ok(!switcher.includes("lsSetJSON('windModel'"),
   'wind model selection must remain session-only');
+assert.match(html, /loadGridpoint, loadWindModels/,
+  'comparison models must load automatically so they are ready as NWS fallbacks');
+assert.match(html, /state\.windModelAutoFallback = true/,
+  'the visible chart must identify an automatically selected fallback model');
 
 console.log('Wind model refresh-state assertions passed');

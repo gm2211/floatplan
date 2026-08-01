@@ -98,6 +98,45 @@ assert.equal(windyPendingVerdict.level, 'NOGO');
 assert.ok(!windyPendingVerdict.reasons.some(r => /Confirming/.test(r)),
   'a real hazard verdict must not add pending noise');
 
+// Once a sail window has ended, the banner is a neutral review state rather than a false
+// present-tense safety warning. Any genuine archive gap remains visible with accurate wording.
+const presentationStart = html.indexOf('var VERDICT_LABELS =');
+const presentationEnd = html.indexOf('function renderVerdict', presentationStart);
+assert.ok(presentationStart >= 0 && presentationEnd > presentationStart, 'verdict presentation helper not found');
+const presentationContext = vm.createContext({ fmtTime: ms => `${ms}ms` });
+vm.runInContext(html.slice(presentationStart, presentationEnd), presentationContext);
+const missingHourlyVerdict = verdictContext.computeVerdict({
+  ...safe, availability: { wind: true, hourly: false, alerts: true }
+});
+const activePresentation = presentationContext.verdictPresentation(missingHourlyVerdict, 100, 200, 150);
+assert.equal(activePresentation.label, 'CAUTION — DATA UNAVAILABLE');
+const completedPresentation = presentationContext.verdictPresentation(missingHourlyVerdict, 100, 200, 200);
+assert.equal(completedPresentation.label, 'SAIL COMPLETE');
+assert.equal(completedPresentation.pillLabel, 'COMPLETE');
+assert.match(completedPresentation.reasons[0], /Sail window completed/);
+assert.match(completedPresentation.reasons[1], /Historical review incomplete: full-window coverage for hourly forecast/);
+assert.doesNotMatch(completedPresentation.reasons.join(' '), /Data unavailable/);
+
+// A successful hourly refresh must retain elapsed forecast periods for an active or recently
+// completed sail instead of replacing the cache wholesale with NWS's forward-only response.
+const hourlyMergeStart = html.indexOf('function mergeHourlyForecastHistory');
+const hourlyMergeEnd = html.indexOf('// Fetched with the regular refresh sweep', hourlyMergeStart);
+assert.ok(hourlyMergeStart >= 0 && hourlyMergeEnd > hourlyMergeStart, 'hourly history merger not found');
+const hourlyContext = vm.createContext({ Map, Date, isFinite });
+vm.runInContext(html.slice(hourlyMergeStart, hourlyMergeEnd), hourlyContext);
+const period = (hour, marker) => ({
+  startTime: `2026-07-31T${String(hour).padStart(2, '0')}:00:00-04:00`,
+  endTime: `2026-07-31T${String(hour + 1).padStart(2, '0')}:00:00-04:00`,
+  marker
+});
+const previousHourly = [period(16, 'too-old'), period(17, 'retained'), period(18, 'old-version')];
+const freshHourly = [period(18, 'fresh-version'), period(19, 'fresh')];
+const retainFromMs = new Date('2026-07-31T17:30:00-04:00').getTime();
+const mergedHourly = hourlyContext.mergeHourlyForecastHistory(previousHourly, freshHourly, retainFromMs);
+assert.deepEqual(Array.from(mergedHourly, p => p.marker), ['retained', 'fresh-version', 'fresh']);
+assert.match(html, /mergeHourlyForecastHistory\(state\.hourlyRaw, freshPeriods, retainFromMs\)/,
+  'loadHourly must cache the merged history, not the forward-only response');
+
 // Successful [] means no active advisories; failed/unknown [] must not make that claim.
 const advisoryStart = html.indexOf('function renderAdvisories(');
 const advisoryEnd = html.indexOf('/* ============================== CWF forecast', advisoryStart);

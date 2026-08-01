@@ -34,6 +34,6 @@ assert.equal(sailWindowHasWindCoverage(direction, [{ startMs: 0, endMs: 2 * hour
 
 assert.match(html, /restoredExpiredWindow[\s\S]*savedSailWindowIsUsable/);
 assert.match(html, /if \(restoredExpiredWindow\) persistDurationPlan\(\)/);
-assert.match(html, /NWS wind forecast unavailable for this sail window/);
+assert.match(html, /No wind model has complete speed and direction coverage for this sail window/);
 
 console.log('Expired sail-window assertions passed');

@@ -125,6 +125,10 @@ button { font-family: inherit; }
 .verdict-reef { background: var(--yellow-bg); color: var(--yellow); }
 .verdict-caution { background: var(--orange-bg); color: var(--orange); }
 .verdict-nogo { background: var(--red-bg); color: var(--red); }
+.verdict-complete {
+  background: color-mix(in srgb, var(--bg) 72%, var(--bg-card)); color: var(--ink-dim);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
 .reason-list { list-style: none; margin: 8px 0 0; padding: 0; font-size: 14px; }
 .reason-list li { padding: 5px 0 5px 20px; position: relative; color: var(--ink); }
 .reason-list li:before { content: "\2022"; position: absolute; left: 4px; color: var(--ink-dim); }
@@ -286,10 +290,31 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .pre-motor-note { color: var(--accent); font-weight: 500; }
 
 .svg-wrap {
-  width: 100%; overflow-x: auto; touch-action: pan-y;
+  width: 100%; overflow-x: auto; touch-action: pan-x pan-y;
+  overscroll-behavior-inline: contain; scrollbar-width: thin;
   user-select: none; -webkit-user-select: none;
 }
 .svg-wrap svg { width: 100%; height: auto; display: block; }
+.chart-zoom-controls {
+  display: flex; justify-content: flex-end; align-items: center; gap: 4px; margin: -4px 0 4px;
+}
+.chart-zoom-controls button {
+  min-width: 32px; min-height: 30px; padding: 3px 8px; border: 1px solid var(--border);
+  border-radius: 7px; background: transparent; color: var(--ink-dim); font: inherit; cursor: pointer;
+}
+.chart-zoom-controls button:hover, .chart-zoom-controls button:focus-visible { color: var(--ink); border-color: var(--accent); }
+.chart-zoom-level { min-width: 46px; text-align: center; color: var(--ink-dim); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.sunset-policy {
+  margin: 4px 0 12px 84px; padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--yellow) 35%, var(--border));
+  border-radius: 8px; background: var(--yellow-bg); color: var(--yellow); font-size: 12px; line-height: 1.4;
+}
+.sunset-policy p { margin: 0 0 7px; }
+.sunset-policy label { display: flex; align-items: flex-start; gap: 7px; color: var(--ink); cursor: pointer; }
+.sunset-policy input { margin-top: 2px; flex: 0 0 auto; }
+@media (max-width: 520px) {
+  .sunset-policy { margin-left: 0; }
+  .chart-zoom-controls button { min-width: 38px; min-height: 36px; }
+}
 /* Halo behind every chart label so text stays readable where a curve passes under it —
    paint-order draws the stroke (card-background colored) BENEATH the glyph fill, so the
    letterforms stay crisp while the curve is knocked back around them. */
@@ -363,15 +388,17 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .sailsim-wind-label { fill: var(--ink); }
 .sailsim-current-vector { stroke-linecap: round; stroke-linejoin: round; }
 .sailsim-current-label { font-weight: 700; letter-spacing: 0.04em; }
-.sailsim-water { fill: none; stroke-linecap: round; }
+.sailsim-water { fill: none; stroke-linecap: round; pointer-events: none; }
+.sailsim-channel-axis { stroke: var(--ink-dim); stroke-width: 0.65px; stroke-opacity: 0.16; stroke-dasharray: 2 5; }
+.sailsim-scale { fill: var(--ink-dim); font-size: 6.5px; letter-spacing: 0.03em; }
 .sailsim-wind-caption, .sailsim-current-caption { font-weight: 600; }
-.sailsim-no-sail-sector { fill: var(--red); fill-opacity: 0.12; }
+.sailsim-no-sail-sector { fill: var(--red); fill-opacity: 0.07; }
 .sailsim-no-sail-boundary {
-  fill: none; stroke: var(--red); stroke-opacity: 0.62; stroke-width: 1px;
+  fill: none; stroke: var(--red); stroke-opacity: 0.48; stroke-width: 0.8px;
   stroke-dasharray: 2.5 2.5;
 }
 .sailsim-boat-hull {
-  fill: var(--accent); fill-opacity: 0.36; stroke: var(--accent); stroke-width: 1.45px;
+  fill: var(--bg-card); fill-opacity: 0.92; stroke: var(--accent); stroke-width: 1.25px;
   stroke-linejoin: round;
 }
 .sailsim-boat-centerline, .sailsim-boat-heading-cue {
@@ -1120,8 +1147,12 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       </div>
     </div>
     <div class="custom-duration-row hidden" id="customDurationRow">
-      <input type="number" id="customDurationInput" min="1" max="12" step="0.5">
+      <input type="number" id="customDurationInput" min="1" max="12" step="0.0166667">
       <span class="sub">hours</span>
+    </div>
+    <div class="sunset-policy hidden" id="sunsetPolicy" role="status" aria-live="polite">
+      <p id="sunsetPolicyMessage"></p>
+      <label><input type="checkbox" id="sunsetOverrideAck"> <span>I acknowledge the club sunset limit and want to restore the later plan.</span></label>
     </div>
 
     <div class="form-grid">
@@ -1333,7 +1364,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       </div>
       <div class="sailsim-warning hidden" id="sailSimWarning"></div>
     </div>
-    <div class="chart-footnote">Harbor estimate: NWS wind is reduced for Manhattan shadow and NOAA Entrance current is scaled locally. T/J marks a computed maneuver. Immediate turn at Robbins limit, explicit final approach to Pier 25, 15-minute reserve. Planning only.</div>
+    <div class="chart-footnote">Harbor estimate: NWS-preferred wind (GFS/ECMWF/ICON fallback) is reduced for Manhattan shadow and NOAA Entrance current is scaled locally. T/J marks a computed maneuver. Immediate turn at Robbins limit, explicit final approach to Pier 25, 15-minute reserve. Planning only.</div>
     <div class="card-error hidden" id="sailSimError"></div>
     <details class="source-links"><summary>Sources</summary><div class="source-links-body"><span class="computed-source">Simulation inputs</span><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS wind</a><a id="srcSailSimCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA currents</a><a href="https://www.ussailing.org/wp-content/uploads/2018/01/Speed-Guide-Explanation.pdf" target="_blank" rel="noopener noreferrer">US Sailing speed guide</a></div></details>
   </section>
@@ -1353,7 +1384,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <button type="button" class="chip" data-model="icon_seamless">ICON</button>
       <button type="button" class="chip" data-model="all">All</button>
     </div>
-    <p class="approx-note hidden" id="windModelNote">Go/no-go verdict always uses NWS.</p>
+    <p class="approx-note hidden" id="windModelNote">NWS preferred; GFS, ECMWF, and ICON provide automatic fallback.</p>
     <div class="svg-wrap" id="windChartWrap"></div>
     <div class="chart-legend" id="windChartLegend"></div>
     <p class="wind-summary" id="windSummary"></p>
@@ -2339,8 +2370,27 @@ function fetchHourly() {
     return res.json().then(function (j) { return (j.properties && j.properties.periods) || []; });
   });
 }
-// Fetched lazily (first non-NWS wind-model chip click), not part of loadAll()'s periodic
-// sweep — see loadWindModels.
+
+// NWS's hourly endpoint advances with the clock and drops elapsed periods. Keep the periods
+// already fetched for the currently retained sail window, while allowing a fresh response to
+// replace matching hours. Without this merge, every successful refresh progressively erases
+// the forecast that was used to make an active/recent plan and later mislabels the gap as an
+// upstream outage.
+function mergeHourlyForecastHistory(previousPeriods, freshPeriods, retainFromMs) {
+  var byStart = new Map();
+  (previousPeriods || []).forEach(function (period) {
+    var startMs = new Date(period.startTime).getTime();
+    var endMs = period.endTime ? new Date(period.endTime).getTime() : startMs + 3600000;
+    if (isFinite(startMs) && isFinite(endMs) && endMs > retainFromMs) byStart.set(startMs, period);
+  });
+  (freshPeriods || []).forEach(function (period) {
+    var startMs = new Date(period.startTime).getTime();
+    if (isFinite(startMs)) byStart.set(startMs, period); // fresh wins for an overlapping hour
+  });
+  return Array.from(byStart.entries()).sort(function (a, b) { return a[0] - b[0]; })
+    .map(function (entry) { return entry[1]; });
+}
+// Fetched with the regular refresh sweep so these models are ready if NWS needs a fallback.
 function fetchWindModels() {
   return fetchWithRetry(WINDMODELS_URL).then(function (res) {
     if (!res.ok) throw new Error('Wind models: HTTP ' + res.status);
@@ -2728,13 +2778,13 @@ function computeVerdict(input) {
   var windLevel = 'GO';
   var availability = input.availability || {};
   var unavailable = [];
-  if (availability.wind === false) unavailable.push('NWS wind');
+  if (availability.wind === false) unavailable.push('wind forecast');
   if (availability.hourly === false) unavailable.push('hourly forecast');
   if (availability.alerts === false) unavailable.push('advisories');
   // 'pending' means the feed's first load hasn't landed yet — it is not a failure, so it
   // never joins `unavailable`; it only softens an otherwise-green verdict (see below).
   var pending = [];
-  if (availability.wind === 'pending') pending.push('NWS wind');
+  if (availability.wind === 'pending') pending.push('wind forecast');
   if (availability.hourly === 'pending') pending.push('hourly forecast');
   if (availability.alerts === 'pending') pending.push('advisories');
 
@@ -2859,38 +2909,23 @@ function computeDirectionRec(curvePoints, slackEvents, departureMs, returnMs) {
   var signRet = vRet != null ? Math.sign(vRet) : 0;
   var reverses = signDep !== 0 && signRet !== 0 && signDep !== signRet;
 
-  // Where inside the window does the current actually turn? Departing WITH the current is
-  // only sound when the flip lands early enough that most of the ride home is on the new
-  // (favorable) current — the guiding principle (user-stated): NEVER plan to fight the
-  // current home. A flip in the last part of the window used to still trigger the
-  // "ride it out, ride the new current home" advice, which would strand you far downstream
-  // with minutes of favorable current left — late back, or out after dark.
+  // A real reversal inside the selected sail window defines the route: leave with the
+  // departure phase and return with the reciprocal phase. Do not collapse a two-phase
+  // window into a single-phase recommendation based on an arbitrary percentage cutoff;
+  // a 2/3-window turn still gives the skipper the ebb outbound and flood home.
   var flipEvent = reverses ? (slackEvents || []).find(function (e) {
     return e.type === 'slack' && e.ms > departureMs && e.ms < returnMs;
   }) : null;
-  var flipFrac = flipEvent ? (flipEvent.ms - departureMs) / Math.max(1, returnMs - departureMs) : null;
-  var LATE_FLIP_FRACTION = 0.55; // flip past ~half the window = treat as single-phase
-  var earlyFlip = reverses && (flipFrac == null || flipFrac <= LATE_FLIP_FRACTION);
 
   var headline, initialHeading;
-  if (reverses && earlyFlip) {
+  if (reverses) {
+    var flipTimeText = flipEvent ? ' at ' + fmtTime(flipEvent.ms) : ' during the sail';
     if (signDep < 0) {
-      headline = 'Ebbing at departure — head SOUTH on the ebb, ride the flood home.';
+      headline = 'Ebbing at departure, turning to flood' + flipTimeText + ': head SOUTH with the ebb, return NORTH with the flood.';
       initialHeading = 'S';
     } else {
-      headline = 'Flooding at departure — head NORTH on the flood, ride the ebb home.';
+      headline = 'Flooding at departure, turning to ebb' + flipTimeText + ': head NORTH with the flood, return SOUTH with the ebb.';
       initialHeading = 'N';
-    }
-  } else if (reverses) {
-    // Late flip: the pre-flip phase owns the sail. Head against it so the ride home is
-    // favorable, and be back before (or as) it turns.
-    var flipTimeText = flipEvent ? fmtTime(flipEvent.ms) : 'late in your window';
-    if (signDep < 0) {
-      headline = 'Ebb holds until ' + flipTimeText + ' (late in your window) — head NORTH against it, come home with the ebb before it turns.';
-      initialHeading = 'N';
-    } else {
-      headline = 'Flood holds until ' + flipTimeText + ' (late in your window) — head SOUTH against it, come home with the flood before it turns.';
-      initialHeading = 'S';
     }
   } else {
     var dominantSign = signDep || signRet || (vMid != null ? Math.sign(vMid) : 0);
@@ -3889,23 +3924,49 @@ var VERDICT_CLASSES = { GO: 'verdict-go', REEF: 'verdict-reef', CAUTION: 'verdic
 // the pill keeps the go/no-go answer visible (and one tap away) from every other tab.
 var VERDICT_PILL_LABELS = { GO: 'GO', REEF: 'REEF', CAUTION: 'CAUTION', NOGO: 'NO-GO' };
 
+function verdictPresentation(verdict, windowStart, windowEnd, nowMs) {
+  var windowEnded = isFinite(windowEnd) && windowEnd <= nowMs;
+  if (windowEnded) {
+    var reviewReasons = verdict.reasons.map(function (reason) {
+      var missing = /^Data unavailable: (.+?) — showing last-known information where available$/.exec(reason);
+      if (missing) return 'Historical review incomplete: full-window coverage for ' + missing[1] + ' was not retained.';
+      var pending = /^Confirming live data: (.+?) — showing last-known information$/.exec(reason);
+      if (pending) return 'Loading retained source data for this completed window.';
+      return reason;
+    });
+    reviewReasons.unshift('Sail window completed at ' + fmtTime(windowEnd) + '. Retained conditions are shown for review.');
+    return {
+      className: 'verdict-complete', label: 'SAIL COMPLETE', pillLabel: 'COMPLETE',
+      sub: 'Window: ' + fmtTime(windowStart) + '–' + fmtTime(windowEnd), reasons: reviewReasons
+    };
+  }
+  return {
+    className: VERDICT_CLASSES[verdict.level],
+    label: verdict.dataUnavailable && verdict.level === 'CAUTION'
+      ? 'CAUTION — DATA UNAVAILABLE'
+      : (verdict.pendingGated ? 'CAUTION — CHECKING LIVE DATA' : VERDICT_LABELS[verdict.level]),
+    pillLabel: VERDICT_PILL_LABELS[verdict.level] || verdict.level,
+    sub: 'Window: ' + fmtTime(windowStart) + '–' + fmtTime(windowEnd),
+    reasons: verdict.reasons
+  };
+}
+
 function renderVerdict(verdict, windowStart, windowEnd) {
+  var presentation = verdictPresentation(verdict, windowStart, windowEnd, Date.now());
   var banner = $('verdictBanner');
-  banner.className = 'verdict-banner ' + VERDICT_CLASSES[verdict.level];
-  setText('verdictLabel', verdict.dataUnavailable && verdict.level === 'CAUTION'
-    ? 'CAUTION — DATA UNAVAILABLE'
-    : (verdict.pendingGated ? 'CAUTION — CHECKING LIVE DATA' : VERDICT_LABELS[verdict.level]));
-  setText('verdictSub', 'Window: ' + fmtTime(windowStart) + '–' + fmtTime(windowEnd));
+  banner.className = 'verdict-banner ' + presentation.className;
+  setText('verdictLabel', presentation.label);
+  setText('verdictSub', presentation.sub);
   var pill = $('verdictPill');
   if (pill) {
     // Wholesale className write intentionally drops the initial 'hidden' — the pill only
     // shows once there's a real verdict to display (CSS keeps it desktop-hidden regardless).
-    pill.className = 'verdict-pill ' + VERDICT_CLASSES[verdict.level];
-    pill.textContent = VERDICT_PILL_LABELS[verdict.level] || verdict.level;
+    pill.className = 'verdict-pill ' + presentation.className;
+    pill.textContent = presentation.pillLabel;
   }
   var ul = $('verdictReasons');
   ul.innerHTML = '';
-  verdict.reasons.forEach(function (r) {
+  presentation.reasons.forEach(function (r) {
     var li = document.createElement('li');
     li.textContent = r;
     ul.appendChild(li);
@@ -4111,9 +4172,11 @@ function attachChartScrub(svgEl, xToTimeFn, readoutFn) {
     dotEls.forEach(function (el) { el.style.display = 'none'; });
   }
 
-  svgEl.style.touchAction = 'pan-y';
+  svgEl.style.touchAction = 'pan-x pan-y';
 
   svgEl.addEventListener('pointerdown', function (e) {
+    var zoomWrap = svgEl.closest('.svg-wrap');
+    if (e.pointerType === 'touch' && zoomWrap && parseFloat(zoomWrap.dataset.zoomScale || '1') > 1) return;
     dragging = true;
     horizLock = null;
     startX = e.clientX; startY = e.clientY;
@@ -4149,6 +4212,98 @@ function attachChartScrub(svgEl, xToTimeFn, readoutFn) {
       update(t.clientX, t.clientY, true);
     }
   }, { passive: false });
+}
+
+/* ============================== Chart zoom and pan ============================== */
+var CHART_ZOOM_MIN = 1;
+var CHART_ZOOM_MAX = 4;
+var CHART_ZOOM_STEP = 0.5;
+
+function chartZoomScale(wrap) {
+  return clamp(parseFloat(wrap.dataset.zoomScale || '1') || 1, CHART_ZOOM_MIN, CHART_ZOOM_MAX);
+}
+function applyChartZoomStyle(wrap) {
+  var svg = wrap.querySelector('svg');
+  if (!svg) return;
+  var scale = chartZoomScale(wrap);
+  svg.style.width = (scale * 100) + '%';
+  svg.style.maxWidth = 'none';
+  var controls = wrap.previousElementSibling;
+  if (controls && controls.classList.contains('chart-zoom-controls')) {
+    var level = controls.querySelector('.chart-zoom-level');
+    if (level) level.textContent = Math.round(scale * 100) + '%';
+    var minus = controls.querySelector('[data-chart-zoom="out"]');
+    var plus = controls.querySelector('[data-chart-zoom="in"]');
+    if (minus) minus.disabled = scale <= CHART_ZOOM_MIN;
+    if (plus) plus.disabled = scale >= CHART_ZOOM_MAX;
+  }
+}
+function setChartZoom(wrap, nextScale, anchorClientX) {
+  var oldWidth = Math.max(1, wrap.scrollWidth);
+  var rect = wrap.getBoundingClientRect();
+  var localX = anchorClientX == null ? rect.width / 2 : clamp(anchorClientX - rect.left, 0, rect.width);
+  var anchorRatio = (wrap.scrollLeft + localX) / oldWidth;
+  wrap.dataset.zoomScale = String(clamp(nextScale, CHART_ZOOM_MIN, CHART_ZOOM_MAX));
+  applyChartZoomStyle(wrap);
+  requestAnimationFrame(function () {
+    wrap.scrollLeft = Math.max(0, anchorRatio * wrap.scrollWidth - localX);
+  });
+}
+function initChartZoom() {
+  document.querySelectorAll('.svg-wrap').forEach(function (wrap) {
+    if (wrap.dataset.zoomReady === 'true') return;
+    wrap.dataset.zoomReady = 'true';
+    wrap.dataset.zoomScale = '1';
+
+    var controls = document.createElement('div');
+    controls.className = 'chart-zoom-controls';
+    controls.setAttribute('role', 'group');
+    controls.setAttribute('aria-label', 'Chart zoom');
+    controls.innerHTML = '<button type="button" data-chart-zoom="out" aria-label="Zoom chart out">−</button>' +
+      '<span class="chart-zoom-level" aria-live="polite">100%</span>' +
+      '<button type="button" data-chart-zoom="reset" aria-label="Reset chart zoom">Reset</button>' +
+      '<button type="button" data-chart-zoom="in" aria-label="Zoom chart in">+</button>';
+    wrap.parentNode.insertBefore(controls, wrap);
+    controls.addEventListener('click', function (e) {
+      var action = e.target && e.target.dataset ? e.target.dataset.chartZoom : null;
+      if (!action) return;
+      var scale = chartZoomScale(wrap);
+      setChartZoom(wrap, action === 'reset' ? 1 : scale + (action === 'in' ? CHART_ZOOM_STEP : -CHART_ZOOM_STEP));
+    });
+
+    var pinch = null;
+    function touchDistance(touches) {
+      var dx = touches[0].clientX - touches[1].clientX;
+      var dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+    wrap.addEventListener('touchstart', function (e) {
+      if (!e.touches || e.touches.length !== 2) return;
+      pinch = {
+        distance: Math.max(1, touchDistance(e.touches)),
+        scale: chartZoomScale(wrap),
+        anchorX: (e.touches[0].clientX + e.touches[1].clientX) / 2
+      };
+    }, { passive: true });
+    wrap.addEventListener('touchmove', function (e) {
+      if (!pinch || !e.touches || e.touches.length !== 2) return;
+      e.preventDefault();
+      setChartZoom(wrap, pinch.scale * touchDistance(e.touches) / pinch.distance,
+        (e.touches[0].clientX + e.touches[1].clientX) / 2);
+    }, { passive: false });
+    wrap.addEventListener('touchend', function (e) {
+      if (!e.touches || e.touches.length < 2) pinch = null;
+    }, { passive: true });
+    wrap.addEventListener('wheel', function (e) {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      setChartZoom(wrap, chartZoomScale(wrap) + (e.deltaY < 0 ? CHART_ZOOM_STEP : -CHART_ZOOM_STEP), e.clientX);
+    }, { passive: false });
+
+    new MutationObserver(function () { applyChartZoomStyle(wrap); })
+      .observe(wrap, { childList: true });
+    applyChartZoomStyle(wrap);
+  });
 }
 
 /* ============================== Chart label-band collision layout ============================== */
@@ -4715,6 +4870,7 @@ function setupSailSimControls(sim) {
 
 var SAIL_STRIP_LABEL_FONT = 13;
 var SAIL_LANDMARK_LABEL_MIN_GAP = 12;
+var SAIL_VISIBLE_MANEUVER_MARKS = 4;
 
 function sailBearingVector(bearingDeg) {
   var rad = normalizeBearing(bearingDeg) * Math.PI / 180;
@@ -4762,47 +4918,58 @@ function sailProjectedSectorPath(cx, cy, windFromDeg, halfAngleDeg, radius, xPix
   return points.length ? 'M' + cx.toFixed(1) + ',' + cy.toFixed(1) + ' L' + points.join(' L') + ' Z' : '';
 }
 
-var SAIL_WATER_ROWS = 6;
+var SAIL_WATER_ROWS = 5;
 var SAIL_WATER_COLS = 2;
-var SAIL_WATER_MIN_PX_PER_SEC = 0.8;
-var SAIL_WATER_MAX_PX_PER_SEC = 3.5;
-var SAIL_WATER_SQUIGGLE_HEIGHT = 14;
-var SAIL_WATER_SQUIGGLE_AMP = 3;
+var SAIL_WATER_MIN_PX_PER_SEC = 0.12;
+var SAIL_WATER_MAX_PX_PER_SEC = 0.5;
+var SAIL_WATER_SQUIGGLE_HEIGHT = 10;
+var SAIL_WATER_SQUIGGLE_AMP = 1.4;
+var sailWaterAnim = { rafId: null, phasePx: 0, lastMs: null, pxPerSec: 0 };
 
-function properMod(value, modulus) {
-  var r = value % modulus;
-  return r < 0 ? r + modulus : r;
+function sailWaterRatePxPerSec(curKt) {
+  if (curKt == null || !isFinite(curKt) || Math.abs(curKt) < 0.1) return 0;
+  var speedPxPerSec = clamp(Math.abs(curKt) * 0.32, SAIL_WATER_MIN_PX_PER_SEC, SAIL_WATER_MAX_PX_PER_SEC);
+  return curKt > 0 ? -speedPxPerSec : speedPxPerSec;
 }
 
-// Deterministic layout for the channel's animated water field (legibility feedback: "is blue
-// arrow supposed to be current while white wind? not very clear"). A sparse grid of short
-// vertical wavy squiggles, one drift band per row so the whole field never pops into a new
-// position in lockstep; each squiggle's offset within its own band is a pure function of the
-// wall clock, not Math.random, so identical (curKt, nowMs) inputs always render identical
-// output. Flood (curKt >= 0) drifts up-river, i.e. screen-up (see latToY: higher latitude means
-// smaller y); ebb drifts screen-down. nowMs is the wall clock at render time, not the simulated
-// playback position, so the water keeps flowing regardless of which moment of the voyage is
-// shown. Null/NaN current means there is nothing local to animate, so callers must skip the
-// group entirely rather than draw a colorless placeholder.
+// Integrate phase from the previous render using the previous instantaneous speed. Computing
+// `wallClock * currentSpeed` made every small speed interpolation relocate the whole texture,
+// even though each individual configured rate was slow.
+function sailWaterContinuousPhase(curKt, nowMs, innerH) {
+  var cycleLen = innerH / SAIL_WATER_ROWS;
+  if (sailWaterAnim.lastMs != null && cycleLen > 0) {
+    var elapsedSec = Math.max(0, nowMs - sailWaterAnim.lastMs) / 1000;
+    sailWaterAnim.phasePx = (sailWaterAnim.phasePx + elapsedSec * sailWaterAnim.pxPerSec) % cycleLen;
+  }
+  sailWaterAnim.lastMs = nowMs;
+  sailWaterAnim.pxPerSec = sailWaterRatePxPerSec(curKt);
+  return sailWaterAnim.phasePx;
+}
+
+// Deterministic layout for the channel's animated water field. The marks form a repeating
+// texture with one offscreen row at each end, so translating the whole group by one row is
+// seamless. This avoids the old flood bug where a tiny negative offset was converted into a
+// nearly full-cycle positive jump on the first animation frame. The rate is deliberately a
+// restrained visual cue, not a literal chart-scale time lapse: at a common 0.6 kt it takes
+// about four minutes for a mark to advance one row, slow but still visibly alive.
 function sailWaterStrokes(curKt, padTop, innerH, nowMs, reduced) {
   if (curKt == null || !isFinite(curKt)) return null;
-  var flood = curKt >= 0;
-  var speedPxPerSec = clamp(Math.abs(curKt) * 1.5, SAIL_WATER_MIN_PX_PER_SEC, SAIL_WATER_MAX_PX_PER_SEC);
-  var signedPxPerSec = flood ? -speedPxPerSec : speedPxPerSec;
+  var slack = Math.abs(curKt) < 0.1;
+  var flood = curKt > 0;
+  var signedPxPerSec = sailWaterRatePxPerSec(curKt);
   var cycleLen = innerH / SAIL_WATER_ROWS;
-  var totalDashes = SAIL_WATER_ROWS * SAIL_WATER_COLS;
-  var nowSec = reduced ? 0 : nowMs / 1000;
+  var phasePx = reduced || !signedPxPerSec ? 0 : (nowMs / 1000 * signedPxPerSec) % cycleLen;
   var dashes = [];
-  for (var r = 0; r < SAIL_WATER_ROWS; r++) {
+  for (var r = -1; r <= SAIL_WATER_ROWS; r++) {
     var bandTopY = padTop + r * cycleLen;
     for (var c = 0; c < SAIL_WATER_COLS; c++) {
-      var idx = r * SAIL_WATER_COLS + c;
-      var phase = (idx / totalDashes) * cycleLen;
-      var yOffset = reduced ? phase : properMod(nowSec * signedPxPerSec + phase, cycleLen);
-      dashes.push({ col: c, y: bandTopY + yOffset });
+      dashes.push({ col: c, y: bandTopY + (c ? cycleLen * 0.42 : 0) });
     }
   }
-  return { color: flood ? 'var(--flood)' : 'var(--ebb)', dashes: dashes, pxPerSec: signedPxPerSec, cycleLen: cycleLen };
+  return {
+    color: slack ? 'var(--ink-dim)' : (flood ? 'var(--flood)' : 'var(--ebb)'), dashes: dashes,
+    pxPerSec: signedPxPerSec, cycleLen: cycleLen, phasePx: phasePx
+  };
 }
 
 // A single squiggle: a gentle 2-arch sine-like wave running top-to-bottom from (cx, topY),
@@ -4824,18 +4991,21 @@ function sailWaterSquigglePath(cx, topY) {
 // keep nudging this exact group's own transform between full SVG rebuilds — see that loop's
 // comment for why a transform-only nudge is needed at all. Reduced motion omits those data
 // attributes entirely, which is also how the loop tells a static render from an animated one.
-function sailWaterGroupSvg(curKt, chX0, chX1, padTop, innerH, nowMs, reduced) {
+function sailWaterGroupSvg(curKt, chX0, chX1, padTop, innerH, nowMs, reduced, phaseOverride) {
   var field = sailWaterStrokes(curKt, padTop, innerH, nowMs, reduced);
   if (!field) return '';
+  if (phaseOverride != null && isFinite(phaseOverride)) field.phasePx = phaseOverride;
   var col0X = chX0 + (chX1 - chX0) * 0.32, col1X = chX0 + (chX1 - chX0) * 0.68;
   var paths = field.dashes.map(function (d) {
     var cx = d.col === 0 ? col0X : col1X;
     return '<path d="' + sailWaterSquigglePath(cx, d.y) + '"/>';
   }).join('');
-  var animAttrs = reduced ? '' : ' data-water-anim="1" data-render-ms="' + Math.round(nowMs) +
-    '" data-px-per-sec="' + field.pxPerSec.toFixed(3) + '" data-cycle-len="' + field.cycleLen.toFixed(2) + '"';
+  var animAttrs = reduced || !field.pxPerSec ? '' : ' data-water-anim="1" data-render-ms="' + Math.round(nowMs) +
+    '" data-origin-phase="' + field.phasePx.toFixed(3) + '" data-px-per-sec="' + field.pxPerSec.toFixed(3) +
+    '" data-cycle-len="' + field.cycleLen.toFixed(2) + '"';
   return '<g class="sailsim-water" clip-path="url(#sailSimChannelClip)" stroke="' + field.color +
-    '" stroke-width="1.2" stroke-opacity="0.3"' + animAttrs + '>' + paths + '</g>';
+    '" stroke-width="1" stroke-opacity="0.18" transform="translate(0,' + field.phasePx.toFixed(2) + ')"' +
+    animAttrs + '>' + paths + '</g>';
 }
 
 function renderSailSimSvg(sim, atMs) {
@@ -4844,15 +5014,14 @@ function renderSailSimSvg(sim, atMs) {
   var chX0 = 56, chX1 = 190, chCenter = (chX0 + chX1) / 2;
   var bounds = sailStripLatBounds(sim);
   function y(la) { return latToY(la, padTop, innerH, bounds.latMin, bounds.latMax); }
-  // Scale to the integrated route instead of clipping the east half of a tack against the
-  // old asymmetric ferry-map frame. Keep a stable minimum corridor so direct reaches do not
-  // visually magnify tiny numerical drift.
-  var crossBounds = sailCrossTrackBounds(sim.path);
-  var crossMinNm = crossBounds.min, crossMaxNm = crossBounds.max;
-  var xPixelsPerNm = (chX1 - chX0) / (crossMaxNm - crossMinNm);
+  // Use one distance scale in both directions. The prior renderer stretched cross-river
+  // movement by 2-4x to fill the channel, which made ordinary course changes look like a
+  // toy boat carving impossible hairpins. Keeping pixels-per-nm equal makes the wake's shape
+  // auditable without changing a single simulated position.
   var yPixelsPerNm = innerH / Math.max(0.01, (bounds.latMax - bounds.latMin) * NM_PER_DEG_LAT);
+  var xPixelsPerNm = yPixelsPerNm;
   function x(crossNm) {
-    return chX0 + clamp(((crossNm || 0) - crossMinNm) / (crossMaxNm - crossMinNm), 0, 1) * (chX1 - chX0);
+    return clamp(chCenter + (crossNm || 0) * xPixelsPerNm, chX0, chX1);
   }
 
   var lat = sailValueAt(sim.path, atMs, 'lat');
@@ -4875,12 +5044,31 @@ function renderSailSimSvg(sim, atMs) {
     '<defs><clipPath id="sailSimChannelClip"><rect x="' + chX0 + '" y="' + padTop + '" width="' +
     (chX1 - chX0) + '" height="' + innerH + '"/></clipPath></defs>';
   svg += '<rect x="' + chX0 + '" y="' + padTop + '" width="' + (chX1 - chX0) + '" height="' + innerH + '" fill="var(--track)"/>';
+  svg += '<line class="sailsim-channel-axis" x1="' + chCenter + '" y1="' + padTop + '" x2="' + chCenter +
+    '" y2="' + (H - padBottom) + '"/>';
+
+  // A compact scale bar makes the schematic's equal-distance geometry explicit. Symbols
+  // remain intentionally larger than scale, as on a chart, but the wake itself does not.
+  var scaleNm = yPixelsPerNm * 0.5 >= 20 ? 0.5 : 1;
+  var scalePx = Math.min(48, scaleNm * yPixelsPerNm);
+  var scaleX1 = chX1 - 7, scaleX0 = scaleX1 - scalePx, scaleY = padTop + 10;
+  svg += '<g class="sailsim-scale"><line x1="' + scaleX0.toFixed(1) + '" y1="' + scaleY + '" x2="' +
+    scaleX1.toFixed(1) + '" y2="' + scaleY + '" stroke="var(--ink-dim)" stroke-width="0.8"/>' +
+    '<line x1="' + scaleX0.toFixed(1) + '" y1="' + (scaleY - 2) + '" x2="' + scaleX0.toFixed(1) +
+    '" y2="' + (scaleY + 2) + '" stroke="var(--ink-dim)" stroke-width="0.8"/>' +
+    '<line x1="' + scaleX1.toFixed(1) + '" y1="' + (scaleY - 2) + '" x2="' + scaleX1.toFixed(1) +
+    '" y2="' + (scaleY + 2) + '" stroke="var(--ink-dim)" stroke-width="0.8"/>' +
+    '<text x="' + ((scaleX0 + scaleX1) / 2).toFixed(1) + '" y="' + (scaleY + 8) +
+    '" text-anchor="middle">' + scaleNm + ' nm</text></g>';
 
   // Animated water: a low-opacity, flood/ebb-colored dash field drifting in the current's
   // own direction and speed — addresses the "blue arrow vs white wind, not clear" legibility
   // feedback by giving current a second, unmistakably distinct visual language. Drawn first
   // so it always sits beneath every vector, label, and the hull itself.
-  svg += sailWaterGroupSvg(curKt, chX0, chX1, padTop, innerH, Date.now(), sailSimReducedMotion());
+  var waterRenderMs = Date.now();
+  var waterReduced = sailSimReducedMotion();
+  var waterPhase = waterReduced ? 0 : sailWaterContinuousPhase(curKt, waterRenderMs, innerH);
+  svg += sailWaterGroupSvg(curKt, chX0, chX1, padTop, innerH, waterRenderMs, waterReduced, waterPhase);
 
   // Wind is one outlined vector, never a field of river-like strokes. The arrow shows where
   // the air moves; the caption says where it comes from. Current uses filled, colored arrows
@@ -4947,47 +5135,42 @@ function renderSailSimSvg(sim, atMs) {
       ' ' + (chX0 - 1) + ',' + (turnY + 4).toFixed(1) + '" fill="var(--violet)"/>';
   }
 
-  // Current arrows: filled and semantic-colored, with length proportional to |c(t)|. curKt
-  // itself was already read above, alongside the water field, so both stay in lockstep.
-  [0.31, 0.69].forEach(function (frac) {
-    var ay = padTop + frac * innerH;
-    var mag = curKt == null ? 0 : clamp(Math.abs(curKt) / 2.5, 0, 1);
-    var halfLen = 6 + mag * 16;
-    var flood = curKt != null && curKt >= 0;
-    var color = curKt == null ? 'var(--ink-dim)' : (flood ? 'var(--flood)' : 'var(--ebb)');
-    var ax = chX0 + 11;
-    var yTop = ay - halfLen, yBot = ay + halfLen;
-    var tipY = flood ? yTop : yBot;
-    var apexY = flood ? yTop - 6 : yBot + 6;
-    svg += '<g class="sailsim-current-vector" fill="' + color + '" stroke="' + color + '">' +
-      '<line x1="' + ax + '" y1="' + (flood ? yBot : yTop).toFixed(1) + '" x2="' + ax + '" y2="' + tipY.toFixed(1) + '" stroke-width="2.4"/>' +
-      '<polygon points="' + ax.toFixed(1) + ',' + apexY.toFixed(1) + ' ' + (ax - 4).toFixed(1) + ',' + tipY.toFixed(1) +
-      ' ' + (ax + 4).toFixed(1) + ',' + tipY.toFixed(1) + '"/></g>';
-  });
-  // A tiny caption ties the filled/colored current arrows to their meaning, mirroring the
-  // WIND caption near the outlined wind vector below — the two symbol styles alone were too
-  // subtle a distinction on their own.
-  svg += '<text class="sailsim-current-caption" x="' + (chX0 + 18) + '" y="' + (padTop + 0.31 * innerH + 3).toFixed(1) +
+  // One current vector is enough once the water texture carries direction. Repeating the
+  // same oversized arrow twice made the strip read like an arcade lane rather than a plot.
+  var currentAy = padTop + 0.68 * innerH;
+  var currentMag = curKt == null ? 0 : clamp(Math.abs(curKt) / 2.5, 0, 1);
+  var currentHalfLen = 5 + currentMag * 12;
+  var hasDirectionalCurrent = curKt != null && Math.abs(curKt) >= 0.1;
+  var isFlood = hasDirectionalCurrent && curKt > 0;
+  var currentVectorColor = !hasDirectionalCurrent ? 'var(--ink-dim)' : (isFlood ? 'var(--flood)' : 'var(--ebb)');
+  var currentAx = chX0 + 11;
+  var currentTop = currentAy - currentHalfLen, currentBottom = currentAy + currentHalfLen;
+  var currentTip = isFlood ? currentTop : currentBottom;
+  var currentApex = isFlood ? currentTop - 5 : currentBottom + 5;
+  if (hasDirectionalCurrent) {
+    svg += '<g class="sailsim-current-vector" fill="' + currentVectorColor + '" stroke="' + currentVectorColor + '">' +
+      '<line x1="' + currentAx + '" y1="' + (isFlood ? currentBottom : currentTop).toFixed(1) + '" x2="' +
+      currentAx + '" y2="' + currentTip.toFixed(1) + '" stroke-width="2"/>' +
+      '<polygon points="' + currentAx.toFixed(1) + ',' + currentApex.toFixed(1) + ' ' + (currentAx - 3.5).toFixed(1) +
+      ',' + currentTip.toFixed(1) + ' ' + (currentAx + 3.5).toFixed(1) + ',' + currentTip.toFixed(1) + '"/></g>';
+  }
+  svg += '<text class="sailsim-current-caption" x="' + (chX0 + 18) + '" y="' + (currentAy + 2.5).toFixed(1) +
     '" font-size="7" letter-spacing="0.04em" fill="var(--ink-dim)">CURRENT</text>';
 
   // The wake uses the simulation's integrated lateral displacement. Tack/jibe markers come
   // only from actual maneuver events, so a T/J means the planner changed sailed heading and
   // paid the maneuver loss rather than merely alternating a decorative pixel offset.
-  var plannedPts = [], plannedMarks = [];
+  var plannedPts = [];
+  if (lat != null) plannedPts.push({ x: x(crossNm), y: y(lat) });
   sim.path.forEach(function (p) {
+    if (p.ms <= atMs) return;
     var px = x(p.crossNm);
-    if (p.maneuver) plannedMarks.push({ x: px, y: y(p.lat), label: p.maneuver === 'tack' ? 'T' : 'J' });
     plannedPts.push({ x: px, y: y(p.lat) });
   });
-  if (plannedPts.length) {
+  if (plannedPts.length > 1) {
     var plannedD = plannedPts.map(function (p, i) { return (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1); }).join(' ');
     svg += '<path class="sailsim-planned-track" d="' + plannedD + '" fill="none" stroke="var(--accent)" stroke-width="1.15" stroke-opacity="0.48" stroke-dasharray="2,3"/>';
   }
-  plannedMarks.forEach(function (m) {
-    svg += '<circle class="sailsim-maneuver" data-state="planned" data-type="' + (m.label === 'T' ? 'tack' : 'jibe') + '" cx="' + m.x.toFixed(1) + '" cy="' + m.y.toFixed(1) + '" r="3.5" fill="var(--bg-card)" fill-opacity="0.8" stroke="var(--accent)" stroke-opacity="0.45"/>' +
-      '<text x="' + m.x.toFixed(1) + '" y="' + (m.y + 2.2).toFixed(1) + '" font-size="5.5" font-weight="750" text-anchor="middle" fill="var(--accent)" fill-opacity="0.65">' + m.label + '</text>';
-  });
-
   var wakePts = [], maneuverMarks = [];
   sim.path.forEach(function (p) {
     if (p.ms > atMs) return;
@@ -5013,7 +5196,10 @@ function renderSailSimSvg(sim, atMs) {
     var dash = run.mode === 'motor' ? ' stroke-dasharray="4,3"' : '';
     svg += '<path class="sailsim-wake" data-mode="' + escapeHtml(run.mode) + '" d="' + d + '" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-opacity="0.65"' + dash + '/>';
   });
-  maneuverMarks.forEach(function (m) {
+  // Dense beating plans can contain many legitimate tacks inside a short harbor leg. The
+  // wake preserves every heading change and the readout carries the full count; showing only
+  // the latest few badges keeps those symbols from becoming a stack of oversized circles.
+  maneuverMarks.slice(-SAIL_VISIBLE_MANEUVER_MARKS).forEach(function (m) {
     svg += '<circle class="sailsim-maneuver" data-state="completed" data-type="' + (m.label === 'T' ? 'tack' : 'jibe') + '" cx="' + m.x.toFixed(1) + '" cy="' + m.y.toFixed(1) + '" r="4" fill="var(--bg-card)" stroke="var(--accent)" stroke-width="1"/>' +
       '<text x="' + m.x.toFixed(1) + '" y="' + (m.y + 2.4).toFixed(1) + '" font-size="6" font-weight="750" text-anchor="middle" fill="var(--accent)">' + m.label + '</text>';
   });
@@ -5031,7 +5217,7 @@ function renderSailSimSvg(sim, atMs) {
     var showNoSailSector = windAvailable && step && step.mode !== 'moored' && step.mode !== 'overdue' &&
       step.mode !== 'no-trip' && step.mode !== 'docking';
     if (showNoSailSector) {
-      var noSailPath = sailProjectedSectorPath(boatX, boatY, windDir, SAIL_CLOSE_HAULED_DEG, 32, xPixelsPerNm, yPixelsPerNm);
+      var noSailPath = sailProjectedSectorPath(boatX, boatY, windDir, SAIL_CLOSE_HAULED_DEG, 22, xPixelsPerNm, yPixelsPerNm);
       svg += '<path class="sailsim-no-sail-sector" d="' + noSailPath + '"/>' +
         '<path class="sailsim-no-sail-boundary" d="' + noSailPath + '"/>';
     }
@@ -5041,10 +5227,10 @@ function renderSailSimSvg(sim, atMs) {
     // data-ground-bearing exposes COG so tests can preserve a genuine current-set angle.
     svg += '<g class="sailsim-boat" data-water-bearing="' + boatDeg.toFixed(1) + '" data-ground-bearing="' +
       (groundDeg == null ? '' : groundDeg.toFixed(1)) + '" transform="translate(' + boatX + ',' + boatY.toFixed(1) + ') rotate(' + boatDeg.toFixed(1) + ')">' +
-      '<path class="sailsim-boat-hull" d="M0,-10.5 C4.2,-7.1 5.2,-1.8 3.9,7.2 Q0,9 -3.9,7.2 C-5.2,-1.8 -4.2,-7.1 0,-10.5 Z"/>' +
-      '<line class="sailsim-boat-centerline" x1="0" y1="-8" x2="0" y2="6.1"/>' +
-      '<circle cx="0" cy="0" r="1.3" fill="var(--accent)"/>' +
-      '<line class="sailsim-boat-heading-cue" x1="0" y1="-14" x2="0" y2="-10"/>' +
+      '<path class="sailsim-boat-hull" d="M0,-7 C2.8,-4.7 3.4,-1.2 2.6,4.8 Q0,6 -2.6,4.8 C-3.4,-1.2 -2.8,-4.7 0,-7 Z"/>' +
+      '<line class="sailsim-boat-centerline" x1="0" y1="-5.4" x2="0" y2="4"/>' +
+      '<circle cx="0" cy="0" r="1" fill="var(--accent)"/>' +
+      '<line class="sailsim-boat-heading-cue" x1="0" y1="-9.5" x2="0" y2="-7"/>' +
       '</g>';
   }
 
@@ -5076,8 +5262,6 @@ function renderSailSimSvg(sim, atMs) {
 // itself the moment the group is gone — a fresh rebuild replaced the DOM node, the card was
 // cleared, or reduced motion is honored (that render path never sets data-water-anim) — so no
 // explicit teardown call is required anywhere else.
-var sailWaterAnim = { rafId: null };
-
 function sailWaterAnimGroupEl() {
   var wrap = $('sailSimSvgWrap');
   return wrap ? wrap.querySelector('.sailsim-water[data-water-anim]') : null;
@@ -5089,9 +5273,13 @@ function sailWaterAnimTick() {
   var pxPerSec = parseFloat(el.getAttribute('data-px-per-sec')) || 0;
   var cycleLen = parseFloat(el.getAttribute('data-cycle-len')) || 0;
   var renderMs = parseFloat(el.getAttribute('data-render-ms'));
+  var originPhase = parseFloat(el.getAttribute('data-origin-phase')) || 0;
   if (cycleLen > 0 && isFinite(renderMs)) {
     var elapsedSec = (Date.now() - renderMs) / 1000;
-    el.setAttribute('transform', 'translate(0,' + properMod(elapsedSec * pxPerSec, cycleLen).toFixed(2) + ')');
+    // Keep the sign so flood advances smoothly upward. The texture includes one repeated
+    // offscreen row at both ends, making the modulo reset visually identical at the seam.
+    var phasePx = (originPhase + elapsedSec * pxPerSec) % cycleLen;
+    el.setAttribute('transform', 'translate(0,' + phasePx.toFixed(2) + ')');
   }
   sailWaterAnim.rafId = requestAnimationFrame(sailWaterAnimTick);
 }
@@ -5247,16 +5435,19 @@ function computeAndRenderSailSim() {
     showCardError('sailSimError', 'Sail simulator needs the currents curve and a direction recommendation — waiting on data.');
     return;
   }
-  if (!state.gridSeries) {
-    showSailSimUnavailable('Waiting for the NWS wind forecast.');
+  var windResolution = state.lastWindForecastResolution ||
+    resolveCriticalWindForecast(state.departureMs, getReturnMs());
+  var resolvedWindSeries = windSeriesForResolution(windResolution);
+  if (!resolvedWindSeries) {
+    showSailSimUnavailable('Waiting for a complete NWS, GFS, ECMWF, or ICON wind forecast.');
     return;
   }
   var boatSpeedKt = (state.settings && state.settings.boatSpeedKt) || DEFAULT_BOAT_SPEED_KT;
   var motorSpeedKt = (state.settings && state.settings.motorSpeedKt) || DEFAULT_MOTOR_SPEED_KT;
-  var windDirSeries = (state.gridSeries && state.gridSeries.windDirection) || [];
-  var windSpeedSeries = (state.gridSeries && state.gridSeries.windSpeedKt) || [];
+  var windDirSeries = resolvedWindSeries.windDirection;
+  var windSpeedSeries = resolvedWindSeries.windSpeedKt;
   if (!sailWindowHasWindCoverage(windDirSeries, windSpeedSeries, state.departureMs, getReturnMs())) {
-    showSailSimUnavailable('NWS wind forecast unavailable for this sail window. Choose a current or future departure.');
+    showSailSimUnavailable('No wind model has complete speed and direction coverage for this sail window. Choose a current or future departure.');
     return;
   }
   var sim = computeSailSim(state.departureMs, getReturnMs(), state.curvePoints, windDirSeries, windSpeedSeries, boatSpeedKt, state.lastDirectionRec, sailSimUI.motorFirstLeg, motorSpeedKt);
@@ -5664,10 +5855,11 @@ function renderWindNow(observedData, limits) {
 }
 
 /* ============================== Wind card: model switcher + chart data model ========== */
-// NWS gridpoint stays the default/verdict-authoritative model; the other three come from a
-// single lazily-fetched Open-Meteo multi-model call (see fetchWindModels/loadWindModels).
+// NWS gridpoint stays the preferred model. GFS, ECMWF, and ICON come from one Open-Meteo
+// response and automatically backstop the verdict/simulator when NWS lacks full coverage.
 
 var WIND_MODEL_ORDER = ['nws', 'gfs_seamless', 'ecmwf_ifs025', 'icon_seamless'];
+var WIND_FALLBACK_MODEL_ORDER = ['gfs_seamless', 'ecmwf_ifs025', 'icon_seamless'];
 var WIND_MODEL_LABELS = { nws: 'NWS', gfs_seamless: 'GFS', ecmwf_ifs025: 'ECMWF', icon_seamless: 'ICON' };
 var WIND_MODEL_DASH = { nws: 'none', gfs_seamless: '5,3', ecmwf_ifs025: '2,2', icon_seamless: '1,3' };
 var WIND_MODEL_OPACITY = { nws: 1, gfs_seamless: 0.85, ecmwf_ifs025: 0.85, icon_seamless: 0.85 };
@@ -5715,6 +5907,125 @@ function windRowsForModel(model, domStart, domEnd) {
 function findWindRowForMs(rows, ms) {
   for (var i = 0; i < rows.length; i++) {
     if (ms >= rows[i].ms && ms < rows[i].endMs) return rows[i];
+  }
+  return null;
+}
+
+function windRowsCoverWindow(rows, departureMs, returnMs, requiredFields) {
+  if (!isFinite(departureMs) || !isFinite(returnMs) || returnMs <= departureMs) return false;
+  requiredFields = requiredFields || ['sustained'];
+  for (var atMs = departureMs; atMs < returnMs; atMs += 3600000) {
+    var row = findWindRowForMs(rows, atMs);
+    if (!row || requiredFields.some(function (field) { return row[field] == null; })) return false;
+  }
+  var finalRow = findWindRowForMs(rows, returnMs - 1);
+  return !!finalRow && !requiredFields.some(function (field) { return finalRow[field] == null; });
+}
+
+function maxWindRowValue(rows, field, departureMs, returnMs) {
+  var max = null;
+  (rows || []).forEach(function (row) {
+    if (row.endMs <= departureMs || row.ms >= returnMs || row[field] == null) return;
+    if (max == null || row[field] > max) max = row[field];
+  });
+  return max;
+}
+
+// Resolves the data used by safety-critical consumers. A fresh, complete NWS forecast wins.
+// Otherwise every fresh fallback with complete sustained-wind coverage participates in the
+// verdict, and the model with the highest sustained maximum supplies one coherent direction/
+// speed series to the simulator. Cached data from a failed refresh remains visible but never
+// silently qualifies as a live fallback.
+function resolveCriticalWindForecast(departureMs, returnMs) {
+  var nwsRows = windRowsForModel('nws', departureMs, returnMs);
+  var nwsReady = criticalSourceHealth.wind === 'available' &&
+    windRowsCoverWindow(nwsRows, departureMs, returnMs, ['sustained']);
+  var fallbackModels = [];
+  if (criticalSourceHealth.windModels === 'available') {
+    WIND_FALLBACK_MODEL_ORDER.forEach(function (modelKey) {
+      var rows = windRowsForModel(modelKey, departureMs, returnMs);
+      if (windRowsCoverWindow(rows, departureMs, returnMs, ['sustained'])) {
+        fallbackModels.push({ modelKey: modelKey, rows: rows });
+      }
+    });
+  }
+
+  var verdictModels = nwsReady ? [{ modelKey: 'nws', rows: nwsRows }] : fallbackModels;
+  var nwsGustReady = criticalSourceHealth.wind === 'available' &&
+    windRowsCoverWindow(nwsRows, departureMs, returnMs, ['gust']);
+  var gustModels = nwsGustReady
+    ? [{ modelKey: 'nws', rows: nwsRows }]
+    : fallbackModels.filter(function (model) {
+      return windRowsCoverWindow(model.rows, departureMs, returnMs, ['gust']);
+    });
+  var simulationModels = [];
+  if (criticalSourceHealth.wind === 'available' &&
+      windRowsCoverWindow(nwsRows, departureMs, returnMs, ['sustained', 'dir'])) {
+    simulationModels.push({ modelKey: 'nws', rows: nwsRows });
+  } else {
+    simulationModels = fallbackModels.filter(function (model) {
+      return windRowsCoverWindow(model.rows, departureMs, returnMs, ['sustained', 'dir']);
+    });
+  }
+  simulationModels.sort(function (a, b) {
+    return (maxWindRowValue(b.rows, 'sustained', departureMs, returnMs) || 0) -
+      (maxWindRowValue(a.rows, 'sustained', departureMs, returnMs) || 0);
+  });
+
+  var pending = !verdictModels.length &&
+    (criticalSourceHealth.wind === 'loading' || criticalSourceHealth.windModels === 'loading');
+  return {
+    availability: verdictModels.length ? true : (pending ? 'pending' : false),
+    source: nwsReady ? 'nws' : (verdictModels.length ? 'fallback' : null),
+    verdictModels: verdictModels,
+    gustModels: gustModels,
+    usesFallbackGust: nwsReady && !nwsGustReady && gustModels.length > 0,
+    simulationModel: simulationModels.length ? simulationModels[0] : null
+  };
+}
+
+function windMetricsForResolution(resolution, departureMs, returnMs) {
+  var maxSustainedKt = null, maxGustKt = null;
+  ((resolution && resolution.verdictModels) || []).forEach(function (model) {
+    var sustained = maxWindRowValue(model.rows, 'sustained', departureMs, returnMs);
+    if (sustained != null && (maxSustainedKt == null || sustained > maxSustainedKt)) maxSustainedKt = sustained;
+  });
+  ((resolution && resolution.gustModels) || []).forEach(function (model) {
+    var gust = maxWindRowValue(model.rows, 'gust', departureMs, returnMs);
+    if (gust != null && (maxGustKt == null || gust > maxGustKt)) maxGustKt = gust;
+  });
+  return { maxSustainedKt: maxSustainedKt, maxGustKt: maxGustKt };
+}
+
+function windSeriesForResolution(resolution) {
+  var model = resolution && resolution.simulationModel;
+  if (!model) return null;
+  if (model.modelKey === 'nws') {
+    return {
+      windSpeedKt: (state.gridSeries && state.gridSeries.windSpeedKt) || [],
+      windDirection: (state.gridSeries && state.gridSeries.windDirection) || []
+    };
+  }
+  return {
+    windSpeedKt: model.rows.map(function (row) {
+      return { startMs: row.ms, endMs: row.endMs, value: row.sustained };
+    }),
+    windDirection: model.rows.map(function (row) {
+      return { startMs: row.ms, endMs: row.endMs, value: row.dir };
+    })
+  };
+}
+
+function windResolutionReason(resolution) {
+  if (!resolution) return null;
+  if (resolution.source === 'fallback') {
+    var labels = resolution.verdictModels.map(function (model) {
+      return WIND_MODEL_LABELS[model.modelKey] || model.modelKey;
+    });
+    return 'Wind fallback active: using the highest values across ' + labels.join(', ') + ' with full-window coverage.';
+  }
+  if (resolution.source === 'nws' && resolution.usesFallbackGust) {
+    return 'NWS sustained wind is primary; missing gust coverage is supplemented by complete fallback models.';
   }
   return null;
 }
@@ -6263,20 +6574,48 @@ function renderWindModelNote(domStart, domEnd) {
   var el = $('windModelNote');
   if (!el) return;
   var model = state.windModel || 'nws';
+  var resolution = state.lastWindForecastResolution;
+  if (resolution && resolution.source === 'fallback') {
+    var fallbackLabels = resolution.verdictModels.map(function (entry) {
+      return WIND_MODEL_LABELS[entry.modelKey] || entry.modelKey;
+    });
+    showEl(el);
+    el.textContent = 'NWS is unavailable or incomplete. Safety verdict uses the highest winds across ' +
+      fallbackLabels.join(', ') + ' with full sail-window coverage.';
+    return;
+  }
+  if (resolution && !resolution.source) {
+    showEl(el);
+    el.textContent = resolution.availability === 'pending'
+      ? 'Confirming complete wind coverage across NWS, GFS, ECMWF, and ICON.'
+      : 'No live wind model covers the full sail window. Any plotted forecast is retained data only.';
+    return;
+  }
+  if (resolution && resolution.source === 'nws' &&
+      (resolution.usesFallbackGust || (resolution.simulationModel && resolution.simulationModel.modelKey !== 'nws'))) {
+    var support = [];
+    if (resolution.usesFallbackGust) support.push('gust limits use complete fallback-model coverage');
+    if (resolution.simulationModel && resolution.simulationModel.modelKey !== 'nws') {
+      support.push('simulator uses ' + (WIND_MODEL_LABELS[resolution.simulationModel.modelKey] || resolution.simulationModel.modelKey));
+    }
+    showEl(el);
+    el.textContent = 'Safety verdict uses NWS sustained wind; ' + support.join(', ') + '.';
+    return;
+  }
   if (model === 'nws') { hideEl(el); return; }
   showEl(el);
   if (model === 'all') {
-    el.textContent = 'Comparison models come from Open-Meteo. Go/no-go verdict always uses NWS.';
+    el.textContent = 'Comparison models come from Open-Meteo. Safety verdict currently uses NWS.';
     return;
   }
   var label = WIND_MODEL_LABELS[model] || model;
   if (!state.windModelSeries) {
-    el.textContent = 'Loading ' + label + ' from Open-Meteo. Go/no-go verdict always uses NWS.';
+    el.textContent = 'Loading ' + label + ' from Open-Meteo. Safety verdict currently uses NWS.';
     return;
   }
   var rows = windRowsForModel(model, domStart, domEnd);
   if (!rows.length) {
-    el.textContent = label + ' has no provider data for this chart window. Go/no-go verdict always uses NWS.';
+    el.textContent = label + ' has no provider data for this chart window. Safety verdict currently uses NWS.';
     return;
   }
   var firstMs = rows[0].ms;
@@ -6287,7 +6626,7 @@ function renderWindModelNote(domStart, domEnd) {
   if (lastEndMs < domEnd - 30 * 60000) gaps.push('ends ' + fmtTime(lastEndMs));
   el.textContent = label + ' via Open-Meteo. ' +
     (gaps.length ? 'Provider coverage ' + gaps.join(' and ') + '; blank chart time is unavailable. ' : '') +
-    'Go/no-go verdict always uses NWS.';
+    'Safety verdict currently uses NWS.';
 }
 function updateWindModelChipActive() {
   var row = $('windModelRow');
@@ -6481,15 +6820,52 @@ function twilightTimes(dateMs, lat, lng) {
   };
 }
 
+// Pure plan-limit policy. Club sailing ends at sunset unless the skipper explicitly
+// acknowledges an override. Normal edits are made compliant automatically: shorten a
+// sail that still has at least one hour available, otherwise move the whole requested
+// window earlier so a usable sail is preserved.
+function applySunsetPolicy(departureMs, durationHours, sunsetMs, overrideAck) {
+  var requestedReturnMs = departureMs + durationHours * 3600000;
+  var violates = requestedReturnMs > sunsetMs;
+  if (!violates || overrideAck) {
+    return {
+      departureMs: departureMs, durationHours: durationHours,
+      returnMs: requestedReturnMs, sunsetMs: sunsetMs,
+      violates: violates, adjusted: false, adjustment: null
+    };
+  }
+  var sunsetCutoffMs = Math.floor(sunsetMs / 60000) * 60000;
+  var availableMinutes = Math.floor((sunsetCutoffMs - departureMs) / 60000);
+  if (availableMinutes >= 60) {
+    var adjustedHours = availableMinutes / 60;
+    return {
+      departureMs: departureMs, durationHours: adjustedHours,
+      returnMs: departureMs + adjustedHours * 3600000, sunsetMs: sunsetCutoffMs,
+      violates: true, adjusted: true, adjustment: 'duration'
+    };
+  }
+  var shiftedDepartureMs = sunsetCutoffMs - durationHours * 3600000;
+  return {
+    departureMs: shiftedDepartureMs, durationHours: durationHours,
+    returnMs: sunsetCutoffMs, sunsetMs: sunsetCutoffMs,
+    violates: true, adjusted: true, adjustment: 'departure'
+  };
+}
+
+function sunsetPolicyForPlan(departureMs, durationHours, overrideAck) {
+  var day = getNYParts(departureMs);
+  var solar = sunriseSunset(Date.UTC(day.y, day.m - 1, day.d), PIER25.lat, PIER25.lon);
+  return applySunsetPolicy(departureMs, durationHours, solar.sunsetMs, overrideAck);
+}
+
 // Escalating "you'll be out after dark" note (item 4b) — null when the return time is still
 // before sunset (nothing to warn about). Pure so it's node-smoke-testable.
-function twilightReturnNote(returnMs, sunsetMs, civilDuskMs) {
+function twilightReturnNote(returnMs, sunsetMs, civilDuskMs, overrideAck) {
   if (returnMs == null || sunsetMs == null || civilDuskMs == null) return null;
-  if (returnMs > civilDuskMs) {
-    return { level: 'severe', text: 'Returning after civil dusk — no natural light left; navigation lights are mandatory and the mooring approach will be dark.' };
-  }
   if (returnMs > sunsetMs) {
-    return { level: 'warn', text: 'Returning after sunset — carry navigation lights.' };
+    return overrideAck
+      ? { level: returnMs > civilDuskMs ? 'severe' : 'warn', text: 'After-sunset override acknowledged. Club rules normally require return by sunset.' }
+      : { level: 'severe', text: 'Plan exceeds the club sunset limit. Adjust the plan or acknowledge an override.' };
   }
   return null;
 }
@@ -6595,7 +6971,7 @@ function renderSunTwilightCard(departureMs, returnMs) {
     twilightCountdownTimer = setInterval(updateTwilightCountdowns, 30000);
   }
 
-  var note = twilightReturnNote(returnMs, t.sunsetMs, t.civilDuskMs);
+  var note = twilightReturnNote(returnMs, t.sunsetMs, t.civilDuskMs, state.sunsetOverrideAck);
   var noteEl = $('twilightNote');
   noteEl.textContent = note ? note.text : '';
   noteEl.classList.toggle('hidden', !note);
@@ -8880,19 +9256,20 @@ function showToast(msg) {
 var state = {
   departureMs: null,
   durationHours: 3, durationMode: '3', customDurationHours: DEFAULT_CUSTOM_DURATION_HOURS,
+  sunsetOverrideAck: false, sunsetRequestedWindow: null,
   settings: null,
   currentsSlackRaw: null, currentsCurveRaw: null, tidesRaw: null,
   levelPredictedRaw: null, levelObservedRaw: null,
   gridpointRaw: null, hourlyRaw: null, alertsRaw: null, stormAlertsRaw: null, stormCellsRaw: null, marineTextRaw: null,
   stormCellHistorySnapshots: [],
-  observedRaw: null, windModelsRaw: null, windModelSeries: null, windModel: 'nws',
+  observedRaw: null, windModelsRaw: null, windModelSeries: null, windModel: 'nws', windModelAutoFallback: false,
   windTraceVisibility: { forecast: true, robbinsReef: true, willyWall: true },
   obsWindStation: 'robbinsReef', obsWindWeatherflowRaw: null, obsWindWeatherflowHistory: [],
   obsCurrentStation: 'hudson', kvkCurrentRaw: null, kvkCurrentHistoryRaw: [], newarkCurrentRaw: null,
   narrowsCurrentRaw: null, narrowsCurrentHistoryRaw: [],
   curvePoints: [], slackEvents: [], gridSeries: null,
   levelPredictedPoints: [], levelObservedPoints: [], hiloEvents: [],
-  lastVerdict: null, lastDirectionRec: null, lastPreMotorAdvice: null,
+  lastVerdict: null, lastDirectionRec: null, lastPreMotorAdvice: null, lastWindForecastResolution: null,
   lastMaxSustainedKt: null, lastMaxGustKt: null,
   monitorEnabled: false, savedPlan: null,
   lastManualRefreshMs: 0, lastTickMs: 0,
@@ -8906,11 +9283,11 @@ var state = {
 };
 
 // Cached payloads preserve continuity, but a failed live refresh is not evidence that the
-// sail window remains safe. These critical NWS feeds independently gate a green verdict.
-var criticalSourceHealth = { wind: 'loading', hourly: 'loading', alerts: 'loading' };
+// sail window remains safe. NWS wind is preferred; independently refreshed fallback models
+// may satisfy the wind gate when NWS is unavailable or lacks full-window coverage.
+var criticalSourceHealth = { wind: 'loading', windModels: 'loading', hourly: 'loading', alerts: 'loading' };
 function criticalDataAvailability(departureMs, returnMs) {
-  var windCoversWindow = !isFinite(departureMs) || !isFinite(returnMs) ||
-    maxInWindow(state.gridSeries && state.gridSeries.windSpeedKt, departureMs, returnMs) != null;
+  var windResolution = resolveCriticalWindForecast(departureMs, returnMs);
   var hourlyCoversWindow = !isFinite(departureMs) || !isFinite(returnMs) || (state.hourlyRaw || []).some(function (period) {
     var startMs = new Date(period.startTime).getTime();
     var endMs = period.endTime ? new Date(period.endTime).getTime() : startMs + 3600000;
@@ -8919,8 +9296,7 @@ function criticalDataAvailability(departureMs, returnMs) {
   // Tri-state per source: 'pending' while the first load is still in flight (not yet a
   // failure), false once it has actually failed, otherwise the real coverage boolean.
   return {
-    wind: criticalSourceHealth.wind === 'loading' ? 'pending' :
-      (criticalSourceHealth.wind === 'available' && windCoversWindow),
+    wind: windResolution.availability,
     hourly: criticalSourceHealth.hourly === 'loading' ? 'pending' :
       (criticalSourceHealth.hourly === 'available' && hourlyCoversWindow),
     alerts: criticalSourceHealth.alerts === 'loading' ? 'pending' :
@@ -9236,7 +9612,7 @@ function loadGridpoint() {
   }).then(function () { criticalSourceHealth.wind = 'available'; clearCardError('windError'); return true; })
     .catch(function (err) {
       criticalSourceHealth.wind = 'unavailable';
-      showCardError('windError', 'Gridpoint unavailable, using hourly text as fallback: ' + err.message, loadGridpoint);
+      showCardError('windError', 'NWS gridpoint unavailable; using GFS, ECMWF, or ICON when full-window coverage is available: ' + err.message, loadGridpoint);
       recomputeWindowDependentUI();
       return false;
     });
@@ -9280,24 +9656,44 @@ function parseOpenMeteoWindModels(json) {
   });
   return out;
 }
-// Lazy: only fetched on the first non-NWS wind-model chip click (see the click handler in
-// init()), then kept in state — not part of loadAll()'s periodic sweep. state.windModelSeries
-// itself is the "already loaded" guard, so repeat chip clicks never re-fetch.
+var windModelsLoadInFlight = null;
+// These models serve both the comparison UI and the automatic NWS fallback, so they refresh
+// with the other live sources. Deduplicate overlapping monitor/manual/chip-triggered loads.
 function loadWindModels() {
-  if (state.windModelSeries) return Promise.resolve(true);
+  if (windModelsLoadInFlight) return windModelsLoadInFlight;
+  if (criticalSourceHealth.windModels !== 'available') criticalSourceHealth.windModels = 'loading';
   // v2 adds past_days=1. A new cache namespace prevents the old current-day-only response
   // from recreating a false leading coverage gap until the background refresh completes.
-  return loadSource('windmodels-v2', fetchWindModels, 'windCard', function (data) {
+  var pending = loadSource('windmodels-v2', fetchWindModels, 'windCard', function (data) {
     state.windModelsRaw = data;
     state.windModelSeries = parseOpenMeteoWindModels(data);
-  }).then(function () { clearCardError('windModelsError'); return true; })
+  }).then(function () {
+    criticalSourceHealth.windModels = 'available';
+    clearCardError('windModelsError');
+    return true;
+  })
     .catch(function (err) {
+      criticalSourceHealth.windModels = 'unavailable';
       showCardError('windModelsError', 'Wind models unavailable: ' + err.message, loadWindModels);
+      scheduleSourceRecompute();
       return false;
     });
+  windModelsLoadInFlight = pending.then(function (result) {
+    windModelsLoadInFlight = null;
+    return result;
+  });
+  return windModelsLoadInFlight;
 }
 function loadHourly() {
-  return loadSource('hourly', function () { return fetchHourly(); }, 'weatherCard', function (data) {
+  return loadSource('hourly', function () {
+    return fetchHourly().then(function (freshPeriods) {
+      var nowMs = Date.now();
+      var retainFromMs = savedSailWindowIsUsable(state.departureMs, state.durationHours, nowMs) && state.departureMs < nowMs
+        ? state.departureMs
+        : nowMs;
+      return mergeHourlyForecastHistory(state.hourlyRaw, freshPeriods, retainFromMs);
+    });
+  }, 'weatherCard', function (data) {
     state.hourlyRaw = data;
   }).then(function () { criticalSourceHealth.hourly = 'available'; clearCardError('weatherError'); return true; })
     .catch(function () {
@@ -9405,11 +9801,25 @@ function recomputeWindowDependentUI() {
   var limits = state.settings.limits;
   refreshSourceLinks(departureMs);
 
-  var maxSustainedKt = null, maxGustKt = null;
-  if (state.gridSeries && state.gridSeries.windSpeedKt.length) {
+  var windResolution = resolveCriticalWindForecast(departureMs, returnMs);
+  state.lastWindForecastResolution = windResolution;
+  var fallbackDisplayModel = windResolution.simulationModel || windResolution.verdictModels[0];
+  if (windResolution.source === 'fallback' && state.windModel === 'nws' && fallbackDisplayModel) {
+    state.windModel = fallbackDisplayModel.modelKey;
+    state.windModelAutoFallback = true;
+    updateWindModelChipActive();
+  } else if (windResolution.source === 'nws' && state.windModelAutoFallback) {
+    state.windModel = 'nws';
+    state.windModelAutoFallback = false;
+    updateWindModelChipActive();
+  }
+
+  var resolvedMetrics = windMetricsForResolution(windResolution, departureMs, returnMs);
+  var maxSustainedKt = resolvedMetrics.maxSustainedKt, maxGustKt = resolvedMetrics.maxGustKt;
+  if (maxSustainedKt == null && state.gridSeries && state.gridSeries.windSpeedKt.length) {
     maxSustainedKt = maxInWindow(state.gridSeries.windSpeedKt, departureMs, returnMs);
     maxGustKt = state.gridSeries.windGustKt.length ? maxInWindow(state.gridSeries.windGustKt, departureMs, returnMs) : null;
-  } else if (state.hourlyRaw) {
+  } else if (maxSustainedKt == null && state.hourlyRaw) {
     maxSustainedKt = estimateSustainedFromHourly(state.hourlyRaw, departureMs, returnMs);
   }
 
@@ -9431,6 +9841,8 @@ function recomputeWindowDependentUI() {
     thunderHourLabels: thunderHourLabels, alertsInWindow: alertsInWindow, limits: limits,
     availability: criticalDataAvailability(departureMs, returnMs)
   });
+  var fallbackReason = windResolutionReason(windResolution);
+  if (fallbackReason) verdict.reasons.push(fallbackReason);
   state.lastVerdict = verdict;
   renderVerdict(verdict, departureMs, returnMs);
 
@@ -9440,8 +9852,9 @@ function recomputeWindowDependentUI() {
 
   var preMotorAdvice = null;
   if (!direction.unavailable && direction.initialHeading) {
-    var windDirSeries = state.gridSeries ? state.gridSeries.windDirection : null;
-    var windSpeedSeries = state.gridSeries ? state.gridSeries.windSpeedKt : null;
+    var resolvedWindSeries = windSeriesForResolution(windResolution);
+    var windDirSeries = resolvedWindSeries ? resolvedWindSeries.windDirection : null;
+    var windSpeedSeries = resolvedWindSeries ? resolvedWindSeries.windSpeedKt : null;
     var slackEventsInWindow = (state.slackEvents || []).filter(function (e) {
       return e.ms >= departureMs && e.ms <= returnMs;
     });
@@ -9490,7 +9903,7 @@ function invokeSourceLoader(loader) {
 }
 function loadAll() {
   var loaders = [
-    loadCurrentsSlack, loadCurrentsCurve, loadWater, loadGridpoint,
+    loadCurrentsSlack, loadCurrentsCurve, loadWater, loadGridpoint, loadWindModels,
     loadHourly, loadAlerts, loadStormAlerts, loadStormCells, loadMarineText,
     function () { return loadRadar(true); }, loadObserved,
     loadKvkCurrent, loadKvkCurrentHistory, loadNewarkCurrent, loadNarrowsCurrent,
@@ -9909,6 +10322,7 @@ function previewIncomingFloatCode() {
 function applySharedPlan(plan) {
   state.sharedPlanBaseline = plan;
   lsSetJSON('sharedPlanBaseline', plan);
+  resetSunsetOverrideForEdit();
   state.departureMs = plan.departureMs;
   state.durationHours = plan.durationMinutes / 60;
   if (state.durationHours === 2 || state.durationHours === 3) {
@@ -9920,10 +10334,9 @@ function applySharedPlan(plan) {
     lsSetJSON('customDuration', state.customDurationHours);
   }
   lsSetJSON('durationMode', state.durationMode);
-  $('departureInput').value = msToDatetimeLocalNY(state.departureMs);
-  syncDepartureMeridiemControl();
-  setDurationActive(state.durationMode);
-  updateCustomDurationVisibility();
+  applySunsetConstraint();
+  lsSetJSON('durationMode', state.durationMode);
+  lsSetJSON('customDuration', state.customDurationHours);
   persistDurationPlan();
   loadCurrentsSlack();
   loadCurrentsCurve();
@@ -10365,7 +10778,7 @@ function composeTemplateNarrative(ctx) {
     if (ctx.sunsetMarginMin != null && ctx.sunsetMarginMin <= 60) {
       routeParts.push(ctx.sunsetMarginMin >= 0
         ? 'Back ' + ctx.sunsetMarginMin + ' min before sunset.'
-        : 'Return is ' + Math.abs(ctx.sunsetMarginMin) + ' min after sunset; carry navigation lights.');
+        : 'Return is ' + Math.abs(ctx.sunsetMarginMin) + ' min after sunset; club-limit override acknowledged.');
     }
 
     var sailParts = [];
@@ -10760,8 +11173,10 @@ function buildPlanSnapshotForWindow(departureMs, durationHours) {
   var returnMs = departureMs + durationHours * 3600000;
   var alertsInWindow = (state.alertsRaw || []).filter(function (a) { return alertOverlapsWindow(a, departureMs, returnMs); });
   var alertIds = alertsInWindow.map(function (a) { return (a.properties && a.properties.id) || a.id; }).sort();
-  var maxSustainedKt = null, maxGustKt = null;
-  if (state.gridSeries && state.gridSeries.windSpeedKt.length) {
+  var windResolution = resolveCriticalWindForecast(departureMs, returnMs);
+  var windMetrics = windMetricsForResolution(windResolution, departureMs, returnMs);
+  var maxSustainedKt = windMetrics.maxSustainedKt, maxGustKt = windMetrics.maxGustKt;
+  if (maxSustainedKt == null && state.gridSeries && state.gridSeries.windSpeedKt.length) {
     maxSustainedKt = maxInWindow(state.gridSeries.windSpeedKt, departureMs, returnMs);
     maxGustKt = state.gridSeries.windGustKt.length ? maxInWindow(state.gridSeries.windGustKt, departureMs, returnMs) : null;
   }
@@ -10903,8 +11318,8 @@ function updateLastUpdatedDisplay(anySucceeded) {
     setText('lastUpdated', 'refresh failed ' + fmtClock(Date.now()) + ' — showing last good data');
     return;
   }
-  var criticalHealthy = criticalSourceHealth.wind === 'available' &&
-    criticalSourceHealth.hourly === 'available' && criticalSourceHealth.alerts === 'available';
+  var availability = criticalDataAvailability(state.departureMs, getReturnMs());
+  var criticalHealthy = availability.wind === true && availability.hourly === true && availability.alerts === true;
   if (!criticalHealthy) {
     setText('lastUpdated', 'partial refresh ' + fmtClock(Date.now()) + ' — critical data unavailable');
     return;
@@ -10992,7 +11407,7 @@ function manualRefresh() {
 // resolved window AND which chip/input was driving it.
 function clampCustomDuration(v) {
   if (!isFinite(v)) return DEFAULT_CUSTOM_DURATION_HOURS;
-  v = Math.round(v * 2) / 2; // snap to the 0.5h step
+  v = Math.round(v * 60) / 60; // sunset adjustments need exact minute precision
   return clamp(v, 1, 12);
 }
 function setDurationActive(mode) {
@@ -11016,6 +11431,83 @@ function syncDepartureMeridiemControl() {
     button.disabled = period == null;
   });
 }
+function syncPlanWindowControls() {
+  $('departureInput').value = msToDatetimeLocalNY(state.departureMs);
+  syncDepartureMeridiemControl();
+  $('customDurationInput').value = Math.round(state.customDurationHours * 60) / 60;
+  setDurationActive(state.durationMode);
+  updateCustomDurationVisibility();
+}
+function formatPlanDuration(hours) {
+  var totalMinutes = Math.round(hours * 60);
+  var h = Math.floor(totalMinutes / 60), m = totalMinutes % 60;
+  return (h ? h + 'h' : '') + (m ? (h ? ' ' : '') + m + 'm' : '');
+}
+function renderSunsetPolicy(policy) {
+  var box = $('sunsetPolicy'), checkbox = $('sunsetOverrideAck');
+  if (!box || !checkbox) return;
+  var relevant = !!(policy && policy.violates) || !!state.sunsetRequestedWindow;
+  box.classList.toggle('hidden', !relevant);
+  checkbox.checked = !!state.sunsetOverrideAck;
+  if (!relevant) return;
+  if (state.sunsetOverrideAck) {
+    setText('sunsetPolicyMessage', 'After-sunset override acknowledged. Club rules normally require return by ' + fmtTime(policy.sunsetMs) + '.');
+  } else if (policy.adjustment === 'duration') {
+    setText('sunsetPolicyMessage', 'Duration shortened to ' + formatPlanDuration(policy.durationHours) + ' so ETA is no later than sunset at ' + fmtTime(policy.sunsetMs) + '.');
+  } else {
+    setText('sunsetPolicyMessage', 'Departure moved to ' + fmtTime(policy.departureMs) + ' so ETA is no later than sunset at ' + fmtTime(policy.sunsetMs) + '.');
+  }
+}
+function applySunsetConstraint() {
+  var requestedDepartureMs = state.departureMs;
+  var requestedDurationHours = state.durationHours;
+  var requestedMode = state.durationMode;
+  var requestedCustomHours = state.customDurationHours;
+  var policy = sunsetPolicyForPlan(requestedDepartureMs, requestedDurationHours, state.sunsetOverrideAck);
+  if (policy.adjusted) {
+    if (!state.sunsetRequestedWindow) {
+      state.sunsetRequestedWindow = {
+        departureMs: requestedDepartureMs, durationHours: requestedDurationHours,
+        durationMode: requestedMode, customDurationHours: requestedCustomHours
+      };
+    }
+    state.departureMs = policy.departureMs;
+    state.durationHours = policy.durationHours;
+    if (policy.adjustment === 'duration') {
+      state.durationMode = 'custom';
+      state.customDurationHours = policy.durationHours;
+    }
+  }
+  syncPlanWindowControls();
+  renderSunsetPolicy(policy);
+  return policy;
+}
+function resetSunsetOverrideForEdit() {
+  state.sunsetOverrideAck = false;
+  state.sunsetRequestedWindow = null;
+}
+function onSunsetOverrideChanged() {
+  var allow = $('sunsetOverrideAck').checked;
+  var beforeDepartureMs = state.departureMs;
+  if (allow && state.sunsetRequestedWindow) {
+    var requested = state.sunsetRequestedWindow;
+    state.departureMs = requested.departureMs;
+    state.durationHours = requested.durationHours;
+    state.durationMode = requested.durationMode;
+    state.customDurationHours = requested.customDurationHours;
+    state.sunsetOverrideAck = true;
+  } else {
+    state.sunsetOverrideAck = false;
+  }
+  applySunsetConstraint();
+  lsSetJSON('durationMode', state.durationMode);
+  lsSetJSON('customDuration', state.customDurationHours);
+  persistDurationPlan();
+  if (state.departureMs !== beforeDepartureMs) {
+    loadCurrentsSlack(); loadCurrentsCurve(); loadWater();
+  }
+  recomputeWindowDependentUI();
+}
 function setDepartureMeridiem(meridiem) {
   var input = $('departureInput');
   var nextValue = withDatetimeLocalMeridiem(input.value, meridiem);
@@ -11024,29 +11516,42 @@ function setDepartureMeridiem(meridiem) {
   input.dispatchEvent(new Event('change', { bubbles: true }));
 }
 function onDurationModeChanged(mode) {
+  resetSunsetOverrideForEdit();
+  var beforeDepartureMs = state.departureMs;
   state.durationMode = mode;
-  lsSetJSON('durationMode', mode);
   state.durationHours = (mode === 'custom') ? state.customDurationHours : parseInt(mode, 10);
-  setDurationActive(mode);
-  updateCustomDurationVisibility();
+  applySunsetConstraint();
+  lsSetJSON('durationMode', state.durationMode);
+  lsSetJSON('customDuration', state.customDurationHours);
   persistDurationPlan();
+  if (state.departureMs !== beforeDepartureMs) {
+    loadCurrentsSlack(); loadCurrentsCurve(); loadWater();
+  }
   recomputeWindowDependentUI();
 }
 function onCustomDurationInput() {
   var el = $('customDurationInput');
   var v = clampCustomDuration(parseFloat(el.value));
   el.value = v;
+  resetSunsetOverrideForEdit();
+  var beforeDepartureMs = state.departureMs;
   state.customDurationHours = v;
-  lsSetJSON('customDuration', v);
   if (state.durationMode === 'custom') {
     state.durationHours = v;
+    applySunsetConstraint();
+    lsSetJSON('durationMode', state.durationMode);
+    lsSetJSON('customDuration', state.customDurationHours);
     persistDurationPlan();
+    if (state.departureMs !== beforeDepartureMs) {
+      loadCurrentsSlack(); loadCurrentsCurve(); loadWater();
+    }
     recomputeWindowDependentUI();
   }
 }
 function onDepartureChanged() {
   var result = parseDatetimeLocalAsNY($('departureInput').value);
   if (result == null) return;
+  resetSunsetOverrideForEdit();
   state.departureMs = result.utcMs;
   if (result.adjusted) {
     // Entered wall-clock time fell in the DST spring-forward gap — reflect the corrected
@@ -11054,6 +11559,7 @@ function onDepartureChanged() {
     $('departureInput').value = msToDatetimeLocalNY(result.utcMs);
     showToast('Adjusted to 3:00 AM — clocks spring forward');
   }
+  applySunsetConstraint();
   // Departure moved: currents/water begin_date depends on it, refetch those.
   loadCurrentsSlack();
   loadCurrentsCurve();
@@ -11302,6 +11808,7 @@ function init() {
   // Establish the responsive shell before wiring any widget. If any unrelated component
   // fails during initialization, wide screens still retain their multi-column dashboard.
   setupResponsiveLayout();
+  initChartZoom();
   setTimeout(enforceDesktopLayoutInvariant, 0);
   window.addEventListener('load', enforceDesktopLayoutInvariant);
 
@@ -11337,12 +11844,9 @@ function init() {
     if (state.durationMode === 'custom') state.customDurationHours = clampCustomDuration(savedDurationHours);
   }
   state.durationHours = (state.durationMode === 'custom') ? state.customDurationHours : parseInt(state.durationMode, 10);
+  applySunsetConstraint();
   if (restoredExpiredWindow) persistDurationPlan();
-  $('departureInput').value = msToDatetimeLocalNY(state.departureMs);
-  syncDepartureMeridiemControl();
-  $('customDurationInput').value = state.customDurationHours;
-  setDurationActive(state.durationMode);
-  updateCustomDurationVisibility();
+  else if (state.sunsetRequestedWindow) persistDurationPlan();
 
   state.savedPlan = lsGetJSON('savedPlan', null, true);
   if (state.savedPlan) { $('monitorToggle').disabled = false; hideEl($('savePlanHint')); }
@@ -11377,6 +11881,7 @@ function init() {
     chip.addEventListener('click', function () { onDurationModeChanged(chip.dataset.hours); });
   });
   $('customDurationInput').addEventListener('input', onCustomDurationInput);
+  $('sunsetOverrideAck').addEventListener('change', onSunsetOverrideChanged);
 
   state.obsWindStation = lsGetJSON('obsWindStation', 'robbinsReef');
   if (state.obsWindStation !== 'robbinsReef' && state.obsWindStation !== 'weatherflow') {
@@ -11483,12 +11988,11 @@ function init() {
     });
   });
 
-  // Wind model switcher (item 2): every page load starts on NWS, the only model used by the
-  // go/no-go verdict. Comparison-model data is intentionally fetched only after a user picks
-  // GFS/ECMWF/ICON/All; restoring a saved comparison choice before that fetch made the active
-  // chip say "All" while the chart could initially contain only NWS. Keep this choice
-  // session-only so the selected chip and rendered series can never disagree after refresh.
+  // Wind model switcher: every page load starts on preferred NWS. The fallback models now load
+  // automatically for safety, but the visible comparison choice remains session-only so a
+  // stale selection never disagrees with the freshly rendered series after reload.
   state.windModel = 'nws';
+  state.windModelAutoFallback = false;
   try { localStorage.removeItem(cacheKey('windModel')); } catch (e) { /* legacy preference cleanup is best-effort */ }
   updateWindModelChipActive();
   wireCollapsible('windHourlyToggle', 'windHourlyBody');
@@ -11497,6 +12001,7 @@ function init() {
       var model = chip.dataset.model;
       if (model === state.windModel) return;
       state.windModel = model;
+      state.windModelAutoFallback = false;
       updateWindModelChipActive();
       rerenderWindCard();
       if (model !== 'nws' && !state.windModelSeries) loadWindModels();

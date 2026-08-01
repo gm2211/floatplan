@@ -61,6 +61,21 @@ const staleTiming = computeDirectionRec(curve, [{ ms: departureMs - 86400000, ty
 assert.equal(staleTiming.slackTimingAvailable, false, 'cached timing from another sail date is not usable');
 assert.equal(staleTiming.initialHeading, 'N', 'stale optional timing does not blank a valid curve recommendation');
 
+const reversingDepartureMs = 1000;
+const reversingReturnMs = 4000;
+const twoThirdsFlip = [
+  { ms: reversingDepartureMs, v: -1.4 },
+  { ms: 2500, v: -0.8 },
+  { ms: 3000, v: 0 },
+  { ms: reversingReturnMs, v: 1.1 }
+];
+const reversing = computeDirectionRec(twoThirdsFlip, [
+  { ms: 3000, type: 'slack', v: 0 },
+  { ms: 3500, type: 'flood', v: 1.1 }
+], reversingDepartureMs, reversingReturnMs);
+assert.equal(reversing.initialHeading, 'S', 'an ebb-to-flood turn two-thirds into the sail must go south with ebb');
+assert.match(reversing.headline, /return NORTH with the flood/);
+
 const partial = computeDirectionRec(curve.slice(0, 2), [], departureMs, returnMs);
 assert.equal(partial.unavailable, true, 'an incomplete curve cannot drive a heading');
 assert.equal(partial.partial, true, 'departure facts remain available from an in-range point');
@@ -75,6 +90,7 @@ assert.equal(outside.vDep, null);
 assert.match(html, /At departure: ['"] \+ rec\.stateDep/);
 assert.match(html, /var curState = rec\.stateDep/);
 assert.doesNotMatch(html.slice(start, end), /nowMs|stateNow|vNow/);
+assert.doesNotMatch(html.slice(start, end), /LATE_FLIP_FRACTION|late in your window/);
 assert.match(html, /function prefixedErrorMessage\(prefix, err\)/);
 assert.doesNotMatch(html, /showCardError\('directionError'/);
 assert.match(html, /Slack timing unavailable/);
