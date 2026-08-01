@@ -2700,6 +2700,18 @@ function worseLevel(a, b) { return LEVEL_ORDER[Math.max(LEVEL_ORDER.indexOf(a), 
 var SEVERE_ALERT_RE = /gale warning|storm warning|severe thunderstorm|tornado/i;
 var SCA_ALERT_RE = /small craft advisory/i;
 var THUNDER_RE = /thunder|t-?storm/i;
+var ACTIONABLE_THUNDER_POP_PCT = 30;
+
+// NWS uses "slight chance" below 30% and "chance" from 30–50%. A slight-chance
+// thunder phrase is useful context, but treating it as a categorical storm forecast made a
+// 20–29% hour turn the entire sail into NO-GO. Keep severe-alert handling independent: an
+// active Severe Thunderstorm Warning still forces NO-GO through SEVERE_ALERT_RE.
+function isActionableThunderForecast(period) {
+  if (!period || !THUNDER_RE.test(period.shortForecast || '')) return false;
+  var pop = period.probabilityOfPrecipitation && period.probabilityOfPrecipitation.value;
+  if (pop != null) return pop >= ACTIONABLE_THUNDER_POP_PCT;
+  return !/\bslight chance\b|\bisolated\b/i.test(period.shortForecast || '');
+}
 
 // Boundary policy (thresholds are inclusive at the edges named in the spec):
 //  - RED requires *strictly* > noGoSustained or > noGoGust (20/25 exactly stay non-red).
@@ -6686,11 +6698,11 @@ function weatherIconSvg(tag, sizePx) {
   return '<svg class="' + cls + '" width="' + sizePx + '" height="' + sizePx + '" viewBox="0 0 24 24" aria-hidden="true">' + weatherIconInner(tag) + '</svg>';
 }
 
-// Same short-forecast text drives both the icon and the thunder-hour tint (THUNDER_RE),
-// so the two stay consistent by construction.
-function classifyConditionTag(text, isDaytime) {
+// The caller supplies the thresholded thunder decision so a low-probability NWS phrase does
+// not get a categorical red thunder icon while the verdict correctly ignores it.
+function classifyConditionTag(text, isDaytime, isThunder) {
   var s = (text || '').toLowerCase();
-  if (THUNDER_RE.test(s)) return 'thunderstorm';
+  if (isThunder) return 'thunderstorm';
   if (/snow|flurr|sleet|freezing rain|ice/.test(s)) return 'snow';
   if (/drizzle/.test(s)) return 'drizzle';
   if (/rain|showers/.test(s)) return 'rain';
@@ -6899,7 +6911,8 @@ function buildWeatherRows(hourlyPeriods, gridSeries, domStart, domEnd) {
 
       return {
         ms: r.startMs, endMs: r.endMs, tempF: tempF, isDaytime: isDaytime, shortForecast: shortForecast,
-        tag: classifyConditionTag(shortForecast, isDaytime), isThunder: THUNDER_RE.test(shortForecast),
+        tag: classifyConditionTag(shortForecast, isDaytime, isActionableThunderForecast(p)),
+        isThunder: isActionableThunderForecast(p),
         pop: pop, humidity: humidity,
         sustainedKt: sustained, gustKt: gust, dirDeg: dir, dirText: dirText,
         skyCoverPct: gridSeries ? valueAtMs(gridSeries.skyCoverPct, r.startMs) : null,
@@ -9405,7 +9418,7 @@ function recomputeWindowDependentUI() {
     var t = new Date(p.startTime).getTime();
     var tEnd = p.endTime ? new Date(p.endTime).getTime() : t + 3600000;
     if (tEnd <= departureMs || t >= returnMs) return;
-    if (THUNDER_RE.test(p.shortForecast || '')) thunderHourLabels.push(fmtTime(t));
+    if (isActionableThunderForecast(p)) thunderHourLabels.push(fmtTime(t));
   });
 
   var alertsInWindow = (state.alertsRaw || []).filter(function (a) { return alertOverlapsWindow(a, departureMs, returnMs); });
@@ -9630,7 +9643,7 @@ function precipWindowSummaryLine(departureMs, returnMs) {
     if (tEnd <= departureMs || t >= returnMs) return;
     var pop = p.probabilityOfPrecipitation ? p.probabilityOfPrecipitation.value : null;
     if (pop != null && (maxPop == null || pop > maxPop)) maxPop = pop;
-    if (THUNDER_RE.test(p.shortForecast || '')) thunderTimes.push(fmtTime(t));
+    if (isActionableThunderForecast(p)) thunderTimes.push(fmtTime(t));
     if (p.shortForecast && forecasts.indexOf(p.shortForecast) === -1) forecasts.push(p.shortForecast);
   });
   if (maxPop == null && !forecasts.length) return null;
@@ -10757,7 +10770,7 @@ function buildPlanSnapshotForWindow(departureMs, durationHours) {
     var t = new Date(p.startTime).getTime();
     var tEnd = p.endTime ? new Date(p.endTime).getTime() : t + 3600000;
     if (tEnd <= departureMs || t >= returnMs) return;
-    if (THUNDER_RE.test(p.shortForecast || '')) thunderHourLabels.push(fmtTime(t));
+    if (isActionableThunderForecast(p)) thunderHourLabels.push(fmtTime(t));
   });
   var limits = (state.settings && state.settings.limits) || DEFAULT_LIMITS;
   var verdict = computeVerdict({
