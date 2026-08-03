@@ -2,7 +2,8 @@
 
 Single self-contained HTML file: `/Users/gmecocci/projects/floatplan/index.html`.
 Opened via `file://` in any modern browser (Mac Safari/Chrome, iPhone Safari). No build step, no server.
-Only external dependency: Leaflet from CDN (radar map). Everything else vanilla JS/CSS in one file.
+External browser dependencies: Leaflet from CDN (radar map) and the modular Firebase Auth SDK from
+Google's CDN (Atlantic Yachting connection only). Everything else is vanilla JS/CSS in one file.
 
 ## Purpose
 
@@ -125,7 +126,7 @@ Logic over current predictions within the window:
 - Print stylesheet: @media print shows only the float-plan sheet + conditions summary (verdict, wind summary, current summary, advisories) in clean black-on-white.
 - "Copy as text" button → clipboard plain-text float plan for texting/emailing.
 - Generated plan narrative is capped at 90 words and uses three compact sections: a timed current/route sequence, NWS wind plus actionable weather/reef guidance, and aboard/check-in. Each time, speed, hazard, and action appears once; routine advisories and non-actionable tide/weather facts are omitted.
-- Atlantic Yachting handoff: the sailor can open the signed-in Club dashboard to find a booked voyage, paste its `SL-…` Sail ID or Club voyage URL, and copy a field-mapped plan while opening that exact voyage in Quarterdeck. Persist only the Sail ID locally; never request, store, or transfer the Club login/session token. The Club app remains the authoritative surface for reviewing and submitting the float plan.
+- Atlantic Yachting direct filing: from the hosted Floatplan site, the sailor can connect to the Club's Firebase Google sign-in for the current tab, load upcoming booked voyages from `getMySignups`, automatically select the closest vessel/time match, attest that required safety gear was tested, and submit the mapped plan through `submitFloatPlan`. Use in-memory Firebase persistence only; never put the Club login/session token in Floatplan storage, visible fields, or Floatplan URLs. A `NO-GO` plan cannot be filed. Show explicit API success before claiming the plan was filed and link the resulting voyage back to the Club app for review. Local `file://` copies retain an Open Club fallback but cannot authenticate. The Club Firebase project must authorize the deployed Floatplan hostname and the Club API must continue allowing its exact origin via CORS.
 
 ## Layout / style
 

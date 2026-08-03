@@ -211,9 +211,18 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
   flex: 0 0 auto; border-radius: 999px; padding: 3px 8px; background: var(--green-bg);
   color: var(--green); font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
 }
-.club-file-reference { margin-top: 10px; }
-.club-file-reference label { display: block; margin-bottom: 3px; color: var(--ink-dim); font-size: 12px; }
-.club-file-reference input { width: 100%; }
+.club-connection { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.club-connection-state { display: inline-flex; align-items: center; gap: 7px; flex: 1 1 180px; min-width: 0; color: var(--ink); font-size: 12px; font-weight: 650; }
+.club-connection-state > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.club-connection-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: var(--ink-dim); }
+.club-connection-state.connected .club-connection-dot { background: var(--green); box-shadow: 0 0 0 3px var(--green-bg); }
+.club-connection-state.error .club-connection-dot { background: var(--red); }
+.club-voyage-picker { margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--border); }
+.club-voyage-picker label:not(.club-safety-check) { display: block; margin-bottom: 4px; color: var(--ink-dim); font-size: 12px; }
+.club-voyage-picker select { width: 100%; }
+.club-voyage-match { margin: 5px 0 0; color: var(--ink-dim); font-size: 11px; line-height: 1.4; }
+.club-safety-check { display: flex; align-items: flex-start; gap: 8px; margin-top: 10px; color: var(--ink); font-size: 12px; line-height: 1.4; cursor: pointer; }
+.club-safety-check input { margin-top: 2px; }
 .club-file-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
 .club-file-actions a { display: inline-flex; align-items: center; text-decoration: none; }
 .club-file-status { margin: 8px 0 0; color: var(--ink-dim); font-size: 11px; line-height: 1.45; }
@@ -1216,20 +1225,27 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <div class="club-file-head">
         <div>
           <strong>Atlantic Yachting</strong>
-          <p class="sub">Associate this plan with one of your booked Club voyages.</p>
+          <p class="sub">Load your booked voyages and file this plan without copying fields.</p>
         </div>
-        <span class="club-file-badge">Club handoff</span>
+        <span class="club-file-badge">Direct filing</span>
       </div>
-      <div class="club-file-reference">
-        <label for="aySailReference">Voyage URL or Sail ID</label>
-        <input type="text" id="aySailReference" placeholder="Paste SL-… or a Club voyage URL" autocomplete="off" spellcheck="false">
+      <div class="club-connection">
+        <span class="club-connection-state" id="clubConnectionState"><span class="club-connection-dot" aria-hidden="true"></span><span id="clubConnectionLabel">Not connected</span></span>
+        <button class="btn-secondary" type="button" id="connectClubBtn">Connect Club</button>
+        <button class="btn-ghost hidden" type="button" id="disconnectClubBtn">Disconnect</button>
+      </div>
+      <div class="club-voyage-picker hidden" id="clubVoyagePicker">
+        <label for="clubVoyageSelect">Booked voyage</label>
+        <select id="clubVoyageSelect"></select>
+        <p class="club-voyage-match" id="clubVoyageMatch"></p>
+        <label class="club-safety-check"><input type="checkbox" id="clubSafetyGearTested"> <span>I tested the required safety gear for this voyage.</span></label>
       </div>
       <div class="club-file-actions">
-        <a class="btn-secondary" id="findClubSailsBtn" href="https://clubapp.atlanticyachting.com/" target="_blank" rel="noopener noreferrer">Find my sails ↗</a>
-        <button class="btn-primary" type="button" id="fileClubPlanBtn" disabled>Copy &amp; continue in Club</button>
-        <a class="btn-secondary hidden" id="viewClubPlanBtn" target="_blank" rel="noopener noreferrer">View Club plan ↗</a>
+        <button class="btn-primary" type="button" id="fileClubPlanBtn" disabled>File with Atlantic Yachting</button>
+        <a class="btn-secondary hidden" id="viewClubPlanBtn" target="_blank" rel="noopener noreferrer">Review filed plan ↗</a>
+        <a class="btn-ghost" id="openClubBtn" href="https://clubapp.atlanticyachting.com/" target="_blank" rel="noopener noreferrer">Open Club ↗</a>
       </div>
-      <p class="club-file-status" id="clubFileStatus" role="status" aria-live="polite">Open your Club dashboard, choose the voyage, then paste its URL here. Floatplan stores only the Sail ID on this device—never your Club login or session token.</p>
+      <p class="club-file-status" id="clubFileStatus" role="status" aria-live="polite">Connect for this tab. Floatplan keeps the Club session only in memory and never stores your login token.</p>
     </div>
     <div class="share-plan-panel hidden" id="sharePlanPanel">
       <div class="share-plan-panel-head">
@@ -9929,6 +9945,7 @@ function recomputeWindowDependentUI() {
   renderSunTwilightCard(departureMs, returnMs);
 
   updateFloatPlanAutoFields(direction, departureMs, returnMs);
+  syncAtlanticYachtingFilingState();
   buildPrintSummary(verdict, direction, departureMs, returnMs, maxSustainedKt, maxGustKt);
   renderSharedPlanComparison();
 }
@@ -9960,32 +9977,28 @@ function loadAll() {
 var FLOATPLAN_FIELDS = ['fpVesselSelect', 'fpVesselName', 'fpCrewCount', 'fpPhones'];
 var VESSEL_PRESETS = ['AY10', 'AY11'];
 var ATLANTIC_YACHTING_BASE_URL = 'https://clubapp.atlanticyachting.com';
-var ATLANTIC_YACHTING_ALLOWED_HOSTS = ['clubapp.atlanticyachting.com', 'ay-sailing-club.web.app'];
+var ATLANTIC_YACHTING_API_URL = ATLANTIC_YACHTING_BASE_URL + '/api';
+var ATLANTIC_YACHTING_FIREBASE_SDK_VERSION = '12.16.0';
+var ATLANTIC_YACHTING_FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyBpfaL64RYPjeIVH1QH_o1bgmQWGfzvz-s',
+  authDomain: 'clubapp.atlanticyachting.com',
+  projectId: 'ay-sailing-club',
+  storageBucket: 'ay-sailing-club.firebasestorage.app',
+  messagingSenderId: '157671808045',
+  appId: '1:157671808045:web:5c3c3eac8f5c7d922feca4'
+};
+var ATLANTIC_YACHTING_PROJECT_INFO_URL =
+  'https://identitytoolkit.googleapis.com/v1/projects?key=' + ATLANTIC_YACHTING_FIREBASE_CONFIG.apiKey;
+var atlanticYachtingConnection = {
+  auth: null, authModule: null, user: null, signups: [], selectedSailId: null,
+  filedSailId: null, busy: false, authorizationChecked: false, originAuthorized: null
+};
 
-// Atlantic Yachting keeps voyage data behind its own Google sign-in. This app therefore
-// remembers only the non-secret Sail ID and hands the skipper to the exact Quarterdeck route;
-// it never asks for or stores the Club session token.
+// The Club token exists only inside the Firebase user object for this open tab. It is never
+// copied into an input, localStorage, sessionStorage, a URL owned by Floatplan, or app state.
 function normalizeAtlanticYachtingSailId(value) {
   var id = String(value == null ? '' : value).trim();
   return /^SL-[A-Za-z0-9_-]{2,80}$/.test(id) ? id : null;
-}
-
-function parseAtlanticYachtingSailReference(value) {
-  var raw = String(value == null ? '' : value).trim();
-  var direct = normalizeAtlanticYachtingSailId(raw);
-  if (direct) return direct;
-  try {
-    var url = new URL(raw);
-    if (ATLANTIC_YACHTING_ALLOWED_HOSTS.indexOf(url.hostname.toLowerCase()) === -1) return null;
-    var candidate = url.searchParams.get('sailId');
-    if (!candidate) {
-      var pathMatch = /^\/(?:sails|float-plan)\/([^/?#]+)/i.exec(url.pathname);
-      candidate = pathMatch ? decodeURIComponent(pathMatch[1]) : null;
-    }
-    return normalizeAtlanticYachtingSailId(candidate);
-  } catch (e) {
-    return null;
-  }
 }
 
 function atlanticYachtingQuarterdeckUrl(sailId) {
@@ -9994,6 +10007,80 @@ function atlanticYachtingQuarterdeckUrl(sailId) {
 
 function atlanticYachtingFloatPlanUrl(sailId) {
   return ATLANTIC_YACHTING_BASE_URL + '/float-plan/' + encodeURIComponent(sailId) + '?from=quarterdeck';
+}
+
+function atlanticYachtingSignupField(signup, names) {
+  for (var i = 0; i < names.length; i += 1) {
+    if (signup && signup[names[i]] != null && signup[names[i]] !== '') return signup[names[i]];
+  }
+  return null;
+}
+
+function atlanticYachtingClockParts(value) {
+  var raw = String(value == null ? '' : value).trim();
+  var match = /^(\d{1,2}):(\d{2})(?:\s*([AP]M))?$/i.exec(raw);
+  if (!match) return null;
+  var hour = +match[1], minute = +match[2], meridiem = (match[3] || '').toUpperCase();
+  if (minute > 59 || hour > (meridiem ? 12 : 23) || hour < (meridiem ? 1 : 0)) return null;
+  if (meridiem === 'AM') hour = hour === 12 ? 0 : hour;
+  if (meridiem === 'PM') hour = hour === 12 ? 12 : hour + 12;
+  return { hour: hour, minute: minute };
+}
+
+function atlanticYachtingSignupInstant(dateValue, timeValue) {
+  var dateMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateValue == null ? '' : dateValue).trim());
+  var clock = atlanticYachtingClockParts(timeValue);
+  if (dateMatch && clock) {
+    return nyWallTimeToUtcMs(+dateMatch[1], +dateMatch[2], +dateMatch[3], clock.hour, clock.minute).utcMs;
+  }
+  var parsed = new Date(String(dateValue || '') + (timeValue ? ' ' + timeValue : '')).getTime();
+  return isFinite(parsed) ? parsed : null;
+}
+
+function normalizeAtlanticYachtingSignup(signup) {
+  signup = signup || {};
+  var sailId = normalizeAtlanticYachtingSailId(atlanticYachtingSignupField(signup,
+    ['sailId', 'SailID', 'Sail ID', 'id']));
+  if (!sailId) return null;
+  var date = atlanticYachtingSignupField(signup, ['Date', 'date']);
+  var startTime = atlanticYachtingSignupField(signup,
+    ['Override Start Time', 'overrideStartTime', 'StartTime', 'startTime']);
+  var endTime = atlanticYachtingSignupField(signup,
+    ['Override End Time', 'overrideEndTime', 'EndTime', 'endTime']);
+  var startMs = atlanticYachtingSignupInstant(date, startTime);
+  var endMs = atlanticYachtingSignupInstant(date, endTime);
+  if (endMs != null && startMs != null && endMs <= startMs) endMs += 24 * 3600000;
+  return {
+    sailId: sailId,
+    date: String(date || ''), startTime: String(startTime || ''), endTime: String(endTime || ''),
+    startMs: startMs, endMs: endMs,
+    vessel: String(atlanticYachtingSignupField(signup,
+      ['PrimaryBoatID', 'primaryBoatId', 'BoatID', 'boatId', 'Boat Name']) || 'TBD'),
+    name: String(atlanticYachtingSignupField(signup, ['SailName', 'sailName', 'Time']) || 'Booked voyage'),
+    role: String(atlanticYachtingSignupField(signup, ['role', 'Role']) || 'Crew'),
+    status: [
+      atlanticYachtingSignupField(signup, ['signupStatus', 'Signup Status', 'Status']),
+      atlanticYachtingSignupField(signup, ['SailStatus', 'sailStatus'])
+    ].filter(Boolean).join(' '),
+    raw: signup
+  };
+}
+
+function chooseAtlanticYachtingVoyage(signups, departureMs, vesselName, nowMs) {
+  nowMs = nowMs == null ? Date.now() : nowMs;
+  var desiredVessel = String(vesselName || '').trim().toLowerCase();
+  var candidates = (signups || []).filter(function (signup) {
+    return signup && !/cancelled/i.test(signup.status) &&
+      (signup.endMs == null || signup.endMs > nowMs - 30 * 60000);
+  });
+  candidates.sort(function (a, b) {
+    var aStart = a.startMs == null ? Infinity : a.startMs;
+    var bStart = b.startMs == null ? Infinity : b.startMs;
+    var aMismatch = desiredVessel && a.vessel.toLowerCase() !== desiredVessel ? 12 * 3600000 : 0;
+    var bMismatch = desiredVessel && b.vessel.toLowerCase() !== desiredVessel ? 12 * 3600000 : 0;
+    return Math.abs(aStart - departureMs) + aMismatch - (Math.abs(bStart - departureMs) + bMismatch);
+  });
+  return candidates[0] || null;
 }
 
 function getVesselDisplayName() {
@@ -10116,53 +10203,281 @@ function buildAtlanticYachtingFloatPlanText(plan) {
   ].join('\n');
 }
 
-function syncAtlanticYachtingSailReference(options) {
-  options = options || {};
-  var input = $('aySailReference'), fileButton = $('fileClubPlanBtn');
-  var viewLink = $('viewClubPlanBtn'), status = $('clubFileStatus');
-  if (!input || !fileButton || !viewLink || !status) return null;
-  var sailId = parseAtlanticYachtingSailReference(input.value);
-  fileButton.disabled = !sailId;
-  viewLink.classList.toggle('hidden', !sailId);
-  if (sailId) {
-    viewLink.href = atlanticYachtingFloatPlanUrl(sailId);
-    input.setAttribute('aria-invalid', 'false');
-    status.classList.remove('invalid');
-    status.textContent = 'Linked to ' + sailId + '. The handoff copies Club-ready fields and opens this voyage in Quarterdeck for your review and submission.';
-    if (options.persist !== false) lsSetJSON('atlanticYachtingSailId', sailId);
-  } else {
-    viewLink.removeAttribute('href');
-    input.setAttribute('aria-invalid', input.value.trim() ? 'true' : 'false');
-    status.classList.toggle('invalid', !!input.value.trim());
-    status.textContent = input.value.trim()
-      ? 'Paste a valid Atlantic Yachting SL-… Sail ID or voyage URL.'
-      : 'Open your Club dashboard, choose the voyage, then paste its URL here. Floatplan stores only the Sail ID on this device—never your Club login or session token.';
+function setAtlanticYachtingStatus(message, kind) {
+  var status = $('clubFileStatus'), connectionState = $('clubConnectionState');
+  if (status) {
+    status.textContent = message;
+    status.classList.toggle('invalid', kind === 'error');
   }
-  return sailId;
+  if (connectionState) {
+    connectionState.classList.toggle('connected', kind === 'connected' || kind === 'success');
+    connectionState.classList.toggle('error', kind === 'error');
+  }
 }
 
-function loadAtlanticYachtingSailReference() {
-  var input = $('aySailReference');
-  if (!input) return;
-  var saved = normalizeAtlanticYachtingSailId(lsGetJSON('atlanticYachtingSailId', ''));
-  if (saved) input.value = saved;
-  syncAtlanticYachtingSailReference({ persist: false });
+function formatAtlanticYachtingVoyage(signup) {
+  var schedule = signup.startMs == null
+    ? [signup.date, signup.startTime].filter(Boolean).join(' ')
+    : fmtDateTime(signup.startMs) + (signup.endMs == null ? '' : '–' + fmtTime(signup.endMs));
+  return signup.vessel + ' · ' + schedule + ' · ' + signup.role;
+}
+
+function selectedAtlanticYachtingVoyage() {
+  return atlanticYachtingConnection.signups.find(function (signup) {
+    return signup.sailId === atlanticYachtingConnection.selectedSailId;
+  }) || null;
+}
+
+function atlanticYachtingFilingBlockedReason() {
+  if (atlanticYachtingConnection.busy) return 'busy';
+  if (!atlanticYachtingConnection.user) return 'connect';
+  if (!selectedAtlanticYachtingVoyage()) return 'voyage';
+  if (!$('clubSafetyGearTested') || !$('clubSafetyGearTested').checked) return 'safety';
+  if (!state.lastVerdict || !state.lastDirectionRec) return 'checking';
+  if (state.lastVerdict && state.lastVerdict.level === 'NO-GO') return 'no-go';
+  if (atlanticYachtingConnection.filedSailId === atlanticYachtingConnection.selectedSailId) return 'filed';
+  return null;
+}
+
+function syncAtlanticYachtingFilingState() {
+  var connectButton = $('connectClubBtn'), disconnectButton = $('disconnectClubBtn');
+  var picker = $('clubVoyagePicker'), select = $('clubVoyageSelect');
+  var fileButton = $('fileClubPlanBtn'), viewLink = $('viewClubPlanBtn');
+  var connectionLabel = $('clubConnectionLabel'), match = $('clubVoyageMatch');
+  if (!connectButton || !disconnectButton || !picker || !select || !fileButton || !viewLink) return;
+
+  var connected = !!atlanticYachtingConnection.user;
+  connectButton.classList.toggle('hidden', connected);
+  disconnectButton.classList.toggle('hidden', !connected);
+  picker.classList.toggle('hidden', !connected);
+  connectButton.disabled = atlanticYachtingConnection.busy ||
+    (atlanticYachtingConnection.authorizationChecked && atlanticYachtingConnection.originAuthorized === false);
+  disconnectButton.disabled = atlanticYachtingConnection.busy;
+  connectionLabel.textContent = connected
+    ? 'Connected as ' + (atlanticYachtingConnection.user.email || 'Club member')
+    : (atlanticYachtingConnection.busy ? 'Connecting…' : 'Not connected');
+
+  if (connected) {
+    var prior = atlanticYachtingConnection.selectedSailId;
+    var suggested = chooseAtlanticYachtingVoyage(
+      atlanticYachtingConnection.signups, state.departureMs, getVesselDisplayName());
+    if (!prior || !atlanticYachtingConnection.signups.some(function (signup) { return signup.sailId === prior; })) {
+      atlanticYachtingConnection.selectedSailId = suggested ? suggested.sailId : null;
+    }
+    select.textContent = '';
+    atlanticYachtingConnection.signups.forEach(function (signup) {
+      var option = document.createElement('option');
+      option.value = signup.sailId;
+      option.textContent = formatAtlanticYachtingVoyage(signup);
+      select.appendChild(option);
+    });
+    select.disabled = atlanticYachtingConnection.busy || !atlanticYachtingConnection.signups.length;
+    if (atlanticYachtingConnection.selectedSailId) select.value = atlanticYachtingConnection.selectedSailId;
+    var chosen = selectedAtlanticYachtingVoyage();
+    match.textContent = chosen
+      ? (suggested && chosen.sailId === suggested.sailId ? 'Best match for this plan · ' : '') + chosen.sailId
+      : 'No upcoming booked voyages found.';
+    if (chosen && state.lastVerdict && state.lastVerdict.level === 'NO-GO') {
+      match.textContent += ' · Filing is blocked while this plan is NO-GO.';
+    }
+  }
+
+  var blocked = atlanticYachtingFilingBlockedReason();
+  fileButton.disabled = !!blocked;
+  fileButton.textContent = blocked === 'filed' ? 'Filed with Atlantic Yachting' :
+    (atlanticYachtingConnection.busy ? 'Working…' : 'File with Atlantic Yachting');
+  var filed = !!atlanticYachtingConnection.filedSailId;
+  viewLink.classList.toggle('hidden', !filed);
+  if (filed) viewLink.href = atlanticYachtingFloatPlanUrl(atlanticYachtingConnection.filedSailId);
+  else viewLink.removeAttribute('href');
+}
+
+function checkAtlanticYachtingOriginAuthorization() {
+  if (location.protocol === 'file:') {
+    atlanticYachtingConnection.authorizationChecked = true;
+    atlanticYachtingConnection.originAuthorized = false;
+    setAtlanticYachtingStatus('Direct Club connection requires the hosted Floatplan site; local files can still open Club.', 'error');
+    syncAtlanticYachtingFilingState();
+    return Promise.resolve(false);
+  }
+  return fetchWithRetry(ATLANTIC_YACHTING_PROJECT_INFO_URL, { maxRetries: 0 }).then(safeJson).then(function (data) {
+    var domains = data && Array.isArray(data.authorizedDomains) ? data.authorizedDomains : [];
+    var authorized = domains.indexOf(location.hostname) !== -1;
+    atlanticYachtingConnection.authorizationChecked = true;
+    atlanticYachtingConnection.originAuthorized = authorized;
+    if (!authorized) {
+      setAtlanticYachtingStatus(
+        'Setup needed: Atlantic Yachting must authorize ' + location.hostname + ' before secure Club sign-in can open here.',
+        'error');
+    }
+    syncAtlanticYachtingFilingState();
+    return authorized;
+  }).catch(function () {
+    atlanticYachtingConnection.authorizationChecked = true;
+    atlanticYachtingConnection.originAuthorized = null;
+    syncAtlanticYachtingFilingState();
+    return null;
+  });
+}
+
+function loadAtlanticYachtingFirebase() {
+  if (atlanticYachtingConnection.auth && atlanticYachtingConnection.authModule) {
+    return Promise.resolve(atlanticYachtingConnection);
+  }
+  var base = 'https://www.gstatic.com/firebasejs/' + ATLANTIC_YACHTING_FIREBASE_SDK_VERSION + '/';
+  return Promise.all([import(base + 'firebase-app.js'), import(base + 'firebase-auth.js')]).then(function (modules) {
+    var appModule = modules[0], authModule = modules[1];
+    var app = appModule.getApps().find(function (candidate) { return candidate.name === 'floatplan-club'; }) ||
+      appModule.initializeApp(ATLANTIC_YACHTING_FIREBASE_CONFIG, 'floatplan-club');
+    var auth = authModule.getAuth(app);
+    return authModule.setPersistence(auth, authModule.inMemoryPersistence).then(function () {
+      atlanticYachtingConnection.auth = auth;
+      atlanticYachtingConnection.authModule = authModule;
+      return atlanticYachtingConnection;
+    });
+  });
+}
+
+function atlanticYachtingApi(action, payload, token, method) {
+  method = method || 'GET';
+  var controller = new AbortController();
+  var timer = setTimeout(function () { controller.abort(); }, 15000);
+  var request;
+  if (method === 'POST') {
+    request = fetch(ATLANTIC_YACHTING_API_URL, {
+      method: 'POST', mode: 'cors', signal: controller.signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.assign({ action: action }, payload || {}, { token: token }))
+    });
+  } else {
+    var url = new URL(ATLANTIC_YACHTING_API_URL);
+    url.searchParams.set('action', action);
+    Object.keys(payload || {}).forEach(function (key) { url.searchParams.set(key, payload[key]); });
+    url.searchParams.set('token', token);
+    request = fetch(url.toString(), { method: 'GET', mode: 'cors', signal: controller.signal });
+  }
+  return request.then(function (response) {
+    clearTimeout(timer);
+    return safeJson(response).then(function (data) {
+      if (!response.ok || !data || data.success === false) {
+        throw new Error((data && (data.error || data.message)) || 'Club request failed (' + response.status + ')');
+      }
+      return data;
+    });
+  }, function (error) {
+    clearTimeout(timer);
+    throw error;
+  });
+}
+
+function loadAtlanticYachtingVoyages() {
+  var user = atlanticYachtingConnection.user;
+  if (!user || !user.email) return Promise.reject(new Error('Club account email is unavailable'));
+  atlanticYachtingConnection.busy = true;
+  syncAtlanticYachtingFilingState();
+  return user.getIdToken().then(function (token) {
+    return atlanticYachtingApi('getMySignups', { email: user.email }, token, 'GET');
+  }).then(function (result) {
+    atlanticYachtingConnection.signups = (Array.isArray(result.data) ? result.data : [])
+      .map(normalizeAtlanticYachtingSignup).filter(Boolean)
+      .filter(function (signup) { return !/cancelled/i.test(signup.status); });
+    atlanticYachtingConnection.selectedSailId = null;
+    setAtlanticYachtingStatus(
+      atlanticYachtingConnection.signups.length
+        ? 'Booked voyages loaded. Floatplan selected the closest match for this plan.'
+        : 'Connected, but no upcoming booked voyages were found.',
+      'connected');
+  }).finally(function () {
+    atlanticYachtingConnection.busy = false;
+    syncAtlanticYachtingFilingState();
+  });
+}
+
+function connectAtlanticYachting() {
+  if (atlanticYachtingConnection.originAuthorized === false) {
+    setAtlanticYachtingStatus(
+      'Setup needed: Atlantic Yachting must authorize ' + location.hostname + ' before secure Club sign-in can open here.',
+      'error');
+    return;
+  }
+  atlanticYachtingConnection.busy = true;
+  setAtlanticYachtingStatus('Opening secure Atlantic Yachting sign-in…');
+  syncAtlanticYachtingFilingState();
+  loadAtlanticYachtingFirebase().then(function (connection) {
+    var provider = new connection.authModule.GoogleAuthProvider();
+    return connection.authModule.signInWithPopup(connection.auth, provider);
+  }).then(function (credential) {
+    atlanticYachtingConnection.user = credential.user;
+    atlanticYachtingConnection.busy = false;
+    setAtlanticYachtingStatus('Connected. Loading your booked voyages…', 'connected');
+    syncAtlanticYachtingFilingState();
+    return loadAtlanticYachtingVoyages();
+  }).catch(function (error) {
+    atlanticYachtingConnection.busy = false;
+    if (error && error.code === 'auth/popup-closed-by-user') {
+      setAtlanticYachtingStatus('Club connection cancelled. Nothing was stored.');
+    } else if (error && error.code === 'auth/unauthorized-domain') {
+      atlanticYachtingConnection.originAuthorized = false;
+      setAtlanticYachtingStatus(
+        'Setup needed: Atlantic Yachting must authorize ' + location.hostname + ' for secure sign-in.', 'error');
+    } else {
+      setAtlanticYachtingStatus('Could not connect to Club: ' + (error && error.message ? error.message : 'unknown error'), 'error');
+    }
+    syncAtlanticYachtingFilingState();
+  });
+}
+
+function disconnectAtlanticYachting() {
+  var finish = function () {
+    atlanticYachtingConnection.user = null;
+    atlanticYachtingConnection.signups = [];
+    atlanticYachtingConnection.selectedSailId = null;
+    atlanticYachtingConnection.filedSailId = null;
+    if ($('clubSafetyGearTested')) $('clubSafetyGearTested').checked = false;
+    setAtlanticYachtingStatus('Disconnected. Floatplan did not store the Club session.');
+    syncAtlanticYachtingFilingState();
+  };
+  if (atlanticYachtingConnection.auth && atlanticYachtingConnection.authModule) {
+    atlanticYachtingConnection.authModule.signOut(atlanticYachtingConnection.auth).then(finish, finish);
+  } else finish();
+}
+
+function initAtlanticYachtingConnection() {
+  try { localStorage.removeItem(cacheKey('atlanticYachtingSailId')); } catch (e) { /* legacy handoff cleanup */ }
+  syncAtlanticYachtingFilingState();
+  checkAtlanticYachtingOriginAuthorization();
 }
 
 function fileWithAtlanticYachting() {
-  var sailId = syncAtlanticYachtingSailReference();
-  if (!sailId) { showToast('Add a Club Sail ID first'); return; }
-  var text = buildAtlanticYachtingFloatPlanText(buildAtlanticYachtingFloatPlan(sailId));
-  var clubWindow = window.open(atlanticYachtingQuarterdeckUrl(sailId), '_blank', 'noopener');
-  var onCopied = function () { showToast('Club-ready float plan copied — review and submit it in Quarterdeck'); };
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(onCopied).catch(function () {
-      legacyCopy(text, 'Club-ready float plan copied — review and submit it in Quarterdeck');
-    });
-  } else {
-    legacyCopy(text, 'Club-ready float plan copied — review and submit it in Quarterdeck');
+  var blocked = atlanticYachtingFilingBlockedReason();
+  if (blocked) {
+    var messages = {
+      connect: 'Connect Atlantic Yachting first', voyage: 'Choose a booked voyage',
+      safety: 'Confirm the safety-gear test first', 'no-go': 'Resolve the NO-GO conditions before filing',
+      checking: 'Wait for the plan safety check to finish', filed: 'This plan is already filed'
+    };
+    showToast(messages[blocked] || 'Club filing is not ready');
+    return;
   }
-  if (!clubWindow) showToast('Club-ready plan copied; allow pop-ups or use Find my sails');
+  var voyage = selectedAtlanticYachtingVoyage();
+  var payload = buildAtlanticYachtingFloatPlan(voyage.sailId);
+  payload.vhfChannelsShoreContact = '';
+  payload.safetyGearTested = true;
+  atlanticYachtingConnection.busy = true;
+  setAtlanticYachtingStatus('Filing this plan with Atlantic Yachting…', 'connected');
+  syncAtlanticYachtingFilingState();
+  atlanticYachtingConnection.user.getIdToken().then(function (token) {
+    return atlanticYachtingApi('submitFloatPlan', payload, token, 'POST');
+  }).then(function () {
+    atlanticYachtingConnection.filedSailId = voyage.sailId;
+    setAtlanticYachtingStatus('Filed successfully for ' + voyage.sailId + '. Atlantic Yachting now has this plan.', 'success');
+    showToast('Float plan filed with Atlantic Yachting');
+  }).catch(function (error) {
+    setAtlanticYachtingStatus('Club filing failed: ' + (error && error.message ? error.message : 'unknown error'), 'error');
+  }).finally(function () {
+    atlanticYachtingConnection.busy = false;
+    syncAtlanticYachtingFilingState();
+  });
 }
 
 // Turn-around instant for the computed plan: the sail simulator's turn if available, else
@@ -12053,7 +12368,7 @@ function init() {
   }
 
   loadFloatPlanFields();
-  loadAtlanticYachtingSailReference();
+  initAtlanticYachtingConnection();
   wireCollapsible('marineTextToggle', 'marineTextBody');
   wireCollapsible('observedMoreToggle', 'observedMoreBody');
   wireCollapsible('marineInfoToggle', 'marineInfoBlock');
@@ -12146,7 +12461,14 @@ function init() {
     window.print();
   });
   $('copyPlanBtn').addEventListener('click', copyFloatPlanText);
-  $('aySailReference').addEventListener('input', function () { syncAtlanticYachtingSailReference(); });
+  $('connectClubBtn').addEventListener('click', connectAtlanticYachting);
+  $('disconnectClubBtn').addEventListener('click', disconnectAtlanticYachting);
+  $('clubVoyageSelect').addEventListener('change', function (event) {
+    atlanticYachtingConnection.selectedSailId = normalizeAtlanticYachtingSailId(event.target.value);
+    atlanticYachtingConnection.filedSailId = null;
+    syncAtlanticYachtingFilingState();
+  });
+  $('clubSafetyGearTested').addEventListener('change', syncAtlanticYachtingFilingState);
   $('fileClubPlanBtn').addEventListener('click', fileWithAtlanticYachting);
   $('generatePlanBtn').addEventListener('click', onRegenerateProposalClick);
   $('copyNarrativeBtn').addEventListener('click', copyNarrativeText);
