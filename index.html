@@ -7981,6 +7981,7 @@ var radarState = {
   layerGeneration: 0, stormHistoryGeneration: 0,
   stormOverlayEnabled: true, stormFeedAvailable: null, stormCellFeedAvailable: null,
   stormAlerts: [], stormCells: [], stormTrackBounds: null,
+  stormCellRefreshQueued: false,
   // One entry per rendered cell/warning-with-motion: live Leaflet layer references (trackLine,
   // whiskerLines, pointDots, endpointDot, historyLine, positionMarker) plus the data fields
   // stormFrameGeometry() needs (historyPoints, anchorMs, motion, horizonMs). Rebuilt every
@@ -8220,7 +8221,15 @@ function showRadarFrame(idx) {
 // set is about to change out from under it), swaps mode, persists it, updates the chip
 // row + caption, and forces a fresh health-check/frame rebuild for the new mode.
 function setRadarMode(mode) {
-  if (mode === radarState.mode) return;
+  // A radar tab may stay open long enough for the 30-minute SCIT freshness window to expire.
+  // Refresh storm metadata whenever either mode chip is tapped, even if it is already active,
+  // so changing the imagery never silently filters every old track out of the overlay.
+  if (mode === radarState.mode) {
+    loadRadarData(true);
+    loadStormCells();
+    loadStormAlerts();
+    return;
+  }
   if (radarState.playing) toggleRadarPlay();
   radarState.mode = mode;
   lsSetJSON('radarMode', mode);
@@ -8228,6 +8237,8 @@ function setRadarMode(mode) {
   var caption = $('radarForecastCaption');
   if (mode === 'forecast') showEl(caption); else hideEl(caption);
   loadRadarData(true);
+  loadStormCells();
+  loadStormAlerts();
 }
 function updateRadarModeChipActive() {
   var row = $('radarModeRow');
@@ -8349,6 +8360,22 @@ function parseIemStormCell(feature, nowMs) {
     tvs: /^(NONE|0)$/i.test(tvs) ? '' : tvs,
     meso: /^(NONE|0)$/i.test(meso) ? '' : meso
   };
+}
+
+function latestIemStormCellValidMs(features) {
+  return (features || []).reduce(function (latestMs, feature) {
+    var validMs = new Date(feature && feature.properties && feature.properties.valid || '').getTime();
+    return isFinite(validMs) ? Math.max(latestMs, validMs) : latestMs;
+  }, -Infinity);
+}
+
+function queueStormCellRefresh() {
+  if (radarState.stormCellRefreshQueued) return;
+  radarState.stormCellRefreshQueued = true;
+  setTimeout(function () {
+    radarState.stormCellRefreshQueued = false;
+    loadStormCells();
+  }, 0);
 }
 
 function stormCellDistanceNm(a, b) {
@@ -9203,7 +9230,17 @@ function renderStormOverlays(alerts, cells, historySnapshots) {
       if (radarState.stormCellFeedAvailable === false) unavailableFeeds.push('Storm cell');
       if (radarState.stormFeedAvailable === false) unavailableFeeds.push('NWS warning');
       if (!feedsLoading && unavailableFeeds.length) setRadarStormStatus(unavailableFeeds.join(' and ') + ' feed' + (unavailableFeeds.length > 1 ? 's are' : ' is') + ' unavailable.', 'warn');
-      else setRadarStormStatus('');
+      else if (feedsLoading) setRadarStormStatus('Loading storm tracks…');
+      else {
+        var latestCellMs = latestIemStormCellValidMs(cells);
+        var cellsAreStale = isFinite(latestCellMs) && latestCellMs < Date.now() - 30 * 60000;
+        if (cellsAreStale) {
+          setRadarStormStatus('Updating stale storm tracks…');
+          queueStormCellRefresh();
+        } else {
+          setRadarStormStatus('No fresh moving radar cells or active storm warnings.');
+        }
+      }
     }
     return;
   }
@@ -9768,9 +9805,13 @@ function loadAlerts() {
       return false;
     });
 }
+var stormAlertLoadInFlight = null;
+var stormCellLoadInFlight = null;
+
 function loadStormAlerts() {
+  if (stormAlertLoadInFlight) return stormAlertLoadInFlight;
   radarState.stormFeedAvailable = null;
-  return loadSource('stormAlertsV1', fetchStormAlerts, 'radarCard', function (data) {
+  var pending = loadSource('stormAlertsV1', fetchStormAlerts, 'radarCard', function (data) {
     state.stormAlertsRaw = data;
     radarState.stormFeedAvailable = true;
   }).then(function () {
@@ -9782,10 +9823,16 @@ function loadStormAlerts() {
     renderStormOverlays(state.stormAlertsRaw || [], state.stormCellsRaw || []);
     return false;
   });
+  stormAlertLoadInFlight = pending.then(function (result) {
+    stormAlertLoadInFlight = null;
+    return result;
+  });
+  return stormAlertLoadInFlight;
 }
 function loadStormCells() {
+  if (stormCellLoadInFlight) return stormCellLoadInFlight;
   radarState.stormCellFeedAvailable = null;
-  return loadSource('stormCellsV1', fetchStormCells, 'radarCard', function (data) {
+  var pending = loadSource('stormCellsV1', fetchStormCells, 'radarCard', function (data) {
     state.stormCellsRaw = data;
     radarState.stormCellFeedAvailable = true;
   }).then(function () {
@@ -9800,6 +9847,20 @@ function loadStormCells() {
     renderStormOverlays(state.stormAlertsRaw || [], state.stormCellsRaw || []);
     return false;
   });
+  stormCellLoadInFlight = pending.then(function (result) {
+    stormCellLoadInFlight = null;
+    return result;
+  });
+  return stormCellLoadInFlight;
+}
+
+function refreshRadarStormFeedsOnResume() {
+  if (document.visibilityState !== 'visible') return;
+  var latestCellMs = latestIemStormCellValidMs(state.stormCellsRaw || []);
+  if (!isFinite(latestCellMs) || latestCellMs < Date.now() - 10 * 60000) {
+    loadStormCells();
+    loadStormAlerts();
+  }
 }
 
 // Radar and storm-cell feeds load concurrently. Calling this after either one finishes makes
@@ -12541,6 +12602,7 @@ function init() {
   document.querySelectorAll('#radarModeRow .chip').forEach(function (chip) {
     chip.addEventListener('click', function () { setRadarMode(chip.dataset.mode); });
   });
+  document.addEventListener('visibilitychange', refreshRadarStormFeedsOnResume);
 
   initLeafletMap();
   initCurrentSensorMap();

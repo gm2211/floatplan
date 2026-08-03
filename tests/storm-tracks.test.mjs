@@ -123,6 +123,11 @@ assert.ok(tick[0][0] > tick[1][0], 'eastbound track tick must run perpendicular 
 const staleCell = structuredClone(cellFeature);
 staleCell.properties.valid = new Date(cellNowMs - 31 * 60000).toISOString();
 assert.equal(parseIemStormCell(staleCell, cellNowMs), null, 'stale radar cells must not remain on the map');
+assert.equal(
+  latestIemStormCellValidMs([staleCell, cellFeature]),
+  Date.parse(cellFeature.properties.valid),
+  'feed freshness must use the newest valid scan rather than array order'
+);
 
 const stationaryCell = structuredClone(cellFeature);
 stationaryCell.properties.sknt = 0;
@@ -224,8 +229,18 @@ assert.ok(html.includes('storm-key-warning::before'), 'warning areas need outlin
 assert.ok(html.includes('<span class="radar-storm-status hidden"'), 'empty storm status must not occupy a row');
 assert.ok(html.includes('if (body.innerHTML !== nextHtml) body.innerHTML = nextHtml;'), 'unchanged key content must preserve disclosure state');
 assert.ok(!html.includes("clearStormTrackLayer();\n  setRadarStormStatus('');"), 'map movement must not transiently clear live regions');
-assert.ok(!html.includes('No radar-tracked storm cells or active NWS warnings'), 'normal no-data state must stay silent');
+assert.ok(html.includes('Loading storm tracks…'), 'initial storm metadata load must be visible rather than silently empty');
+assert.ok(html.includes('Updating stale storm tracks…'), 'expired SCIT data must trigger an explicit refresh state');
+assert.ok(html.includes('No fresh moving radar cells or active storm warnings.'), 'a fresh empty feed must explain why no tracks are drawn');
 assert.ok(!html.includes('Storm cell and warning overlay is off.'), 'unchecked state must stay silent');
+assert.ok(html.includes("if (mode === radarState.mode) {\n    loadRadarData(true);\n    loadStormCells();\n    loadStormAlerts();"),
+  'tapping the active radar mode must refresh imagery and storm metadata together');
+assert.ok(html.includes("loadRadarData(true);\n  loadStormCells();\n  loadStormAlerts();\n}"),
+  'switching radar modes must not reuse an expired storm snapshot');
+assert.ok(html.includes('var stormAlertLoadInFlight = null;') && html.includes('var stormCellLoadInFlight = null;'),
+  'concurrent mode/load refreshes must deduplicate storm feed requests');
+assert.ok(html.includes("document.addEventListener('visibilitychange', refreshRadarStormFeedsOnResume);"),
+  'returning to an old radar tab must refresh expired storm metadata');
 // Frame-adaptive geometry replaced the old "compute isEndpoint once per static loop" contract:
 // each entry now keeps a fixed pool of hover-only pointDots plus one always-permanent
 // endpointDot, and updateStormFrameGeometry() decides per playback frame which pool slot (if
