@@ -630,6 +630,10 @@ th { color: var(--ink-dim); font-weight: 600; }
   width: 257px !important;
   height: 257px !important;
 }
+.radar-map .radar-frame-tiles { transition: opacity 180ms cubic-bezier(0.165, 0.84, 0.44, 1); }
+@media (prefers-reduced-motion: reduce) {
+  .radar-map .radar-frame-tiles { transition: none; }
+}
 .radar-map .leaflet-control-attribution {
   max-width: calc(100% - 4px); padding: 0 2px; font-size: 8px; line-height: 1.1;
   text-align: right; white-space: normal; overflow-wrap: anywhere;
@@ -1732,6 +1736,8 @@ var CURRENT_SENSOR_LOCATIONS = {
   narrows: { name: 'The Narrows', lat: 40.60639953613281, lon: -74.03800201416016 }
 };
 var DEFAULT_RADAR_ZOOM = 10;
+var RADAR_FRAME_FADE_MS = 180;
+var RADAR_FRAME_HOLD_MS = 420;
 var KT_PER_MPH = 0.868976;
 var COMPASS16 = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
 
@@ -8070,7 +8076,9 @@ function refreshCurrentSensorMapLayout() {
 }
 
 var radarState = {
-  map: null, baseLayer: null, currentLayer: null, warningLayer: null, stormCellLayer: null, frames: [], index: 0,
+  map: null, baseLayer: null, currentLayer: null, pendingLayer: null, preloadLayer: null, preloadIndex: -1,
+  preloadReady: false, retiringLayer: null, transitionCleanupTimer: null,
+  warningLayer: null, stormCellLayer: null, frames: [], index: 0,
   playing: false, playTimer: null, lastFetchMs: 0, mode: 'live', pierMarker: null,
   opacity: DEFAULT_RADAR_OPACITY,
   layerGeneration: 0, stormHistoryGeneration: 0,
@@ -8111,6 +8119,10 @@ function setRadarOpacity(value, persist) {
   }
   if (persist) lsSetJSON('radarOpacity', opacity);
   return opacity;
+}
+
+function radarFrameFadeMs() {
+  return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : RADAR_FRAME_FADE_MS;
 }
 
 function setRadarLayerStatus(message, tone) {
@@ -8242,6 +8254,7 @@ function loadRadarData(force) {
 function buildRadarFrames(nowMs, nowcastPayload) {
   var isForecast = radarState.mode === 'forecast';
   var frames = isForecast ? buildNowcastFrameList(nowcastPayload, nowMs) : buildRadarFrameList(nowMs);
+  clearRadarPreload();
   radarState.frames = frames;
   var slider = $('radarSlider');
   slider.max = Math.max(0, frames.length - 1);
@@ -8262,55 +8275,151 @@ function buildRadarFrames(nowMs, nowcastPayload) {
   showRadarFrame(radarState.index);
   refreshStormCellHistoryForRadarFrames();
 }
+function createRadarFrameLayer(frame, isForecast, opacity, zIndex) {
+  var layer = L.tileLayer(frame.url, {
+    opacity: opacity,
+    maxNativeZoom: isForecast ? RAINVIEWER_MAX_NATIVE_ZOOM : 12,
+    maxZoom: 15,
+    zIndex: zIndex,
+    className: 'radar-frame-tiles',
+    attribution: isForecast ? 'Radar loop: RainViewer' : 'NWS NEXRAD via Iowa Environmental Mesonet'
+  });
+  layer._radarLoadedTiles = 0;
+  layer._radarFailedTiles = 0;
+  layer.on('tileload', function () { layer._radarLoadedTiles += 1; });
+  layer.on('tileerror', function () { layer._radarFailedTiles += 1; });
+  return layer;
+}
+
+function clearRadarPreload() {
+  if (radarState.preloadLayer && radarState.preloadLayer !== radarState.currentLayer &&
+      radarState.preloadLayer !== radarState.pendingLayer && radarState.map) {
+    radarState.map.removeLayer(radarState.preloadLayer);
+  }
+  radarState.preloadLayer = null;
+  radarState.preloadIndex = -1;
+  radarState.preloadReady = false;
+}
+
+// Keep exactly one adjacent frame warming in Leaflet's tile cache. It stays transparent on
+// the map, so the next playback step can crossfade immediately instead of flashing the base map.
+function preloadAdjacentRadarFrame() {
+  if (!radarState.map || radarState.frames.length < 2 || radarState.pendingLayer) return;
+  var nextIndex = (radarState.index + 1) % radarState.frames.length;
+  if (radarState.preloadLayer && radarState.preloadIndex === nextIndex) return;
+  clearRadarPreload();
+  var frame = radarState.frames[nextIndex];
+  var layer = createRadarFrameLayer(frame, radarState.mode === 'forecast', 0, 5);
+  radarState.preloadLayer = layer;
+  radarState.preloadIndex = nextIndex;
+  layer.once('load', function () {
+    if (radarState.preloadLayer === layer) radarState.preloadReady = true;
+  });
+  layer.addTo(radarState.map);
+}
+
+function scheduleRadarPlayback(delayMs) {
+  if (!radarState.playing) return;
+  if (radarState.playTimer) clearTimeout(radarState.playTimer);
+  radarState.playTimer = setTimeout(function () {
+    radarState.playTimer = null;
+    showRadarFrame((radarState.index + 1) % radarState.frames.length);
+  }, delayMs);
+}
+
 function showRadarFrame(idx) {
   if (!radarState.frames.length || !radarState.map) return;
   idx = clamp(idx, 0, radarState.frames.length - 1);
-  if (radarState.currentLayer) radarState.map.removeLayer(radarState.currentLayer);
-  var f = radarState.frames[idx];
+  var frame = radarState.frames[idx];
   var isForecast = radarState.mode === 'forecast';
   var generation = ++radarState.layerGeneration;
-  var loadedTiles = 0;
-  var failedTiles = 0;
   setRadarLayerStatus('');
-  var layer = L.tileLayer(f.url, {
-    opacity: radarState.opacity,
-    maxNativeZoom: isForecast ? RAINVIEWER_MAX_NATIVE_ZOOM : 12,
-    maxZoom: 15,
-    zIndex: 5,
-    attribution: isForecast ? 'Radar loop: RainViewer' : 'NWS NEXRAD via Iowa Environmental Mesonet'
-  });
-  layer.on('tileload', function () {
-    if (generation === radarState.layerGeneration) loadedTiles += 1;
-  });
-  layer.on('tileerror', function () {
-    if (generation === radarState.layerGeneration) failedTiles += 1;
-  });
-  layer.on('load', function () {
-    if (generation !== radarState.layerGeneration) return;
-    if (!loadedTiles && failedTiles) {
+
+  if (radarState.pendingLayer && radarState.pendingLayer !== radarState.preloadLayer) {
+    radarState.map.removeLayer(radarState.pendingLayer);
+  }
+  radarState.pendingLayer = null;
+  if (radarState.transitionCleanupTimer) {
+    clearTimeout(radarState.transitionCleanupTimer);
+    radarState.transitionCleanupTimer = null;
+    if (radarState.retiringLayer && radarState.retiringLayer !== radarState.currentLayer && radarState.map) {
+      radarState.map.removeLayer(radarState.retiringLayer);
+    }
+    radarState.retiringLayer = null;
+  }
+
+  var layer, alreadyLoaded = false;
+  if (radarState.preloadLayer && radarState.preloadIndex === idx) {
+    layer = radarState.preloadLayer;
+    alreadyLoaded = radarState.preloadReady;
+    radarState.preloadLayer = null;
+    radarState.preloadIndex = -1;
+    radarState.preloadReady = false;
+  } else {
+    clearRadarPreload();
+    layer = createRadarFrameLayer(frame, isForecast, 0, 6);
+    layer.addTo(radarState.map);
+  }
+  radarState.pendingLayer = layer;
+  layer.setZIndex(6);
+
+  function revealLoadedFrame() {
+    if (generation !== radarState.layerGeneration || radarState.pendingLayer !== layer) return;
+    if (!layer._radarLoadedTiles && layer._radarFailedTiles) {
+      radarState.pendingLayer = null;
+      radarState.map.removeLayer(layer);
       var sourceName = isForecast ? 'RainViewer radar' : 'NWS NEXRAD via Iowa Environmental Mesonet';
       showCardError('radarError', sourceName + ' tiles failed to load.', function () { loadRadarData(true); });
       setRadarLayerStatus(sourceName + ' failed. Showing the NWS fallback loop.', 'warn');
       showRadarFallbackGif();
+      scheduleRadarPlayback(RADAR_FRAME_HOLD_MS);
       return;
     }
+
     hideEl($('radarFallback'));
     hideEl($('radarError'));
-    if (failedTiles) {
-      setRadarLayerStatus('Radar loaded with ' + failedTiles + ' missing tile' + (failedTiles === 1 ? '' : 's') + '.', 'warn');
+    if (layer._radarFailedTiles) {
+      setRadarLayerStatus('Radar loaded with ' + layer._radarFailedTiles + ' missing tile' +
+        (layer._radarFailedTiles === 1 ? '' : 's') + '.', 'warn');
     } else {
       setRadarLayerStatus('');
     }
-  });
-  radarState.currentLayer = layer.addTo(radarState.map);
-  radarState.index = idx;
-  $('radarSlider').value = idx;
-  // "≈" is deliberate — the label marks an approximate lag/offset bucket, not an exact
-  // scan or model-valid time.
-  $('radarFrameLabel').textContent = isForecast
-    ? ((f.offsetMin > 0 ? ('+' + f.offsetMin + 'm · ') : '') + '≈' + fmtTime(f.timeMs))
-    : ('≈' + fmtTime(f.timeMs));
-  updateStormFrameGeometry(f.timeMs);
+
+    var outgoingLayer = radarState.currentLayer;
+    radarState.pendingLayer = null;
+    radarState.currentLayer = layer;
+    radarState.index = idx;
+    $('radarSlider').value = idx;
+    // "≈" is deliberate: the label marks an approximate lag/offset bucket, not an exact
+    // scan or model-valid time.
+    $('radarFrameLabel').textContent = isForecast
+      ? ((frame.offsetMin > 0 ? ('+' + frame.offsetMin + 'm · ') : '') + '≈' + fmtTime(frame.timeMs))
+      : ('≈' + fmtTime(frame.timeMs));
+    updateStormFrameGeometry(frame.timeMs);
+
+    requestAnimationFrame(function () {
+      if (generation !== radarState.layerGeneration) return;
+      layer.setOpacity(radarState.opacity);
+      if (outgoingLayer && outgoingLayer !== layer) {
+        radarState.retiringLayer = outgoingLayer;
+        outgoingLayer.setZIndex(5);
+        outgoingLayer.setOpacity(0);
+      }
+      var fadeMs = radarFrameFadeMs();
+      radarState.transitionCleanupTimer = setTimeout(function () {
+        radarState.transitionCleanupTimer = null;
+        if (outgoingLayer && outgoingLayer !== radarState.currentLayer && radarState.map) {
+          radarState.map.removeLayer(outgoingLayer);
+        }
+        if (radarState.retiringLayer === outgoingLayer) radarState.retiringLayer = null;
+        preloadAdjacentRadarFrame();
+        scheduleRadarPlayback(RADAR_FRAME_HOLD_MS);
+      }, fadeMs);
+    });
+  }
+
+  if (alreadyLoaded) requestAnimationFrame(revealLoadedFrame);
+  else layer.once('load', revealLoadedFrame);
 }
 // Switches between live NEXRAD and the RainViewer animation: stops any running playback (the frame
 // set is about to change out from under it), swaps mode, persists it, updates the chip
@@ -8344,16 +8453,16 @@ function updateRadarModeChipActive() {
 }
 function toggleRadarPlay() {
   if (radarState.playing) {
-    clearInterval(radarState.playTimer);
+    clearTimeout(radarState.playTimer);
+    radarState.playTimer = null;
     radarState.playing = false;
     $('radarPlayBtn').textContent = '▶';
   } else {
     if (!radarState.frames.length) return;
     radarState.playing = true;
     $('radarPlayBtn').textContent = '⏸';
-    radarState.playTimer = setInterval(function () {
-      showRadarFrame((radarState.index + 1) % radarState.frames.length);
-    }, 600);
+    preloadAdjacentRadarFrame();
+    scheduleRadarPlayback(0);
   }
 }
 // Fallback when the NEXRAD healthcheck tile fails: static NWS loop image (no CORS —

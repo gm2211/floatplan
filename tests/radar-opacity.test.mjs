@@ -10,8 +10,11 @@ assert.match(
   'radar opacity control must be compact, accessible, and start at 62%'
 );
 assert.ok(html.includes('<output id="radarOpacityValue" for="radarOpacitySlider">62%</output>'));
-const showRadarFrameBlock = html.match(/function showRadarFrame\(idx\) \{[\s\S]*?\n\}/)?.[0] || '';
-assert.ok(showRadarFrameBlock.includes("opacity: radarState.opacity"), 'new live and animated radar frames must inherit the selected opacity');
+const showRadarFrameStart = html.indexOf('function showRadarFrame(idx)');
+const showRadarFrameEnd = html.indexOf('// Switches between live NEXRAD', showRadarFrameStart);
+const showRadarFrameBlock = html.slice(showRadarFrameStart, showRadarFrameEnd);
+assert.ok(showRadarFrameBlock.includes('layer.setOpacity(radarState.opacity)'), 'loaded live and animated radar frames must inherit the selected opacity');
+assert.ok(html.includes("createRadarFrameLayer(frame, radarState.mode === 'forecast', 0, 5)"), 'preloaded frames must remain transparent until reveal');
 assert.ok(!showRadarFrameBlock.includes('opacity: 0.72'), 'the old hardcoded radar opacity must not return');
 assert.ok(html.includes('radarState.currentLayer.setOpacity(opacity)'), 'the active layer must update without a frame reload');
 assert.ok(html.includes("lsSetJSON('radarOpacity', opacity)"), 'the selected opacity must persist locally');

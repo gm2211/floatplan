@@ -410,7 +410,7 @@ assert.notEqual(
 /* ---- (11) the playback updater mutates every live layer from the frame result ---- */
 
 assert.ok(
-  html.includes('updateStormFrameGeometry(f.timeMs);'),
+  html.includes('updateStormFrameGeometry(frame.timeMs);'),
   'showRadarFrame must update storm geometry with the displayed frame timestamp'
 );
 
