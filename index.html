@@ -200,6 +200,25 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .toggle-row { display: flex; align-items: center; gap: 6px; font-size: 14px; margin-left: auto; }
 .monitor-status { font-size: 12px; color: var(--ink-dim); margin-top: 8px; }
 
+.club-file-panel {
+  margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px;
+  background: color-mix(in srgb, var(--bg) 72%, var(--card));
+}
+.club-file-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.club-file-head strong { display: block; color: var(--ink); font-size: 14px; }
+.club-file-head .sub { margin-top: 2px; max-width: 66ch; }
+.club-file-badge {
+  flex: 0 0 auto; border-radius: 999px; padding: 3px 8px; background: var(--green-bg);
+  color: var(--green); font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.club-file-reference { margin-top: 10px; }
+.club-file-reference label { display: block; margin-bottom: 3px; color: var(--ink-dim); font-size: 12px; }
+.club-file-reference input { width: 100%; }
+.club-file-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.club-file-actions a { display: inline-flex; align-items: center; text-decoration: none; }
+.club-file-status { margin: 8px 0 0; color: var(--ink-dim); font-size: 11px; line-height: 1.45; }
+.club-file-status.invalid { color: var(--red); }
+
 .share-plan-panel {
   margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px;
   background: color-mix(in srgb, var(--bg) 72%, var(--card));
@@ -1192,6 +1211,25 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
         <input type="checkbox" id="monitorToggle" disabled>
         <span>Monitor every <span id="monitorIntervalLabel">10</span> min</span>
       </label>
+    </div>
+    <div class="club-file-panel" id="clubFilePanel">
+      <div class="club-file-head">
+        <div>
+          <strong>Atlantic Yachting</strong>
+          <p class="sub">Associate this plan with one of your booked Club voyages.</p>
+        </div>
+        <span class="club-file-badge">Club handoff</span>
+      </div>
+      <div class="club-file-reference">
+        <label for="aySailReference">Voyage URL or Sail ID</label>
+        <input type="text" id="aySailReference" placeholder="Paste SL-… or a Club voyage URL" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="club-file-actions">
+        <a class="btn-secondary" id="findClubSailsBtn" href="https://clubapp.atlanticyachting.com/" target="_blank" rel="noopener noreferrer">Find my sails ↗</a>
+        <button class="btn-primary" type="button" id="fileClubPlanBtn" disabled>Copy &amp; continue in Club</button>
+        <a class="btn-secondary hidden" id="viewClubPlanBtn" target="_blank" rel="noopener noreferrer">View Club plan ↗</a>
+      </div>
+      <p class="club-file-status" id="clubFileStatus" role="status" aria-live="polite">Open your Club dashboard, choose the voyage, then paste its URL here. Floatplan stores only the Sail ID on this device—never your Club login or session token.</p>
     </div>
     <div class="share-plan-panel hidden" id="sharePlanPanel">
       <div class="share-plan-panel-head">
@@ -9921,6 +9959,42 @@ function loadAll() {
 // evolution) is computed from data already on screen.
 var FLOATPLAN_FIELDS = ['fpVesselSelect', 'fpVesselName', 'fpCrewCount', 'fpPhones'];
 var VESSEL_PRESETS = ['AY10', 'AY11'];
+var ATLANTIC_YACHTING_BASE_URL = 'https://clubapp.atlanticyachting.com';
+var ATLANTIC_YACHTING_ALLOWED_HOSTS = ['clubapp.atlanticyachting.com', 'ay-sailing-club.web.app'];
+
+// Atlantic Yachting keeps voyage data behind its own Google sign-in. This app therefore
+// remembers only the non-secret Sail ID and hands the skipper to the exact Quarterdeck route;
+// it never asks for or stores the Club session token.
+function normalizeAtlanticYachtingSailId(value) {
+  var id = String(value == null ? '' : value).trim();
+  return /^SL-[A-Za-z0-9_-]{2,80}$/.test(id) ? id : null;
+}
+
+function parseAtlanticYachtingSailReference(value) {
+  var raw = String(value == null ? '' : value).trim();
+  var direct = normalizeAtlanticYachtingSailId(raw);
+  if (direct) return direct;
+  try {
+    var url = new URL(raw);
+    if (ATLANTIC_YACHTING_ALLOWED_HOSTS.indexOf(url.hostname.toLowerCase()) === -1) return null;
+    var candidate = url.searchParams.get('sailId');
+    if (!candidate) {
+      var pathMatch = /^\/(?:sails|float-plan)\/([^/?#]+)/i.exec(url.pathname);
+      candidate = pathMatch ? decodeURIComponent(pathMatch[1]) : null;
+    }
+    return normalizeAtlanticYachtingSailId(candidate);
+  } catch (e) {
+    return null;
+  }
+}
+
+function atlanticYachtingQuarterdeckUrl(sailId) {
+  return ATLANTIC_YACHTING_BASE_URL + '/skipper/quarterdeck?sailId=' + encodeURIComponent(sailId);
+}
+
+function atlanticYachtingFloatPlanUrl(sailId) {
+  return ATLANTIC_YACHTING_BASE_URL + '/float-plan/' + encodeURIComponent(sailId) + '?from=quarterdeck';
+}
 
 function getVesselDisplayName() {
   var sel = $('fpVesselSelect');
@@ -9967,6 +10041,128 @@ function saveFloatPlanFields() {
     if (el) out[id] = el.value;
   });
   lsSetJSON('floatplan', out);
+}
+
+function atlanticYachtingStartWeather(departureMs) {
+  var rows = state.hourlyRaw || [];
+  var period = rows.find(function (row) {
+    var startMs = new Date(row.startTime).getTime();
+    var endMs = row.endTime ? new Date(row.endTime).getTime() : startMs + 3600000;
+    return startMs <= departureMs && endMs > departureMs;
+  });
+  if (!period) return 'Forecast unavailable';
+  var temp = period.temperature && period.temperature.value != null
+    ? ' · ' + Math.round(period.temperature.value) + '°' + (period.temperature.unitCode === 'wmoUnit:degC' ? 'C' : 'F')
+    : '';
+  return (period.shortForecast || 'Forecast available') + temp;
+}
+
+function buildAtlanticYachtingFloatPlan(sailId) {
+  var departureMs = state.departureMs, returnMs = getReturnMs();
+  var current = currentVelocityAt(state.curvePoints || [], departureMs);
+  var currentPhase = current == null ? 'Unknown' : classifyCurrent(current);
+  var windSpeed = state.gridSeries && state.gridSeries.windSpeedKt
+    ? nearestSeriesValue(state.gridSeries.windSpeedKt, departureMs) : null;
+  var windDirection = state.gridSeries && state.gridSeries.windDirection
+    ? nearestSeriesValue(state.gridSeries.windDirection, departureMs) : null;
+  var startWind = windSpeed == null ? 'Forecast unavailable' :
+    (windDirection == null ? '' : degToCompass(windDirection) + ' ') + round1(windSpeed) + ' knots';
+  var turn = (state.slackEvents || []).find(function (event) {
+    return event.type === 'slack' && event.ms > departureMs && event.ms < returnMs;
+  });
+  var headingNorth = state.lastDirectionRec && state.lastDirectionRec.initialHeading === 'N';
+  var outboundBearing = headingNorth ? SAIL_COURSE_BEARING_N : SAIL_COURSE_BEARING_S;
+  var inboundBearing = headingNorth ? SAIL_COURSE_BEARING_S : SAIL_COURSE_BEARING_N;
+  var furthest = state.sailSim && state.sailSim.furthestLabel;
+  var writtenPlan = state.planNarrative || composeTemplateNarrative(buildPlanNarrativeContext());
+  return {
+    sailId: sailId,
+    departureTime: msToDatetimeLocalNY(departureMs),
+    estReturnTime: msToDatetimeLocalNY(returnMs),
+    startWind: startWind,
+    startTideState: currentPhase === 'unknown' ? 'Unknown' : currentPhase.charAt(0).toUpperCase() + currentPhase.slice(1),
+    startTideSpeed: current == null ? '' : round1(Math.abs(current)),
+    startWeather: atlanticYachtingStartWeather(departureMs),
+    writtenPlan: writtenPlan,
+    routeWaypoints: 'Pier 25 mooring → ' + (furthest || 'planned Hudson turn') + ' → Pier 25 mooring',
+    routeDistance: state.sailSim && isFinite(state.sailSim.furthestDistNm)
+      ? round1(state.sailSim.furthestDistNm * 2) + ' NM round trip' : 'See written plan',
+    routeDuration: formatPlanDuration(state.durationHours),
+    outboundHeading: Math.round(outboundBearing) + '° (' + (headingNorth ? 'N' : 'S') + ')',
+    inboundHeading: Math.round(inboundBearing) + '° (' + (headingNorth ? 'S' : 'N') + ')',
+    tideCurrentChangeTime: turn ? fmtTime(turn.ms) : 'No slack transition during sail'
+  };
+}
+
+function buildAtlanticYachtingFloatPlanText(plan) {
+  return [
+    'ATLANTIC YACHTING FLOAT PLAN HANDOFF',
+    'Voyage ID: ' + plan.sailId,
+    'Departure Time: ' + plan.departureTime,
+    'Est Return Time: ' + plan.estReturnTime,
+    'Start Wind: ' + plan.startWind,
+    'Start Tide State: ' + plan.startTideState,
+    'Start Tide Speed: ' + (plan.startTideSpeed || 'Unavailable') + (plan.startTideSpeed ? ' knots' : ''),
+    'Start Weather: ' + plan.startWeather,
+    'Route Waypoints: ' + plan.routeWaypoints,
+    'Route Distance: ' + plan.routeDistance,
+    'Route Duration: ' + plan.routeDuration,
+    'Outbound Heading: ' + plan.outboundHeading,
+    'Inbound Heading: ' + plan.inboundHeading,
+    'Tide Current Change Time: ' + plan.tideCurrentChangeTime,
+    '',
+    'Written Plan:',
+    plan.writtenPlan
+  ].join('\n');
+}
+
+function syncAtlanticYachtingSailReference(options) {
+  options = options || {};
+  var input = $('aySailReference'), fileButton = $('fileClubPlanBtn');
+  var viewLink = $('viewClubPlanBtn'), status = $('clubFileStatus');
+  if (!input || !fileButton || !viewLink || !status) return null;
+  var sailId = parseAtlanticYachtingSailReference(input.value);
+  fileButton.disabled = !sailId;
+  viewLink.classList.toggle('hidden', !sailId);
+  if (sailId) {
+    viewLink.href = atlanticYachtingFloatPlanUrl(sailId);
+    input.setAttribute('aria-invalid', 'false');
+    status.classList.remove('invalid');
+    status.textContent = 'Linked to ' + sailId + '. The handoff copies Club-ready fields and opens this voyage in Quarterdeck for your review and submission.';
+    if (options.persist !== false) lsSetJSON('atlanticYachtingSailId', sailId);
+  } else {
+    viewLink.removeAttribute('href');
+    input.setAttribute('aria-invalid', input.value.trim() ? 'true' : 'false');
+    status.classList.toggle('invalid', !!input.value.trim());
+    status.textContent = input.value.trim()
+      ? 'Paste a valid Atlantic Yachting SL-… Sail ID or voyage URL.'
+      : 'Open your Club dashboard, choose the voyage, then paste its URL here. Floatplan stores only the Sail ID on this device—never your Club login or session token.';
+  }
+  return sailId;
+}
+
+function loadAtlanticYachtingSailReference() {
+  var input = $('aySailReference');
+  if (!input) return;
+  var saved = normalizeAtlanticYachtingSailId(lsGetJSON('atlanticYachtingSailId', ''));
+  if (saved) input.value = saved;
+  syncAtlanticYachtingSailReference({ persist: false });
+}
+
+function fileWithAtlanticYachting() {
+  var sailId = syncAtlanticYachtingSailReference();
+  if (!sailId) { showToast('Add a Club Sail ID first'); return; }
+  var text = buildAtlanticYachtingFloatPlanText(buildAtlanticYachtingFloatPlan(sailId));
+  var clubWindow = window.open(atlanticYachtingQuarterdeckUrl(sailId), '_blank', 'noopener');
+  var onCopied = function () { showToast('Club-ready float plan copied — review and submit it in Quarterdeck'); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(onCopied).catch(function () {
+      legacyCopy(text, 'Club-ready float plan copied — review and submit it in Quarterdeck');
+    });
+  } else {
+    legacyCopy(text, 'Club-ready float plan copied — review and submit it in Quarterdeck');
+  }
+  if (!clubWindow) showToast('Club-ready plan copied; allow pop-ups or use Find my sails');
 }
 
 // Turn-around instant for the computed plan: the sail simulator's turn if available, else
@@ -11857,6 +12053,7 @@ function init() {
   }
 
   loadFloatPlanFields();
+  loadAtlanticYachtingSailReference();
   wireCollapsible('marineTextToggle', 'marineTextBody');
   wireCollapsible('observedMoreToggle', 'observedMoreBody');
   wireCollapsible('marineInfoToggle', 'marineInfoBlock');
@@ -11949,6 +12146,8 @@ function init() {
     window.print();
   });
   $('copyPlanBtn').addEventListener('click', copyFloatPlanText);
+  $('aySailReference').addEventListener('input', function () { syncAtlanticYachtingSailReference(); });
+  $('fileClubPlanBtn').addEventListener('click', fileWithAtlanticYachting);
   $('generatePlanBtn').addEventListener('click', onRegenerateProposalClick);
   $('copyNarrativeBtn').addEventListener('click', copyNarrativeText);
   $('fpNarrative').addEventListener('input', function () { state.planNarrativeDirty = true; });

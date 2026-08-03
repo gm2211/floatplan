@@ -125,6 +125,7 @@ Logic over current predictions within the window:
 - Print stylesheet: @media print shows only the float-plan sheet + conditions summary (verdict, wind summary, current summary, advisories) in clean black-on-white.
 - "Copy as text" button → clipboard plain-text float plan for texting/emailing.
 - Generated plan narrative is capped at 90 words and uses three compact sections: a timed current/route sequence, NWS wind plus actionable weather/reef guidance, and aboard/check-in. Each time, speed, hazard, and action appears once; routine advisories and non-actionable tide/weather facts are omitted.
+- Atlantic Yachting handoff: the sailor can open the signed-in Club dashboard to find a booked voyage, paste its `SL-…` Sail ID or Club voyage URL, and copy a field-mapped plan while opening that exact voyage in Quarterdeck. Persist only the Sail ID locally; never request, store, or transfer the Club login/session token. The Club app remains the authoritative surface for reviewing and submitting the float plan.
 
 ## Layout / style
 
