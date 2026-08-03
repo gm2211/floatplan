@@ -109,6 +109,12 @@ assert.ok(!timelineCard.includes('<details class="source-links" open>'), 'timeli
 assert.ok(html.includes("stationObservationSummary('The Narrows', latestNarrowsAll)"), 'Narrows outage must render an honest unavailable summary');
 assert.ok(html.includes("narrowsLegendStatus.textContent = narrowsAll.length ?"));
 assert.ok(html.includes("'· unavailable'"), 'an unavailable observed station must remain visible in the compact legend');
+assert.ok(timelineCard.includes('id="timelineMeasuredSection"'), 'future sail windows need a separate measured-current history plot');
+assert.ok(timelineCard.includes('Measured harbor current &middot; last 24h'));
+assert.ok(html.includes('function renderMeasuredCurrentHistory(kvkAll, narrowsAll, nowMs, primaryHasMeasured)'));
+assert.ok(html.includes('!primaryHasMeasured && (kvk.length || narrows.length)'), 'measured history fallback must appear only when the planning axis excludes observations');
+assert.ok(html.includes("measuredHistoryShown ? '· history below'"), 'the compact legend must point users to the visible fallback plot');
+assert.ok(html.includes('Measured current for the last 24 hours'), 'fallback plot needs an accessible name');
 assert.ok(timelineCard.includes('Hudson current &middot; forecast'));
 assert.ok(timelineCard.includes('Kill Van Kull current &middot; measured'));
 assert.ok(timelineCard.includes('The Narrows current &middot; measured'));

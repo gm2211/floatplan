@@ -360,6 +360,18 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .chart-legend .swatch-obs { background: var(--violet); }
 .chart-legend .swatch-obs-willy-wall { background: var(--measured-current); }
 .timeline-mode-row { margin-bottom: 10px; }
+.timeline-measured-section {
+  margin-top: 11px; padding-top: 9px; border-top: 1px solid var(--border);
+}
+.timeline-measured-heading {
+  margin-bottom: 2px; color: var(--ink-dim); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+.timeline-measured-wrap { width: 100%; overflow: hidden; user-select: none; -webkit-user-select: none; }
+.timeline-measured-wrap svg { width: 100%; height: auto; display: block; }
+.timeline-measured-wrap svg text {
+  paint-order: stroke; stroke: var(--bg-card); stroke-width: 2.5px; stroke-linejoin: round;
+}
 .chart-legend .swatch-sustained { background: var(--accent); }
 .chart-legend .swatch-gust { background: var(--ink-dim); opacity: 0.8; }
 .chart-legend .line-key { width: 24px; height: 8px; margin-right: 4px; vertical-align: middle; overflow: visible; }
@@ -1381,6 +1393,11 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <span id="timelineLegendNarrows"><span class="swatch swatch-narrows-current"></span>The Narrows current &middot; measured <span class="legend-status" id="timelineLegendNarrowsStatus">&middot; unavailable</span></span>
       <span class="timeline-water-legend hidden"><span class="swatch swatch-pred"></span>Battery water level &middot; forecast</span>
       <span class="timeline-water-legend hidden" id="timelineLegendObs"><span class="swatch swatch-obs"></span>Battery water level &middot; measured</span>
+    </div>
+    <div class="timeline-measured-section hidden" id="timelineMeasuredSection">
+      <div class="timeline-measured-heading">Measured harbor current &middot; last 24h</div>
+      <div class="timeline-measured-wrap" id="timelineMeasuredSvgWrap"></div>
+      <div class="chart-footnote" id="timelineMeasuredStatus"></div>
     </div>
     <div class="timeline-sensor-map-section">
       <div class="timeline-sensor-map-heading">Current reference locations</div>
@@ -4439,6 +4456,78 @@ function buildSailWindowTicks(departureMs, turnMs, returnMs, xFn, arriveByMs, co
 // observed level only exists for past→now and is drawn as its own solid series so the
 // gap between them (surge/offset) is visible at a glance.
 
+// The planning timeline is intentionally centered on the sail window. When that window is
+// still in the future, truthful measured samples cannot be drawn on its time axis. Keep the
+// working live station visible in a separate 24-hour plot instead of stretching the planning
+// chart or pretending a past observation happened during the sail.
+function renderMeasuredCurrentHistory(kvkAll, narrowsAll, nowMs, primaryHasMeasured) {
+  var sectionEl = $('timelineMeasuredSection');
+  var wrapEl = $('timelineMeasuredSvgWrap');
+  var statusEl = $('timelineMeasuredStatus');
+  if (!sectionEl || !wrapEl || !statusEl) return false;
+
+  var historyStart = nowMs - MEASURED_CURRENT_HISTORY_HOURS * 3600000;
+  var kvk = (kvkAll || []).filter(function (p) { return p.ms >= historyStart && p.ms <= nowMs; });
+  var narrows = (narrowsAll || []).filter(function (p) { return p.ms >= historyStart && p.ms <= nowMs; });
+  var shouldShow = !primaryHasMeasured && (kvk.length || narrows.length);
+  sectionEl.classList.toggle('hidden', !shouldShow);
+  if (!shouldShow) {
+    wrapEl.innerHTML = '';
+    statusEl.textContent = '';
+    return false;
+  }
+
+  var W = wrapEl.getBoundingClientRect().width || 680;
+  var H = 112, padL = 30, padR = 8, padT = 8, padB = 19;
+  function x(ms) { return padL + (ms - historyStart) / (nowMs - historyStart) * (W - padL - padR); }
+
+  var maxAbs = 1;
+  kvk.concat(narrows).forEach(function (p) { maxAbs = Math.max(maxAbs, Math.abs(p.v)); });
+  maxAbs = Math.ceil((maxAbs + 0.2) * 2) / 2;
+  function y(v) { return padT + (H - padT - padB) / 2 - (v / maxAbs) * ((H - padT - padB) / 2); }
+
+  function stationHtml(points, color, dash, square) {
+    var segments = buildMeasuredCurrentSegments(points, nowMs, MEASURED_CURRENT_GAP_MS);
+    var paths = segments.map(function (segment) {
+      if (segment.length < 2) return '';
+      var d = segment.map(function (p, i) {
+        return (i ? 'L' : 'M') + x(p.ms).toFixed(1) + ',' + y(p.v).toFixed(1);
+      }).join(' ');
+      return '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="2"' +
+        (dash ? ' stroke-dasharray="5,3"' : '') + '/>';
+    }).join('');
+    var latest = points.length ? points[points.length - 1] : null;
+    if (!latest) return paths;
+    if (square) {
+      return paths + '<rect x="' + (x(latest.ms) - 3).toFixed(1) + '" y="' + (y(latest.v) - 3).toFixed(1) +
+        '" width="6" height="6" rx="1" fill="' + color + '" stroke="var(--bg-card)" stroke-width="1"/>';
+    }
+    return paths + '<circle cx="' + x(latest.ms).toFixed(1) + '" cy="' + y(latest.v).toFixed(1) +
+      '" r="3.5" fill="' + color + '" stroke="var(--bg-card)" stroke-width="1.5"/>';
+  }
+
+  var zeroY = y(0);
+  var kvkColor = 'var(--measured-current)', narrowsColor = 'var(--narrows-current)';
+  wrapEl.innerHTML =
+    '<svg viewBox="0 0 ' + W.toFixed(1) + ' ' + H + '" role="img" aria-label="Measured current for the last 24 hours">' +
+    '<line x1="' + padL + '" y1="' + zeroY.toFixed(1) + '" x2="' + (W - padR).toFixed(1) + '" y2="' + zeroY.toFixed(1) + '" stroke="var(--ink-dim)" stroke-width="1"/>' +
+    '<text x="' + (padL - 4) + '" y="' + (y(maxAbs) + 3).toFixed(1) + '" font-size="8.5" text-anchor="end" fill="var(--ink-dim)">flood</text>' +
+    '<text x="' + (padL - 4) + '" y="' + (zeroY - 3).toFixed(1) + '" font-size="8.5" text-anchor="end" fill="var(--ink-dim)">slack</text>' +
+    '<text x="' + (padL - 4) + '" y="' + (y(-maxAbs) + 3).toFixed(1) + '" font-size="8.5" text-anchor="end" fill="var(--ink-dim)">ebb</text>' +
+    stationHtml(kvk, kvkColor, false, false) + stationHtml(narrows, narrowsColor, true, true) +
+    '<text x="' + padL + '" y="' + (H - 4) + '" font-size="8.5" text-anchor="start" fill="var(--ink-dim)">24h ago</text>' +
+    '<text x="' + (W - padR).toFixed(1) + '" y="' + (H - 4) + '" font-size="8.5" text-anchor="end" fill="var(--ink-dim)">now</text>' +
+    '</svg>';
+
+  function latestSummary(name, points) {
+    if (!points.length) return name + ': unavailable';
+    var latest = points[points.length - 1];
+    return name + ': ' + classifyCurrent(latest.v) + ' ' + round1(Math.abs(latest.v)) + ' kt at ' + fmtTime(latest.ms);
+  }
+  statusEl.textContent = latestSummary('Kill Van Kull', kvk) + ' · ' + latestSummary('The Narrows', narrows);
+  return true;
+}
+
 function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, levelObservedPoints, hiloEvents, departureMs, returnMs, nowMs) {
   var wrapEl = $('timelineSvgWrap');
   var showWater = state.timelineMode === 'combined';
@@ -4685,6 +4774,10 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
 
   wrapEl.innerHTML = svg;
 
+  var measuredHistoryShown = renderMeasuredCurrentHistory(
+    kvkAll, narrowsAll, nowMs, Boolean(kvkInDomain.length || narrowsInDomain.length)
+  );
+
   // Item 2b: the "observed level" legend entry (and its purple swatch) only make sense once
   // there's actually an observed sample to show — obsInDomain is already filtered to
   // p.ms <= nowMs, so an empty array here means the whole window is still in the future.
@@ -4697,8 +4790,10 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   if (obsFootnoteEl) obsFootnoteEl.classList.toggle('hidden', !showWater || hasObs);
   var kvkLegendStatus = $('timelineLegendKvkStatus');
   var narrowsLegendStatus = $('timelineLegendNarrowsStatus');
-  if (kvkLegendStatus) kvkLegendStatus.textContent = kvkAll.length ? (kvkInDomain.length ? '' : '· outside window') : '· unavailable';
-  if (narrowsLegendStatus) narrowsLegendStatus.textContent = narrowsAll.length ? (narrowsInDomain.length ? '' : '· outside window') : '· unavailable';
+  if (kvkLegendStatus) kvkLegendStatus.textContent = kvkAll.length ?
+    (kvkInDomain.length ? '' : (measuredHistoryShown ? '· history below' : '· outside window')) : '· unavailable';
+  if (narrowsLegendStatus) narrowsLegendStatus.textContent = narrowsAll.length ?
+    (narrowsInDomain.length ? '' : (measuredHistoryShown ? '· history below' : '· outside window')) : '· unavailable';
   var compareEl = $('timelineCurrentCompare');
   if (compareEl) {
     function stationObservationSummary(name, latest) {
