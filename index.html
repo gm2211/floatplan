@@ -217,6 +217,12 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .club-connection-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: var(--ink-dim); }
 .club-connection-state.connected .club-connection-dot { background: var(--green); box-shadow: 0 0 0 3px var(--green-bg); }
 .club-connection-state.error .club-connection-dot { background: var(--red); }
+.club-token-row { margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--border); }
+.club-token-steps { margin: 0 0 8px; padding-left: 18px; color: var(--ink-dim); font-size: 11px; line-height: 1.6; }
+.club-token-steps a { color: var(--accent); }
+.club-token-row textarea { width: 100%; font-family: ui-monospace, monospace; font-size: 11px; resize: vertical; }
+.club-token-actions { display: flex; gap: 8px; margin-top: 8px; }
+.club-token-expiry { margin: 6px 0 0; color: var(--ink-dim); font-size: 11px; }
 .club-voyage-picker { margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--border); }
 .club-voyage-picker label:not(.club-safety-check) { display: block; margin-bottom: 4px; color: var(--ink-dim); font-size: 12px; }
 .club-voyage-picker select { width: 100%; }
@@ -1250,7 +1256,21 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
         <button class="btn-secondary" type="button" id="connectClubBtn">Connect Club</button>
         <button class="btn-ghost hidden" type="button" id="disconnectClubBtn">Disconnect</button>
       </div>
+      <div class="club-token-row hidden" id="clubTokenRow">
+        <ol class="club-token-steps">
+          <li><a href="https://clubapp.atlanticyachting.com/profile" target="_blank" rel="noopener noreferrer">Open your Club profile ↗</a></li>
+          <li>Under <strong>AI Assistant (MCP) Integration</strong>, click <strong>Copy Session Token</strong>.</li>
+          <li>Paste it below. It expires about an hour after the Club issued it.</li>
+        </ol>
+        <textarea id="clubTokenInput" rows="2" spellcheck="false" autocomplete="off" autocapitalize="off"
+          aria-label="Club session token" placeholder="eyJhbGciOi…"></textarea>
+        <div class="club-token-actions">
+          <button class="btn-primary" type="button" id="clubTokenSubmitBtn">Connect</button>
+          <button class="btn-ghost" type="button" id="clubTokenCancelBtn">Cancel</button>
+        </div>
+      </div>
       <div class="club-voyage-picker hidden" id="clubVoyagePicker">
+        <p class="club-token-expiry" id="clubTokenExpiry"></p>
         <label for="clubVoyageSelect">Booked voyage</label>
         <select id="clubVoyageSelect"></select>
         <p class="club-voyage-match" id="clubVoyageMatch"></p>
@@ -1261,7 +1281,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
         <a class="btn-secondary hidden" id="viewClubPlanBtn" target="_blank" rel="noopener noreferrer">Review filed plan ↗</a>
         <a class="btn-ghost" id="openClubBtn" href="https://clubapp.atlanticyachting.com/" target="_blank" rel="noopener noreferrer">Open Club ↗</a>
       </div>
-      <p class="club-file-status" id="clubFileStatus" role="status" aria-live="polite">Connect for this tab. Floatplan keeps the Club session only in memory and never stores your login token.</p>
+      <p class="club-file-status" id="clubFileStatus" role="status" aria-live="polite">Connect for this tab. Floatplan keeps the Club token only in memory and never stores it.</p>
     </div>
     <div class="share-plan-panel hidden" id="sharePlanPanel">
       <div class="share-plan-panel-head">
@@ -10243,24 +10263,17 @@ var FLOATPLAN_FIELDS = ['fpVesselSelect', 'fpVesselName', 'fpCrewCount', 'fpPhon
 var VESSEL_PRESETS = ['AY10', 'AY11'];
 var ATLANTIC_YACHTING_BASE_URL = 'https://clubapp.atlanticyachting.com';
 var ATLANTIC_YACHTING_API_URL = ATLANTIC_YACHTING_BASE_URL + '/api';
-var ATLANTIC_YACHTING_FIREBASE_SDK_VERSION = '12.16.0';
-var ATLANTIC_YACHTING_FIREBASE_CONFIG = {
-  apiKey: 'AIzaSyBpfaL64RYPjeIVH1QH_o1bgmQWGfzvz-s',
-  authDomain: 'clubapp.atlanticyachting.com',
-  projectId: 'ay-sailing-club',
-  storageBucket: 'ay-sailing-club.firebasestorage.app',
-  messagingSenderId: '157671808045',
-  appId: '1:157671808045:web:5c3c3eac8f5c7d922feca4'
-};
-var ATLANTIC_YACHTING_PROJECT_INFO_URL =
-  'https://identitytoolkit.googleapis.com/v1/projects?key=' + ATLANTIC_YACHTING_FIREBASE_CONFIG.apiKey;
 var atlanticYachtingConnection = {
-  auth: null, authModule: null, user: null, signups: [], selectedSailId: null,
-  filedSailId: null, busy: false, authorizationChecked: false, originAuthorized: null
+  user: null, token: null, tokenExpMs: null, signups: [], selectedSailId: null,
+  filedSailId: null, busy: false
 };
 
-// The Club token exists only inside the Firebase user object for this open tab. It is never
-// copied into an input, localStorage, sessionStorage, a URL owned by Floatplan, or app state.
+// Sign-in is a token the member pastes in, because Atlantic Yachting has not authorized this
+// origin for Firebase popup sign-in. The pasted value is the Club's own `ay_session_token`: a
+// Firebase ID token, so it carries an `exp` claim and dies about an hour after the Club issued
+// it. Floatplan holds it in this one variable for this open tab only — never localStorage,
+// sessionStorage, a Floatplan-owned URL, or the saved plan — so a reload requires a re-paste.
+// That is deliberate: the token is bearer credential for the member's whole Club account.
 function normalizeAtlanticYachtingSailId(value) {
   var id = String(value == null ? '' : value).trim();
   return /^SL-[A-Za-z0-9_-]{2,80}$/.test(id) ? id : null;
@@ -10495,7 +10508,8 @@ function selectedAtlanticYachtingVoyage() {
 
 function atlanticYachtingFilingBlockedReason() {
   if (atlanticYachtingConnection.busy) return 'busy';
-  if (!atlanticYachtingConnection.user) return 'connect';
+  if (!atlanticYachtingConnection.user || !atlanticYachtingConnection.token) return 'connect';
+  if (atlanticYachtingTokenExpired()) return 'expired';
   if (!selectedAtlanticYachtingVoyage()) return 'voyage';
   if (!$('clubSafetyGearTested') || !$('clubSafetyGearTested').checked) return 'safety';
   if (!state.lastVerdict || !state.lastDirectionRec) return 'checking';
@@ -10511,16 +10525,18 @@ function syncAtlanticYachtingFilingState() {
   var connectionLabel = $('clubConnectionLabel'), match = $('clubVoyageMatch');
   if (!connectButton || !disconnectButton || !picker || !select || !fileButton || !viewLink) return;
 
-  var connected = !!atlanticYachtingConnection.user;
-  connectButton.classList.toggle('hidden', connected);
+  var connected = !!atlanticYachtingConnection.user && !!atlanticYachtingConnection.token;
+  var pasting = !!($('clubTokenRow') && !$('clubTokenRow').classList.contains('hidden'));
+  connectButton.classList.toggle('hidden', connected || pasting);
   disconnectButton.classList.toggle('hidden', !connected);
   picker.classList.toggle('hidden', !connected);
-  connectButton.disabled = atlanticYachtingConnection.busy ||
-    (atlanticYachtingConnection.authorizationChecked && atlanticYachtingConnection.originAuthorized === false);
+  connectButton.disabled = atlanticYachtingConnection.busy;
   disconnectButton.disabled = atlanticYachtingConnection.busy;
   connectionLabel.textContent = connected
     ? 'Connected as ' + (atlanticYachtingConnection.user.email || 'Club member')
     : (atlanticYachtingConnection.busy ? 'Connecting…' : 'Not connected');
+  var expiryLabel = $('clubTokenExpiry');
+  if (expiryLabel) expiryLabel.textContent = connected ? formatAtlanticYachtingExpiry() : '';
 
   if (connected) {
     var prior = atlanticYachtingConnection.selectedSailId;
@@ -10557,50 +10573,59 @@ function syncAtlanticYachtingFilingState() {
   else viewLink.removeAttribute('href');
 }
 
-function checkAtlanticYachtingOriginAuthorization() {
-  if (location.protocol === 'file:') {
-    atlanticYachtingConnection.authorizationChecked = true;
-    atlanticYachtingConnection.originAuthorized = false;
-    setAtlanticYachtingStatus('Direct Club connection requires the hosted Floatplan site; local files can still open Club.', 'error');
-    syncAtlanticYachtingFilingState();
-    return Promise.resolve(false);
-  }
-  return fetchWithRetry(ATLANTIC_YACHTING_PROJECT_INFO_URL, { maxRetries: 0 }).then(safeJson).then(function (data) {
-    var domains = data && Array.isArray(data.authorizedDomains) ? data.authorizedDomains : [];
-    var authorized = domains.indexOf(location.hostname) !== -1;
-    atlanticYachtingConnection.authorizationChecked = true;
-    atlanticYachtingConnection.originAuthorized = authorized;
-    if (!authorized) {
-      setAtlanticYachtingStatus(
-        'Setup needed: Atlantic Yachting must authorize ' + location.hostname + ' before secure Club sign-in can open here.',
-        'error');
-    }
-    syncAtlanticYachtingFilingState();
-    return authorized;
-  }).catch(function () {
-    atlanticYachtingConnection.authorizationChecked = true;
-    atlanticYachtingConnection.originAuthorized = null;
-    syncAtlanticYachtingFilingState();
-    return null;
-  });
+// Reads the `email` and `exp` claims out of a pasted Firebase ID token. This decodes only —
+// it is not verification, which is the Club server's job on every call. The point is to spare
+// the member from typing their email, and to name an expired token as expired instead of
+// letting it fail later as a bare "Unauthorized".
+function decodeAtlanticYachtingToken(raw) {
+  var value = String(raw == null ? '' : raw).trim();
+  var parts = value.split('.');
+  if (parts.length !== 3) return null;
+  var payload;
+  try {
+    var base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4) base64 += '=';
+    payload = JSON.parse(decodeURIComponent(atob(base64).split('').map(function (ch) {
+      return '%' + ('00' + ch.charCodeAt(0).toString(16)).slice(-2);
+    }).join('')));
+  } catch (e) { return null; }
+  if (!payload || typeof payload !== 'object') return null;
+  var email = payload.email || (payload.firebase && payload.firebase.identities &&
+    Array.isArray(payload.firebase.identities.email) ? payload.firebase.identities.email[0] : null);
+  if (!email) return null;
+  return {
+    token: value,
+    email: String(email),
+    expMs: typeof payload.exp === 'number' ? payload.exp * 1000 : null
+  };
 }
 
-function loadAtlanticYachtingFirebase() {
-  if (atlanticYachtingConnection.auth && atlanticYachtingConnection.authModule) {
-    return Promise.resolve(atlanticYachtingConnection);
-  }
-  var base = 'https://www.gstatic.com/firebasejs/' + ATLANTIC_YACHTING_FIREBASE_SDK_VERSION + '/';
-  return Promise.all([import(base + 'firebase-app.js'), import(base + 'firebase-auth.js')]).then(function (modules) {
-    var appModule = modules[0], authModule = modules[1];
-    var app = appModule.getApps().find(function (candidate) { return candidate.name === 'floatplan-club'; }) ||
-      appModule.initializeApp(ATLANTIC_YACHTING_FIREBASE_CONFIG, 'floatplan-club');
-    var auth = authModule.getAuth(app);
-    return authModule.setPersistence(auth, authModule.inMemoryPersistence).then(function () {
-      atlanticYachtingConnection.auth = auth;
-      atlanticYachtingConnection.authModule = authModule;
-      return atlanticYachtingConnection;
-    });
-  });
+function atlanticYachtingTokenExpired() {
+  var exp = atlanticYachtingConnection.tokenExpMs;
+  return exp != null && exp <= Date.now();
+}
+
+// True when the Club rejected our credential rather than the request itself — the signal to
+// drop the dead token and ask for a fresh paste instead of showing a generic failure.
+function isAtlanticYachtingAuthError(error) {
+  return /unauthorized|invalid token|expired|suspended/i.test(
+    (error && error.message ? error.message : ''));
+}
+
+function clearAtlanticYachtingToken() {
+  atlanticYachtingConnection.token = null;
+  atlanticYachtingConnection.tokenExpMs = null;
+  atlanticYachtingConnection.user = null;
+  atlanticYachtingConnection.signups = [];
+  atlanticYachtingConnection.selectedSailId = null;
+}
+
+function formatAtlanticYachtingExpiry() {
+  var exp = atlanticYachtingConnection.tokenExpMs;
+  if (exp == null) return '';
+  var minutes = Math.round((exp - Date.now()) / 60000);
+  if (minutes <= 0) return 'Club token expired — paste a fresh one to keep filing.';
+  return 'Club token valid about ' + minutes + ' more minute' + (minutes === 1 ? '' : 's') + '.';
 }
 
 function atlanticYachtingApi(action, payload, token, method) {
@@ -10611,7 +10636,7 @@ function atlanticYachtingApi(action, payload, token, method) {
   if (method === 'POST') {
     request = fetch(ATLANTIC_YACHTING_API_URL, {
       method: 'POST', mode: 'cors', signal: controller.signal,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Mode': 'false' },
       body: JSON.stringify(Object.assign({ action: action }, payload || {}, { token: token }))
     });
   } else {
@@ -10619,7 +10644,10 @@ function atlanticYachtingApi(action, payload, token, method) {
     url.searchParams.set('action', action);
     Object.keys(payload || {}).forEach(function (key) { url.searchParams.set(key, payload[key]); });
     url.searchParams.set('token', token);
-    request = fetch(url.toString(), { method: 'GET', mode: 'cors', signal: controller.signal });
+    request = fetch(url.toString(), {
+      method: 'GET', mode: 'cors', signal: controller.signal,
+      headers: { 'X-Admin-Mode': 'false' }
+    });
   }
   return request.then(function (response) {
     clearTimeout(timer);
@@ -10637,12 +10665,11 @@ function atlanticYachtingApi(action, payload, token, method) {
 
 function loadAtlanticYachtingVoyages() {
   var user = atlanticYachtingConnection.user;
-  if (!user || !user.email) return Promise.reject(new Error('Club account email is unavailable'));
+  var token = atlanticYachtingConnection.token;
+  if (!user || !user.email || !token) return Promise.reject(new Error('Club account email is unavailable'));
   atlanticYachtingConnection.busy = true;
   syncAtlanticYachtingFilingState();
-  return user.getIdToken().then(function (token) {
-    return atlanticYachtingApi('getMySignups', { email: user.email }, token, 'GET');
-  }).then(function (result) {
+  return atlanticYachtingApi('getMySignups', { email: user.email }, token, 'GET').then(function (result) {
     atlanticYachtingConnection.signups = (Array.isArray(result.data) ? result.data : [])
       .map(normalizeAtlanticYachtingSignup).filter(Boolean)
       .filter(function (signup) { return !/cancelled/i.test(signup.status); });
@@ -10658,59 +10685,82 @@ function loadAtlanticYachtingVoyages() {
   });
 }
 
+// Reveals the paste box. Recovery paths pass announce=false because they have already put a
+// more specific message on screen — explaining why the token died is worth more to the sailor
+// than repeating the generic instruction over the top of it.
+function openAtlanticYachtingTokenPrompt(announce) {
+  var row = $('clubTokenRow'), input = $('clubTokenInput');
+  if (!row || !input) return;
+  row.classList.remove('hidden');
+  if (announce !== false) setAtlanticYachtingStatus('Copy your Club session token, then paste it below.');
+  input.focus();
+  syncAtlanticYachtingFilingState();
+}
+
+// "Connect" only reveals the paste box; the real work happens in submitAtlanticYachtingToken.
 function connectAtlanticYachting() {
-  if (atlanticYachtingConnection.originAuthorized === false) {
+  openAtlanticYachtingTokenPrompt(true);
+}
+
+function cancelAtlanticYachtingToken() {
+  var row = $('clubTokenRow'), input = $('clubTokenInput');
+  if (input) input.value = '';
+  if (row) row.classList.add('hidden');
+  setAtlanticYachtingStatus('Club connection cancelled. Nothing was stored.');
+  syncAtlanticYachtingFilingState();
+}
+
+function submitAtlanticYachtingToken() {
+  var input = $('clubTokenInput');
+  if (!input) return;
+  var decoded = decodeAtlanticYachtingToken(input.value);
+  if (!decoded) {
     setAtlanticYachtingStatus(
-      'Setup needed: Atlantic Yachting must authorize ' + location.hostname + ' before secure Club sign-in can open here.',
-      'error');
+      'That does not look like a Club session token. Copy the whole value — it starts with "eyJ".', 'error');
     return;
   }
-  atlanticYachtingConnection.busy = true;
-  setAtlanticYachtingStatus('Opening secure Atlantic Yachting sign-in…');
+  if (decoded.expMs != null && decoded.expMs <= Date.now()) {
+    setAtlanticYachtingStatus(
+      'That Club token has already expired. Reload your Club profile and copy a fresh one.', 'error');
+    return;
+  }
+  // Clear the field the moment the value is captured, so the credential is not left sitting in
+  // the DOM where a screenshot or a later reader could pick it up.
+  input.value = '';
+  atlanticYachtingConnection.token = decoded.token;
+  atlanticYachtingConnection.tokenExpMs = decoded.expMs;
+  atlanticYachtingConnection.user = { email: decoded.email };
+  atlanticYachtingConnection.filedSailId = null;
+  if ($('clubTokenRow')) $('clubTokenRow').classList.add('hidden');
+  setAtlanticYachtingStatus('Connected as ' + decoded.email + '. Loading your booked voyages…', 'connected');
   syncAtlanticYachtingFilingState();
-  loadAtlanticYachtingFirebase().then(function (connection) {
-    var provider = new connection.authModule.GoogleAuthProvider();
-    return connection.authModule.signInWithPopup(connection.auth, provider);
-  }).then(function (credential) {
-    atlanticYachtingConnection.user = credential.user;
-    atlanticYachtingConnection.busy = false;
-    setAtlanticYachtingStatus('Connected. Loading your booked voyages…', 'connected');
-    syncAtlanticYachtingFilingState();
-    return loadAtlanticYachtingVoyages();
-  }).catch(function (error) {
-    atlanticYachtingConnection.busy = false;
-    if (error && error.code === 'auth/popup-closed-by-user') {
-      setAtlanticYachtingStatus('Club connection cancelled. Nothing was stored.');
-    } else if (error && error.code === 'auth/unauthorized-domain') {
-      atlanticYachtingConnection.originAuthorized = false;
+  loadAtlanticYachtingVoyages().catch(function (error) {
+    if (isAtlanticYachtingAuthError(error)) {
+      clearAtlanticYachtingToken();
       setAtlanticYachtingStatus(
-        'Setup needed: Atlantic Yachting must authorize ' + location.hostname + ' for secure sign-in.', 'error');
+        'The Club rejected that token. Copy a fresh one from your Club profile and try again.', 'error');
+      openAtlanticYachtingTokenPrompt(false);
     } else {
-      setAtlanticYachtingStatus('Could not connect to Club: ' + (error && error.message ? error.message : 'unknown error'), 'error');
+      setAtlanticYachtingStatus(
+        'Could not load booked voyages: ' + (error && error.message ? error.message : 'unknown error'), 'error');
     }
     syncAtlanticYachtingFilingState();
   });
 }
 
 function disconnectAtlanticYachting() {
-  var finish = function () {
-    atlanticYachtingConnection.user = null;
-    atlanticYachtingConnection.signups = [];
-    atlanticYachtingConnection.selectedSailId = null;
-    atlanticYachtingConnection.filedSailId = null;
-    if ($('clubSafetyGearTested')) $('clubSafetyGearTested').checked = false;
-    setAtlanticYachtingStatus('Disconnected. Floatplan did not store the Club session.');
-    syncAtlanticYachtingFilingState();
-  };
-  if (atlanticYachtingConnection.auth && atlanticYachtingConnection.authModule) {
-    atlanticYachtingConnection.authModule.signOut(atlanticYachtingConnection.auth).then(finish, finish);
-  } else finish();
+  clearAtlanticYachtingToken();
+  atlanticYachtingConnection.filedSailId = null;
+  if ($('clubSafetyGearTested')) $('clubSafetyGearTested').checked = false;
+  if ($('clubTokenInput')) $('clubTokenInput').value = '';
+  if ($('clubTokenRow')) $('clubTokenRow').classList.add('hidden');
+  setAtlanticYachtingStatus('Disconnected. Floatplan did not store the Club token.');
+  syncAtlanticYachtingFilingState();
 }
 
 function initAtlanticYachtingConnection() {
   try { localStorage.removeItem(cacheKey('atlanticYachtingSailId')); } catch (e) { /* legacy handoff cleanup */ }
   syncAtlanticYachtingFilingState();
-  checkAtlanticYachtingOriginAuthorization();
 }
 
 function fileWithAtlanticYachting() {
@@ -10718,6 +10768,7 @@ function fileWithAtlanticYachting() {
   if (blocked) {
     var messages = {
       connect: 'Connect Atlantic Yachting first', voyage: 'Choose a booked voyage',
+      expired: 'Your Club token expired — paste a fresh one',
       safety: 'Confirm the safety-gear test first', 'no-go': 'Resolve the NO-GO conditions before filing',
       checking: 'Wait for the plan safety check to finish', filed: 'This plan is already filed'
     };
@@ -10731,14 +10782,22 @@ function fileWithAtlanticYachting() {
   atlanticYachtingConnection.busy = true;
   setAtlanticYachtingStatus('Filing this plan with Atlantic Yachting…', 'connected');
   syncAtlanticYachtingFilingState();
-  atlanticYachtingConnection.user.getIdToken().then(function (token) {
-    return atlanticYachtingApi('submitFloatPlan', payload, token, 'POST');
-  }).then(function () {
+  atlanticYachtingApi('submitFloatPlan', payload, atlanticYachtingConnection.token, 'POST').then(function () {
     atlanticYachtingConnection.filedSailId = voyage.sailId;
     setAtlanticYachtingStatus('Filed successfully for ' + voyage.sailId + '. Atlantic Yachting now has this plan.', 'success');
     showToast('Float plan filed with Atlantic Yachting');
   }).catch(function (error) {
-    setAtlanticYachtingStatus('Club filing failed: ' + (error && error.message ? error.message : 'unknown error'), 'error');
+    // An hour-old token dying mid-session is the expected case, not an anomaly: drop it and
+    // reopen the paste box so the member can requeue the same filing in three clicks.
+    if (isAtlanticYachtingAuthError(error)) {
+      clearAtlanticYachtingToken();
+      setAtlanticYachtingStatus(
+        'Your Club token expired before this plan was filed. Paste a fresh one and file again — nothing was submitted.',
+        'error');
+      openAtlanticYachtingTokenPrompt(false);
+    } else {
+      setAtlanticYachtingStatus('Club filing failed: ' + (error && error.message ? error.message : 'unknown error'), 'error');
+    }
   }).finally(function () {
     atlanticYachtingConnection.busy = false;
     syncAtlanticYachtingFilingState();
@@ -12728,6 +12787,15 @@ function init() {
   $('copyPlanBtn').addEventListener('click', copyFloatPlanText);
   $('connectClubBtn').addEventListener('click', connectAtlanticYachting);
   $('disconnectClubBtn').addEventListener('click', disconnectAtlanticYachting);
+  $('clubTokenSubmitBtn').addEventListener('click', submitAtlanticYachtingToken);
+  $('clubTokenCancelBtn').addEventListener('click', cancelAtlanticYachtingToken);
+  // Enter submits; Shift+Enter stays a newline so a wrapped paste is not truncated.
+  $('clubTokenInput').addEventListener('keydown', function (event) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      submitAtlanticYachtingToken();
+    }
+  });
   $('clubVoyageSelect').addEventListener('change', function (event) {
     atlanticYachtingConnection.selectedSailId = normalizeAtlanticYachtingSailId(event.target.value);
     atlanticYachtingConnection.filedSailId = null;
