@@ -502,4 +502,120 @@ assert.match(liveTrack.popupContent, /Displayed radar frame: 2026-07-15T10:40:00
 assert.ok(liveWhiskers.every(layer => Array.isArray(layer.latLngs) && layer.latLngs.length === 2));
 assert.ok(Array.isArray(livePosition.latLng), 'the animated position marker must move with the frame');
 
+/* ---- (12) no radar frame in the loop may render as a bare marker with no track ---- */
+// Regression: the radar loop always spans a fixed 50 minutes, but centroid history is
+// best-effort (snapshot still in flight, ?valid= 404, SCIT association failing on older
+// scans, 5-minute buckets not landing on the frame timestamps). Frames older than the
+// earliest associated centroid used to return null, blanking the whole track while the
+// labelled marker stayed pinned to the LATEST detection, tens of nm from that frame's echo.
+
+const beforeFirstMs = changingSpeedHistory[0].ms - 20 * 60000;
+const backState = stormCellFrameState(frameRelativeEntry, beforeFirstMs);
+assert.ok(backState, 'a frame older than every associated centroid must still resolve a state');
+assert.equal(backState.extrapolatedBackward, true, 'that state must declare itself back-extrapolated');
+assert.equal(
+  backState.anchor.ms,
+  changingSpeedHistory[0].ms,
+  'back-extrapolation must anchor on the EARLIEST observation, not the latest'
+);
+assert.equal(
+  backState.motion.speedKt,
+  10,
+  'back-extrapolation must use the earliest observation\'s motion, never a later scan\'s faster report'
+);
+assert.equal(backState.knownPoints.length, 1, 'a pre-history frame may claim only the earliest observation as known');
+assert.equal(
+  backState.motion.source,
+  'reported',
+  'a pre-history frame must not synthesize a fit out of observations that are entirely in its future'
+);
+
+const backGeometry = stormFrameGeometry(frameRelativeEntry, beforeFirstMs);
+assert.ok(backGeometry.pos, 'a pre-history frame must still produce a position');
+assert.equal(backGeometry.track.length, 5, 'a pre-history frame must still get the full +15/30/45/60 spread');
+assert.equal(backGeometry.extrapolatedBackward, true, 'stormFrameGeometry must surface the back-extrapolation flag');
+assert.equal(
+  stormFrameGeometry(frameRelativeEntry, changingSpeedHistory[2].ms).extrapolatedBackward,
+  false,
+  'a frame covered by real observations must NOT be marked back-extrapolated'
+);
+
+// The inferred position has to continue the observed line upstream, not sit on top of it.
+const firstObserved = changingSpeedHistory[0];
+const backDistanceNm = stormCellDistanceNm(
+  { lat: backGeometry.pos[0], lon: backGeometry.pos[1] },
+  { lat: firstObserved.lat, lon: firstObserved.lon }
+);
+assert.ok(
+  Math.abs(backDistanceNm - 10 * 20 / 60) < 0.1,
+  'a 20-minute back-extrapolation at 10 kt must land ~3.3 nm upstream of the earliest centroid'
+);
+const forwardOfFirst = destinationPoint(firstObserved.lat, firstObserved.lon, TRUE_BEARING, 1);
+assert.ok(
+  stormCellDistanceNm({ lat: backGeometry.pos[0], lon: backGeometry.pos[1] }, { lat: forwardOfFirst[0], lon: forwardOfFirst[1] }) > backDistanceNm,
+  'the back-extrapolated position must sit UPSTREAM of the earliest centroid, not downstream'
+);
+
+// The real-world shape of the bug: an 11-frame Live loop whose history only covers the
+// newer half. Every frame must still draw a track, and positions must advance monotonically.
+const loopNowMs = Date.parse('2026-07-15T18:00:00Z');
+const loopFrameTimes = RADAR_LAG_STEPS_MIN.map(lagMin => loopNowMs - lagMin * 60000);
+const partialHistory = [25, 20, 15, 10, 5, 0].map(minutesAgo => {
+  const point = destinationPoint(TRUE_LAT, TRUE_LON, TRUE_BEARING, 20 * (25 - minutesAgo) / 60);
+  return { ms: loopNowMs - minutesAgo * 60000, lat: point[0], lon: point[1], bearingDeg: TRUE_BEARING, speedKt: 20 };
+});
+const partialEntry = {
+  historyPoints: partialHistory,
+  anchorMs: partialHistory.at(-1).ms,
+  motion: { bearingDeg: TRUE_BEARING, speedKt: 20, sigmaNm: null },
+  horizonMs: STORM_NO_HORIZON_CAP,
+  frameRelativeMotion: true
+};
+let previousLon = -Infinity;
+loopFrameTimes.forEach((frameTimeMs, index) => {
+  const geometry = stormFrameGeometry(partialEntry, frameTimeMs);
+  assert.ok(geometry.pos, `frame ${index} of the loop must have a position`);
+  assert.equal(geometry.track.length, 5, `frame ${index} of the loop must have a full forecast spread`);
+  assert.ok(
+    geometry.pos[1] > previousLon,
+    `each successive frame must advance the eastbound cell instead of jumping (frame ${index})`
+  );
+  previousLon = geometry.pos[1];
+});
+
+// Frames straddling the history boundary must be continuous: the back-extrapolated 5-minute
+// step has to match the observed 5-minute step, otherwise playback visibly snaps.
+const boundaryMs = partialHistory[0].ms;
+const stepBefore = stormFrameGeometry(partialEntry, boundaryMs - 5 * 60000).pos;
+const stepAfter = stormFrameGeometry(partialEntry, boundaryMs + 5 * 60000).pos;
+const backStepNm = stormCellDistanceNm({ lat: stepBefore[0], lon: stepBefore[1] }, { lat: partialHistory[0].lat, lon: partialHistory[0].lon });
+const forwardStepNm = stormCellDistanceNm({ lat: partialHistory[0].lat, lon: partialHistory[0].lon }, { lat: stepAfter[0], lon: stepAfter[1] });
+assert.ok(
+  Math.abs(backStepNm - forwardStepNm) < 0.05,
+  'the step across the oldest-observation boundary must be continuous, not a jump'
+);
+
+/* ---- (13) the live layers are re-anchored for a pre-history frame too ---- */
+
+globalThis.radarState.stormFramePositions = [liveEntry];
+updateStormFrameGeometry(beforeFirstMs);
+assert.ok(
+  Array.isArray(liveTrack.latLngs) && liveTrack.latLngs.length === 5,
+  'a pre-history frame must leave a drawn forecast line, not an emptied one'
+);
+assert.ok(
+  liveWhiskers.every(layer => Array.isArray(layer.latLngs) && layer.latLngs.length === 2),
+  'a pre-history frame must leave every whisker drawn'
+);
+assert.notEqual(
+  livePosition.style && livePosition.style.fillOpacity,
+  0,
+  'the cell marker must stay visible on a pre-history frame instead of being hidden'
+);
+assert.match(
+  liveTrack.popupContent,
+  /back-extrapolated/,
+  'a back-extrapolated frame must say so in its popup rather than reading as an observation'
+);
+
 console.log('SCIT motion fit, uncertainty whisker, and frame-adaptive track geometry assertions passed');

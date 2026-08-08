@@ -271,4 +271,98 @@ assert.ok(
   'warning tracks must anchor at a computed polygon centroid, not per-vertex motion locations'
 );
 
+/* ---- zoom/pan must actually re-derive the displayed selection ---- */
+// Regression: selectRadarStormCells declared visibleDomain and never read it, so the moveend
+// re-render always rebuilt the same four cells ranked purely by approach to Pier 25. Zooming
+// out to bring a distant storm on screen added no track, and zooming in never dropped one.
+
+const HARBOR_VIEW = { south: 40.5, west: -74.3, north: 41.0, east: -73.7 };
+const UPSTATE_VIEW = { south: 41.6, west: -76.9, north: 42.2, east: -76.1 };
+const WIDE_VIEW = { south: 38.0, west: -78.0, north: 43.0, east: -71.0 };
+
+// Slow, so its hour-long track stays parked inside whichever view frames it. It ranks LAST on
+// approach-to-Pier-25, so only the viewport can ever pull it into the selection.
+const distantParkedCell = { ...cell, id: 'distant', lat: 41.9, lon: -76.5, bearingDeg: 90, speedKt: 5, maxDbz: 60 };
+const harborCell = { ...cell, id: 'harbor', lat: 40.72, lon: -74.05, bearingDeg: 90, speedKt: 20 };
+const bothCells = [harborCell, distantParkedCell];
+
+assert.equal(
+  selectRadarStormCells(bothCells, HARBOR_VIEW, 1)[0].id,
+  'harbor',
+  'framing the harbor must keep the harbor cell selected'
+);
+assert.equal(
+  selectRadarStormCells(bothCells, UPSTATE_VIEW, 1)[0].id,
+  'distant',
+  'zooming in on a distant storm must derive ITS track, not stay pinned to the pier-nearest cell'
+);
+assert.notDeepEqual(
+  selectRadarStormCells(bothCells, HARBOR_VIEW, 2).map(c => c.id),
+  selectRadarStormCells(bothCells, UPSTATE_VIEW, 2).map(c => c.id),
+  'changing the map view must reorder the derived selection'
+);
+assert.deepEqual(
+  selectRadarStormCells(bothCells, WIDE_VIEW, 2).map(c => c.id),
+  ['harbor', 'distant'],
+  'when everything is in view, approach to Pier 25 must remain the ranking'
+);
+// Out-of-view cells still fill leftover slots: the card is about approaching weather, not only
+// weather that happens to be framed right now.
+assert.deepEqual(
+  selectRadarStormCells(bothCells, UPSTATE_VIEW, 4).map(c => c.id),
+  ['distant', 'harbor'],
+  'out-of-view cells must still fill remaining slots rather than being dropped'
+);
+
+// A cell just outside the view but crossing it within the hour is precisely what the card is
+// for, so track intersection — not present centroid position — decides visibility.
+const inboundCell = { ...cell, id: 'inbound', lat: 40.72, lon: -74.9, bearingDeg: 90, speedKt: 45 };
+assert.ok(
+  selectRadarStormCells([inboundCell], HARBOR_VIEW, 1).length === 1 &&
+    radarCellTrackIntersectsDomain(inboundCell, HARBOR_VIEW),
+  'a cell outside the view whose projected track crosses it must count as in view'
+);
+const recedingCell = { ...cell, id: 'receding', lat: 40.72, lon: -74.9, bearingDeg: 270, speedKt: 45 };
+assert.ok(
+  !radarCellTrackIntersectsDomain(recedingCell, HARBOR_VIEW),
+  'a cell outside the view moving away from it must not count as in view'
+);
+
+// A null domain (tests, or a map that has not sized itself yet) must not reorder anything.
+assert.deepEqual(
+  selectRadarStormCells(bothCells, null, 4).map(c => c.id),
+  selectRadarStormCells(bothCells, undefined, 4).map(c => c.id),
+  'an absent viewport must leave the approach-ranked order untouched'
+);
+
+assert.ok(
+  stormCode.includes('inView: visibleDomain ? radarCellTrackIntersectsDomain(cell, visibleDomain) : true'),
+  'the map viewport must feed cell selection, not be accepted and ignored'
+);
+assert.ok(
+  stormCode.includes('updateStormFrameGeometry(currentRadarFrameTimeMs());'),
+  'a pan/zoom rebuild must re-anchor to the frame currently on screen'
+);
+assert.ok(
+  html.includes("radarState.map.on('moveend'"),
+  'pan and zoom must re-derive the storm overlay for the new view'
+);
+
+/* ---- exactly one cell marker, and it rides the displayed frame ---- */
+// Regression: a second, same-sized marker pinned to the latest detection carried the identity
+// tooltip, so on any older frame the labelled dot floated away from the echo it named.
+assert.ok(
+  stormCode.includes(".bindTooltip('Cell ' + cell.id + ' · ' + cell.radar, { direction: 'top' })"),
+  'the cell identity tooltip must still exist'
+);
+assert.equal(
+  stormCode.split("'Cell ' + cell.id + ' · ' + cell.radar").length - 1,
+  1,
+  'a cell must have exactly one identity-labelled marker'
+);
+assert.ok(
+  /var positionMarker = L\.circleMarker\(origin, \{[\s\S]{0,240}?\}\)\s*\n?\s*\.bindTooltip\('Cell '/.test(stormCode),
+  'the identity tooltip must ride the frame-anchored position marker'
+);
+
 console.log('warning and radar-cell storm track assertions passed');
