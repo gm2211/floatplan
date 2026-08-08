@@ -8678,12 +8678,36 @@ function dedupeRadarStormCells(cells, maxCount) {
   return kept;
 }
 
+// True when any point of the cell's one-hour linear projection falls inside the domain, not
+// just its current centroid: a cell sitting just off the edge of the view but crossing it
+// within the hour is exactly the one the card exists to show.
+function radarCellTrackIntersectsDomain(cell, domain) {
+  if (!domain) return false;
+  for (var minutes = 0; minutes <= 60; minutes += 5) {
+    var point = destinationPoint(cell.lat, cell.lon, cell.bearingDeg, cell.speedKt * minutes / 60);
+    if (pointInDomain(point[0], point[1], domain)) return true;
+  }
+  return false;
+}
+
+// visibleDomain is the map's CURRENT bounds, so this re-ranks on every pan/zoom: cells whose
+// track crosses the view sort ahead of the rest. Without it, zooming out to bring a distant
+// storm on screen would never admit it and zooming in would never drop the cells that left —
+// the selection would stay frozen on the four closest to Pier 25 regardless of the view.
+// Out-of-view cells still fill any remaining slots, because the card's job is approaching
+// weather, not only weather that happens to be framed right now.
 function selectRadarStormCells(cells, visibleDomain, maxCount) {
   var pier = typeof PIER25 !== 'undefined' ? PIER25 : { lat: 40.7203, lon: -74.0135 };
   var limit = Math.min(4, Math.max(0, maxCount == null ? 4 : maxCount));
   return (cells || []).map(function (cell) {
-    return { cell: cell, approachNm: radarCellProjectedApproachNm(cell, pier) };
+    return {
+      cell: cell,
+      approachNm: radarCellProjectedApproachNm(cell, pier),
+      // No domain (tests, or a map that has not sized itself yet) must not reorder anything.
+      inView: visibleDomain ? radarCellTrackIntersectsDomain(cell, visibleDomain) : true
+    };
   }).sort(function (aRanked, bRanked) {
+    if (aRanked.inView !== bRanked.inView) return aRanked.inView ? -1 : 1;
     var approachDiff = aRanked.approachNm - bRanked.approachNm;
     if (approachDiff) return approachDiff;
     var a = aRanked.cell, b = bRanked.cell;
@@ -9067,7 +9091,13 @@ function radarCellFramePopupHtml(entry, geometry, frameTimeMs) {
     frameCell.tvs = '';
     frameCell.meso = '';
   }
-  return radarCellPopupHtml(frameCell, motion, frameTimeMs);
+  var html = radarCellPopupHtml(frameCell, motion, frameTimeMs);
+  // Never let a back-extrapolated frame read as an observation: this frame predates every
+  // centroid that could be associated, so its position is inferred, not measured.
+  if (geometry.extrapolatedBackward) {
+    html += '<br><small>This frame predates the oldest matched detection; the position shown is back-extrapolated along the same motion.</small>';
+  }
+  return html;
 }
 
 function clearStormTrackLayer() {
@@ -9108,20 +9138,41 @@ var STORM_NO_HORIZON_CAP = Infinity;
 // observations at or before frameTimeMs may influence the fit. When that prefix is too short
 // to fit, resolveStormCellMotion falls back to the last radar-reported bearing/speed that was
 // already known by the frame — never the latest report from a future scan.
+//
+// A frame OLDER than the earliest centroid we managed to associate is not a hole to leave
+// blank. The radar loop always spans a fixed 50 minutes, but centroid history is best-effort:
+// the snapshot fetch may still be in flight, a `?valid=` snapshot can 404, SCIT association
+// legitimately fails on older scans, and the 5-minute history buckets never land exactly on
+// the frame timestamps (so even a fully successful fetch usually leaves the OLDEST frame
+// uncovered by a minute or two). Leaving those frames blank stranded the cell marker on the
+// latest detection while the echo it labels was tens of nautical miles upstream. Such frames
+// now back-extrapolate from the earliest observation instead — the same linear SCIT assumption
+// already used to project forward, just run in reverse.
 function stormCellFrameState(entry, frameTimeMs) {
   var historyPoints = (entry && entry.historyPoints) || [];
+  if (!historyPoints.length) return null;
   var knownPoints = historyPoints.filter(function (point) { return point.ms <= frameTimeMs; });
-  if (!knownPoints.length) return null;
-  var fitPoints = knownPoints.length > STORM_FIT_MAX_POINTS
-    ? knownPoints.slice(-STORM_FIT_MAX_POINTS) : knownPoints;
-  var anchor = knownPoints[knownPoints.length - 1];
-  var reported = null;
-  for (var i = knownPoints.length - 1; i >= 0; i -= 1) {
-    if (typeof knownPoints[i].bearingDeg === 'number' && isFinite(knownPoints[i].bearingDeg)
-        && typeof knownPoints[i].speedKt === 'number' && isFinite(knownPoints[i].speedKt)
-        && knownPoints[i].speedKt > 0) {
-      reported = knownPoints[i];
-      break;
+  var extrapolatedBackward = !knownPoints.length;
+  var fitPoints, anchor, reported = null, i;
+  if (extrapolatedBackward) {
+    // Deliberately the EARLIEST observation alone, never a prefix: "never leak a later fit
+    // into an older frame" binds hardest here, where the frame predates every observation and
+    // any multi-point fit would be built entirely out of the frame's future. This inherits
+    // exactly the state the first observed frame itself resolves (single point, so
+    // resolveStormCellMotion falls through to that scan's reported motion) and walks the
+    // position back from there, which also keeps the two sides of the boundary continuous.
+    anchor = historyPoints[0];
+    fitPoints = [anchor];
+    knownPoints = fitPoints;
+    for (i = 0; i < historyPoints.length; i += 1) {
+      if (stormPointHasReportedMotion(historyPoints[i])) { reported = historyPoints[i]; break; }
+    }
+  } else {
+    fitPoints = knownPoints.length > STORM_FIT_MAX_POINTS
+      ? knownPoints.slice(-STORM_FIT_MAX_POINTS) : knownPoints;
+    anchor = knownPoints[knownPoints.length - 1];
+    for (i = knownPoints.length - 1; i >= 0; i -= 1) {
+      if (stormPointHasReportedMotion(knownPoints[i])) { reported = knownPoints[i]; break; }
     }
   }
   if (!reported) return null;
@@ -9130,9 +9181,20 @@ function stormCellFrameState(entry, frameTimeMs) {
     bearingDeg: reported.bearingDeg, speedKt: reported.speedKt
   };
   var motion = resolveStormCellMotion(frameCell, fitPoints);
-  var elapsedHours = Math.max(0, frameTimeMs - anchor.ms) / 3600000;
+  // Deliberately unclamped: in the forward case anchor.ms <= frameTimeMs so this is already
+  // non-negative, and in the backward case the negative lead is what walks the cell upstream.
+  // destinationPoint treats a negative distance as travel along the reciprocal bearing.
+  var elapsedHours = (frameTimeMs - anchor.ms) / 3600000;
   var pos = destinationPoint(anchor.lat, anchor.lon, motion.bearingDeg, motion.speedKt * elapsedHours);
-  return { knownPoints: knownPoints, anchor: anchor, motion: motion, pos: pos };
+  return {
+    knownPoints: knownPoints, anchor: anchor, motion: motion, pos: pos,
+    extrapolatedBackward: extrapolatedBackward
+  };
+}
+
+function stormPointHasReportedMotion(point) {
+  return !!point && typeof point.bearingDeg === 'number' && isFinite(point.bearingDeg)
+    && typeof point.speedKt === 'number' && isFinite(point.speedKt) && point.speedKt > 0;
 }
 
 // Recomputes a cell/warning's ENTIRE track geometry — not just a marker position — for an
@@ -9204,7 +9266,8 @@ function stormFrameGeometry(entry, frameTimeMs) {
 
   return {
     pos: pos, times: times, track: track, historyTrail: historyTrail, motion: motion,
-    sourceMs: cellFrameState ? cellFrameState.anchor.ms : anchorMs
+    sourceMs: cellFrameState ? cellFrameState.anchor.ms : anchorMs,
+    extrapolatedBackward: !!(cellFrameState && cellFrameState.extrapolatedBackward)
   };
 }
 
@@ -9359,6 +9422,17 @@ function stormWarningForwardStepsCap(anchorMs, endMs) {
   return Math.max(1, Math.ceil(spanMs / (15 * 60000)) + 2);
 }
 
+// Single source of truth for "which radar frame is on screen". Every pan/zoom tears the storm
+// layers down and rebuilds them, so the rebuild has to land on the SAME frame playback is
+// showing — otherwise a zoom mid-loop silently re-anchors the tracks to a different frame than
+// the radar image underneath them. showRadarFrame() commits radarState.index only once the new
+// frame's tiles reveal, which is exactly right here: until then the user is still looking at
+// the previous frame, and the tracks must agree with it.
+function currentRadarFrameTimeMs() {
+  var frame = radarState.frames && radarState.frames[radarState.index];
+  return frame && isFinite(frame.timeMs) ? frame.timeMs : Date.now();
+}
+
 function renderStormOverlays(alerts, cells, historySnapshots) {
   if (!radarState.map) return;
   clearStormTrackLayer();
@@ -9435,11 +9509,6 @@ function renderStormOverlays(alerts, cells, historySnapshots) {
     // Placeholder geometry only — updateStormFrameGeometry() below re-anchors the whole track
     // (line, whiskers, dots) to the currently displayed radar frame right after this loop.
     var trackLine = L.polyline([], { color: cellTrackColor, weight: 2.4, opacity: 0.96 }).bindPopup(popup).addTo(cellGroup);
-    // Static origin marker/tooltip — anchors on the latest ACTUAL detection and never moves,
-    // unlike every other layer in this entry, which re-anchors to the displayed radar frame.
-    L.circleMarker(origin, {
-      radius: 5, color: cellTrackColor, weight: 2, fillColor: resolvedTheme() === 'dark' ? '#0b1622' : '#ffffff', fillOpacity: 0.9
-    }).bindTooltip('Cell ' + cell.id + ' · ' + cell.radar, { direction: 'top' }).bindPopup(popup).addTo(cellGroup);
     var whiskerLines = [], pointDots = [];
     for (var ci = 0; ci < STORM_CELL_FORWARD_STEPS; ci += 1) {
       // Whisker width is the 99%-probability diameter for this lead time, scaled by how
@@ -9453,9 +9522,15 @@ function renderStormOverlays(alerts, cells, historySnapshots) {
     var endpointDot = L.circleMarker(origin, { radius: 1.8, color: cellTrackColor, weight: 1, fillColor: cellTrackColor, fillOpacity: 1 })
       .bindTooltip('', { permanent: true, direction: 'right', className: 'storm-time-label' }).bindPopup(popup).addTo(cellGroup);
     endpointDot._stormOpacity = 1; endpointDot._stormFillOpacity = 1;
-    // Animated position marker — separate from the static origin marker/tooltip above.
-    var positionMarker = L.circleMarker(origin, { radius: 5, color: cellTrackColor, weight: 1, fillColor: cellTrackColor, fillOpacity: 1 }).addTo(cellGroup);
-    positionMarker._stormOpacity = 1; positionMarker._stormFillOpacity = 1;
+    // The ONLY cell marker, and it re-anchors to the displayed frame like everything else in
+    // this entry. It previously sat behind a second, same-sized marker pinned to the latest
+    // detection, which carried the identity tooltip — so on any older frame the labelled dot
+    // floated away from the echo it named while the real position marker sat elsewhere. The
+    // latest detection is still readable as the leading end of the observed history trail.
+    var positionMarker = L.circleMarker(origin, {
+      radius: 5, color: cellTrackColor, weight: 2, fillColor: resolvedTheme() === 'dark' ? '#0b1622' : '#ffffff', fillOpacity: 0.9
+    }).bindTooltip('Cell ' + cell.id + ' · ' + cell.radar, { direction: 'top' }).bindPopup(popup).addTo(cellGroup);
+    positionMarker._stormOpacity = 1; positionMarker._stormFillOpacity = 0.9;
     framePositions.push({
       historyPoints: history, anchorMs: cell.validMs, motion: motion, horizonMs: STORM_NO_HORIZON_CAP,
       frameRelativeMotion: true, cell: cell,
@@ -9466,8 +9541,7 @@ function renderStormOverlays(alerts, cells, historySnapshots) {
   if (radarState.stormAlerts.length) radarState.warningLayer = warningGroup.addTo(radarState.map);
   if (displayedStormCells.length) radarState.stormCellLayer = cellGroup.addTo(radarState.map);
   radarState.stormFramePositions = framePositions;
-  var currentFrame = radarState.frames && radarState.frames[radarState.index];
-  updateStormFrameGeometry(currentFrame ? currentFrame.timeMs : Date.now());
+  updateStormFrameGeometry(currentRadarFrameTimeMs());
   // Bounds reflect the latest/initial frame's geometry (matching the old static render exactly
   // at the newest frame) — read off the live track-line layers now that they hold it.
   framePositions.forEach(function (entry) {
