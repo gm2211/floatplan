@@ -1003,7 +1003,7 @@ pre#marineTextContent { white-space: pre-wrap; font-family: inherit; font-size: 
 }
 
 @media (min-width: 700px) {
-  #app, .topbar { max-width: 1160px; }
+  #app, .topbar { max-width: 980px; }
 
   /* Slim full-width verdict variant (>=700px, so it applies to both the 2- and 3-column
      layouts): banner goes from a stacked, centered block to an inline row (label + sub),
@@ -1026,7 +1026,7 @@ pre#marineTextContent { white-space: pre-wrap; font-family: inherit; font-size: 
 }
 
 @media (min-width: 1200px) {
-  #app, .topbar { max-width: 1760px; }
+  #app, .topbar { max-width: 980px; }
 }
 
 /* ============================== iOS-style mobile shell (<700px) ============================== */
@@ -1064,6 +1064,18 @@ body.mobile-tabs footer.app-footer { padding-bottom: 12px; }
   padding: 3px 4px calc(3px + env(safe-area-inset-bottom));
 }
 body.mobile-tabs .tabbar { display: flex; }
+/* On a desktop window the same bar becomes a centred floating pill rather than spanning the
+   full width, which at 1700px would read as a stretched phone control. */
+@media (min-width: 700px) {
+  .tabbar {
+    display: flex; left: 50%; right: auto; transform: translateX(-50%);
+    bottom: 18px; width: min(520px, calc(100% - 32px));
+    border: 0.5px solid var(--border); border-radius: 18px;
+    padding: 4px 6px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.34);
+  }
+  .tabbar-item { font-size: 11px; padding: 7px 0 5px; }
+  body { padding-bottom: 92px; }
+}
 .tabbar-item {
   flex: 1 1 0; min-width: 0; position: relative;
   background: none; border: none; color: var(--ink-dim); cursor: pointer;
@@ -12472,17 +12484,14 @@ var LAYOUT_ASSIGNMENTS = {
   narrow: {
     root: CARD_ORDER.slice()
   },
+  // Every breakpoint now uses the single-column order: the tab bar, not a column grid, is what
+  // divides the 13 cards up. A tab holds two or three cards, and spreading those across three
+  // rails would leave most of the board empty on every view.
   medium: {
-    root: ['monitorChangedBanner', 'verdictCard'],
-    colA: ['planCard', 'directionCard', 'timelineCard', 'sailSimCard'],
-    colB: ['windCard', 'radarCard', 'weatherCard', 'observedCard', 'sunTwilightCard'],
-    alertsPair: ['advisoriesCard', 'marineTextCard']
+    root: CARD_ORDER.slice()
   },
   wide: {
-    root: ['monitorChangedBanner', 'verdictCard'],
-    colA: ['planCard', 'directionCard', 'timelineCard'],
-    colB: ['windCard', 'sailSimCard', 'radarCard', 'weatherCard'],
-    colC: ['observedCard', 'sunTwilightCard', 'advisoriesCard', 'marineTextCard']
+    root: CARD_ORDER.slice()
   }
 };
 
@@ -12619,13 +12628,15 @@ function isValidMobileTab(tabId) {
 // Reconciles card visibility + tab bar highlight + the body.mobile-tabs shell class with the
 // current breakpoint and active tab. Safe to call any time after applyLayout has run once.
 function applyMobileTabVisibility() {
-  var narrow = layoutUI.current === 'narrow';
-  document.body.classList.toggle('mobile-tabs', narrow);
+  // body.mobile-tabs stays narrow-only: it carries the phone chrome (safe-area padding, the
+  // condensed topbar), which a desktop window has no use for. Card filtering, by contrast, now
+  // runs at every width — the tab bar is the only thing dividing the cards up.
+  document.body.classList.toggle('mobile-tabs', layoutUI.current === 'narrow');
   MOBILE_TABS.forEach(function (tab) {
     var isActive = tab.id === mobileTabUI.active;
     tab.cards.forEach(function (id) {
       var el = $(id);
-      if (el) el.classList.toggle('mtab-hidden', narrow && !isActive);
+      if (el) el.classList.toggle('mtab-hidden', !isActive);
     });
   });
   document.querySelectorAll('#mobileTabbar .tabbar-item').forEach(function (btn) {
@@ -12641,7 +12652,7 @@ function setMobileTab(tabId) {
   mobileTabUI.active = tabId;
   lsSetJSON('mobileTab', tabId);
   applyMobileTabVisibility();
-  if (layoutUI.current === 'narrow' && changed) {
+  if (changed) {
     window.scrollTo(0, 0);
     // Charts rendered while display:none measured a 0-width container (and fell back to
     // 680px); re-render now that the tab's cards are visible, and give Leaflet its real size.

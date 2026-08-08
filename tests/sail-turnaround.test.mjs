@@ -297,9 +297,10 @@ assert.ok(nearThresholdMiss.turnErrNm > SAIL_HOME_TOLERANCE_NM && nearThresholdM
 assert.ok(harborCurrentFactor(PIER25.lat) < harborCurrentFactor(40.67));
 assert.equal(harborCurrentAt([{ ms: 0, v: 2 }], 0, PIER25.lat), 2 * harborCurrentFactor(PIER25.lat));
 
-// Keep the dense desktop simulator in the wider center rail, with readouts beside the route.
-// A future column rebalance or flex-wrap regression must not silently make it tall again.
-assert.match(html, /wide:\s*\{[\s\S]*?colB:\s*\[[^\]]*'sailSimCard'/);
+// The centre rail that used to hold the simulator is gone with the column dashboard; the
+// simulator now lives on the Water tab, which is what keeps it on a full-width row rather than
+// squeezed into a third of the page. A flex-wrap regression must not silently make it tall again.
+assert.match(html, /\{ id: 'water', cards: \[[^\]]*'sailSimCard'/);
 assert.match(html, /\.sailsim-top\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:/);
 assert.doesNotMatch(physics, /mode:\s*['"]hold['"]/);
 assert.match(html, /True wind angle/);

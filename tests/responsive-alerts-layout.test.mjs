@@ -23,10 +23,12 @@ assert.match(
   /<div class="alerts-pair hidden" id="alertsPair"><\/div>/,
   'the column dashboard should provide the dedicated alert pair container'
 );
+// The column dashboard was retired: the tab bar divides the cards at every width now, so every
+// breakpoint lays out in a single root column and no assignment populates colA/colB/colC.
 assert.match(
   html,
-  /medium:\s*\{[\s\S]*?colB:\s*\['windCard', 'radarCard', 'weatherCard', 'observedCard', 'sunTwilightCard'\],[\s\S]*?alertsPair:\s*\['advisoriesCard', 'marineTextCard'\]/,
-  'the medium assignment should move only the alert cards into the pair row'
+  /medium:\s*\{\s*root:\s*CARD_ORDER\.slice\(\)\s*\},\s*wide:\s*\{\s*root:\s*CARD_ORDER\.slice\(\)\s*\}/,
+  'medium and wide should lay out in one column and let the tabs do the dividing'
 );
 assert.match(
   html,
