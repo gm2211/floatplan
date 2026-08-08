@@ -10,6 +10,7 @@ globalThis.KT_PER_MPH = 0.868976;
 globalThis.WILLY_WALL_HISTORY_URL = 'https://api.weather.com/willy-wall-history';
 globalThis.WILLY_WALL_OBS_URL = 'https://api.weather.com/willy-wall';
 globalThis.WILLY_WALL_TEXT_FALLBACK_URL = 'https://r.jina.ai/willy-wall';
+globalThis.WILLY_WALL_STUCK_GUST_MPH = 3;
 (0, eval)(html.slice(start, end));
 
 const fixture = {
@@ -167,5 +168,24 @@ assert.ok(html.includes('grid-template-areas: "label value" ". meta"'), 'current
 assert.ok(html.includes('class="observed-current-meta" aria-hidden="true">&nbsp;</span>'), 'current states without timestamps must preserve the metadata row');
 assert.ok(html.includes('Robbins Reef NOAA</a>'), 'Robbins Reef source must remain linked');
 assert.ok(html.includes('Willy Wall Wunderground</a>'), 'the original station page must remain linked');
+
+// The station's anemometer failed with the average stuck at 0.0 while the gust peak kept
+// reporting — a whole day of 0.0 sustained under 7-13 kt gusts. Drawing that as a flat zero
+// across the wind chart reads as calm water on a tool people use to decide whether to sail.
+const stuck = { obsTimeUtc: '2026-08-08T17:15:00Z', epoch: 1786209300, winddir: null,
+  imperial: { windSpeed: 0, windGust: 13 } };
+assert.equal(parseWillyWallObservationRow(stuck), null,
+  'a zero average under real gusts is a dead sensor and must not be plotted');
+assert.equal(parseWillyWallObservationSeries({ observations: [stuck, stuck] }).length, 0,
+  'a faulted station must yield no series rather than a flat zero line');
+
+// A real calm still has to survive: near-zero gusts alongside a zero average is just still air.
+const trueCalm = { obsTimeUtc: '2026-08-08T17:15:00Z', epoch: 1786209300, winddir: 200,
+  imperial: { windSpeed: 0, windGust: 1 } };
+assert.ok(parseWillyWallObservationRow(trueCalm), 'a genuine calm must still be reported');
+assert.equal(parseWillyWallObservationRow(trueCalm).sustainedKt, 0);
+// And an ordinary reading is untouched.
+assert.ok(parseWillyWallObservationRow({ obsTimeUtc: '2026-08-08T17:15:00Z', winddir: 266,
+  imperial: { windSpeed: 7, windGust: 12 } }), 'normal observations must be unaffected');
 
 console.log('Willy Wall live observation and fallback assertions passed');

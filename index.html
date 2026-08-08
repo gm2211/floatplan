@@ -1736,6 +1736,10 @@ var WILLY_WALL_SOURCE_URL = 'https://www.wunderground.com/dashboard/pws/KNJNEWJE
 var WILLY_WALL_HISTORY_URL = 'https://api.weather.com/v2/pws/observations/all/1day?stationId=KNJNEWJE43&format=json&units=e&apiKey=e1f10a1e78da46f5b10a1e78da96f525&numericPrecision=decimal';
 var WILLY_WALL_OBS_URL = 'https://api.weather.com/v2/pws/observations/current?stationId=KNJNEWJE43&format=json&units=e&apiKey=e1f10a1e78da46f5b10a1e78da96f525&numericPrecision=decimal';
 var WILLY_WALL_TEXT_FALLBACK_URL = 'https://r.jina.ai/http://www.wunderground.com/dashboard/pws/KNJNEWJE43';
+// Gust (mph) above which a 0.0 sustained reading is treated as a dead anemometer rather than a
+// calm. Real calms report near-zero gusts too; this station spent a whole day at 0.0 sustained
+// under 7-13 kt gusts with a null direction, which no weather produces.
+var WILLY_WALL_STUCK_GUST_MPH = 3;
 var ZONE_MARINE = 'ANZ338';
 var GRID_URL = 'https://api.weather.gov/gridpoints/OKX/33,42';
 var HOURLY_URL = 'https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly';
@@ -2214,6 +2218,11 @@ function parseWillyWallObservationRow(row) {
     var gustMph = gustRaw != null ? parseFloat(gustRaw) : NaN;
     var dirDeg = directionRaw != null ? parseFloat(directionRaw) : NaN;
     if (!isFinite(sustainedMph) || sustainedMph < 0) return null;
+    // A dead anemometer average reads a clean 0.0 while the gust peak keeps reporting, which is
+    // how this station failed: a whole day of 0.0 sustained under 7-13 kt gusts, direction null.
+    // Wind that gusts cannot average zero, so the row is a sensor fault, not a calm. Drop it —
+    // a flat zero drawn across a sailing chart reads as calm water, which is worse than a gap.
+    if (sustainedMph === 0 && isFinite(gustMph) && gustMph >= WILLY_WALL_STUCK_GUST_MPH) return null;
 
     var tsMs = row.obsTimeUtc ? Date.parse(row.obsTimeUtc) : NaN;
     if (!isFinite(tsMs) && row.epoch != null) {
