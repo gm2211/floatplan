@@ -222,7 +222,6 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .club-token-steps a { color: var(--accent); }
 .club-token-row textarea { width: 100%; font-family: ui-monospace, monospace; font-size: 11px; resize: vertical; }
 .club-token-actions { display: flex; gap: 8px; margin-top: 8px; }
-.club-token-expiry { margin: 6px 0 0; color: var(--ink-dim); font-size: 11px; }
 .club-voyage-picker { margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--border); }
 .club-voyage-picker label:not(.club-safety-check) { display: block; margin-bottom: 4px; color: var(--ink-dim); font-size: 12px; }
 .club-voyage-picker select { width: 100%; }
@@ -1270,8 +1269,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
         </div>
       </div>
       <div class="club-voyage-picker hidden" id="clubVoyagePicker">
-        <p class="club-token-expiry" id="clubTokenExpiry"></p>
-        <label for="clubVoyageSelect">Booked voyage</label>
+        <label for="clubVoyageSelect">Voyage you are skippering</label>
         <select id="clubVoyageSelect"></select>
         <p class="club-voyage-match" id="clubVoyageMatch"></p>
         <label class="club-safety-check"><input type="checkbox" id="clubSafetyGearTested"> <span>I tested the required safety gear for this voyage.</span></label>
@@ -10361,6 +10359,31 @@ function chooseAtlanticYachtingVoyage(signups, departureMs, vesselName, nowMs) {
   return candidates[0] || null;
 }
 
+// getMySignups returns every roster row tied to the member, which includes the guests they
+// bring along — that is why one voyage came back two and three times over, under roles the
+// member never held themselves. Only a row where the member is skipper can carry a float plan,
+// and only a voyage that has not already sailed is worth offering, so the picker is narrowed to
+// those and sorted soonest-first.
+function selectAtlanticYachtingSkipperVoyages(rows, nowMs) {
+  nowMs = nowMs == null ? Date.now() : nowMs;
+  var seen = Object.create(null);
+  return (Array.isArray(rows) ? rows : [])
+    .map(normalizeAtlanticYachtingSignup).filter(Boolean)
+    .filter(function (signup) {
+      if (/cancelled/i.test(signup.status)) return false;
+      if (!/skipper/i.test(signup.role)) return false;
+      // A voyage keeps its slot for 30 minutes past its end time, matching the grace period
+      // chooseAtlanticYachtingVoyage already allows for a plan filed just after casting off.
+      if (signup.endMs != null && signup.endMs <= nowMs - 30 * 60000) return false;
+      if (seen[signup.sailId]) return false;
+      seen[signup.sailId] = true;
+      return true;
+    })
+    .sort(function (a, b) {
+      return (a.startMs == null ? Infinity : a.startMs) - (b.startMs == null ? Infinity : b.startMs);
+    });
+}
+
 function getVesselDisplayName() {
   var sel = $('fpVesselSelect');
   var mode = sel ? sel.value : VESSEL_PRESETS[0];
@@ -10497,7 +10520,8 @@ function formatAtlanticYachtingVoyage(signup) {
   var schedule = signup.startMs == null
     ? [signup.date, signup.startTime].filter(Boolean).join(' ')
     : fmtDateTime(signup.startMs) + (signup.endMs == null ? '' : '–' + fmtTime(signup.endMs));
-  return signup.vessel + ' · ' + schedule + ' · ' + signup.role;
+  // Role is not shown: the picker only ever holds voyages this member is skippering.
+  return signup.vessel + ' · ' + schedule;
 }
 
 function selectedAtlanticYachtingVoyage() {
@@ -10532,11 +10556,11 @@ function syncAtlanticYachtingFilingState() {
   picker.classList.toggle('hidden', !connected);
   connectButton.disabled = atlanticYachtingConnection.busy;
   disconnectButton.disabled = atlanticYachtingConnection.busy;
+  // Identity and token life share one line: two separate lines of status above a three-field
+  // form read as clutter, and the remaining minutes only matter next to who is signed in.
   connectionLabel.textContent = connected
-    ? 'Connected as ' + (atlanticYachtingConnection.user.email || 'Club member')
+    ? (atlanticYachtingConnection.user.email || 'Club member') + formatAtlanticYachtingExpiry()
     : (atlanticYachtingConnection.busy ? 'Connecting…' : 'Not connected');
-  var expiryLabel = $('clubTokenExpiry');
-  if (expiryLabel) expiryLabel.textContent = connected ? formatAtlanticYachtingExpiry() : '';
 
   if (connected) {
     var prior = atlanticYachtingConnection.selectedSailId;
@@ -10554,12 +10578,17 @@ function syncAtlanticYachtingFilingState() {
     });
     select.disabled = atlanticYachtingConnection.busy || !atlanticYachtingConnection.signups.length;
     if (atlanticYachtingConnection.selectedSailId) select.value = atlanticYachtingConnection.selectedSailId;
+    // Only say something when there is something to say: the raw Sail ID repeated under a
+    // picker that already names the voyage was noise on every render.
     var chosen = selectedAtlanticYachtingVoyage();
-    match.textContent = chosen
-      ? (suggested && chosen.sailId === suggested.sailId ? 'Best match for this plan · ' : '') + chosen.sailId
-      : 'No upcoming booked voyages found.';
-    if (chosen && state.lastVerdict && state.lastVerdict.level === 'NO-GO') {
-      match.textContent += ' · Filing is blocked while this plan is NO-GO.';
+    if (!chosen) {
+      match.textContent = 'No upcoming voyages you are skippering.';
+    } else if (state.lastVerdict && state.lastVerdict.level === 'NO-GO') {
+      match.textContent = 'Filing is blocked while this plan is NO-GO.';
+    } else if (suggested && chosen.sailId === suggested.sailId) {
+      match.textContent = 'Best match for this plan.';
+    } else {
+      match.textContent = '';
     }
   }
 
@@ -10620,12 +10649,12 @@ function clearAtlanticYachtingToken() {
   atlanticYachtingConnection.selectedSailId = null;
 }
 
+// Rendered as a suffix to the signed-in email, so it stays short and needs no label.
 function formatAtlanticYachtingExpiry() {
   var exp = atlanticYachtingConnection.tokenExpMs;
   if (exp == null) return '';
   var minutes = Math.round((exp - Date.now()) / 60000);
-  if (minutes <= 0) return 'Club token expired — paste a fresh one to keep filing.';
-  return 'Club token valid about ' + minutes + ' more minute' + (minutes === 1 ? '' : 's') + '.';
+  return minutes <= 0 ? ' · token expired' : ' · ' + minutes + ' min left';
 }
 
 function atlanticYachtingApi(action, payload, token, method) {
@@ -10670,14 +10699,12 @@ function loadAtlanticYachtingVoyages() {
   atlanticYachtingConnection.busy = true;
   syncAtlanticYachtingFilingState();
   return atlanticYachtingApi('getMySignups', { email: user.email }, token, 'GET').then(function (result) {
-    atlanticYachtingConnection.signups = (Array.isArray(result.data) ? result.data : [])
-      .map(normalizeAtlanticYachtingSignup).filter(Boolean)
-      .filter(function (signup) { return !/cancelled/i.test(signup.status); });
+    atlanticYachtingConnection.signups = selectAtlanticYachtingSkipperVoyages(result.data);
     atlanticYachtingConnection.selectedSailId = null;
     setAtlanticYachtingStatus(
       atlanticYachtingConnection.signups.length
-        ? 'Booked voyages loaded. Floatplan selected the closest match for this plan.'
-        : 'Connected, but no upcoming booked voyages were found.',
+        ? 'Upcoming voyages you are skippering are loaded.'
+        : 'Connected, but you are not skippering any upcoming voyages.',
       'connected');
   }).finally(function () {
     atlanticYachtingConnection.busy = false;

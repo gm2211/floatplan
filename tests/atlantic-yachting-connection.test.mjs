@@ -39,6 +39,33 @@ assert.equal(
   'vessel match must outrank a slightly closer voyage on another boat'
 );
 
+// getMySignups returns the member's guests too, so the picker used to list one voyage several
+// times over under roles the member never held, alongside voyages that had already sailed.
+const now = Date.UTC(2026, 7, 8, 12, 0);
+const row = (over) => ({ Date: '2026-08-20', StartTime: '5:30 PM', EndTime: '8:15 PM',
+  PrimaryBoatID: 'AY10', role: 'Skipper', ...over });
+const picked = selectAtlanticYachtingSkipperVoyages([
+  row({ sailId: 'SL-001', role: 'Guest' }),
+  row({ sailId: 'SL-001', role: 'Guest' }),
+  row({ sailId: 'SL-001', role: 'Skipper' }),
+  row({ sailId: 'SL-002', role: 'Crew' }),
+  row({ sailId: 'SL-003', Date: '2026-07-13' }),
+  row({ sailId: 'SL-004', Date: '2026-08-25' }),
+  row({ sailId: 'SL-005', SailStatus: 'Cancelled' })
+], now);
+assert.deepEqual(picked.map((s) => s.sailId), ['SL-001', 'SL-004'],
+  'picker must keep only upcoming voyages the member skippers, deduped and soonest-first');
+assert.equal(selectAtlanticYachtingSkipperVoyages([row({ sailId: 'SL-006', role: 'Guest' })], now).length, 0,
+  'a voyage the member only attends as a guest must never be offered');
+assert.equal(selectAtlanticYachtingSkipperVoyages(null, now).length, 0, 'a missing payload must not throw');
+// The 30-minute grace matches chooseAtlanticYachtingVoyage, so a plan can still be filed just
+// after casting off.
+assert.equal(selectAtlanticYachtingSkipperVoyages(
+  [row({ sailId: 'SL-007', Date: '2026-08-08', StartTime: '9:00 AM', EndTime: '11:45 AM' })], now).length, 1,
+  'a voyage that ended fifteen minutes ago must still be filable');
+assert.ok(!/return signup\.vessel \+ ' · ' \+ schedule \+ ' · ' \+ signup\.role/.test(html),
+  'the option label must not repeat a role that is now always the same');
+
 for (const id of ['connectClubBtn', 'disconnectClubBtn', 'clubVoyageSelect',
   'clubSafetyGearTested', 'fileClubPlanBtn', 'viewClubPlanBtn',
   'clubTokenRow', 'clubTokenInput', 'clubTokenSubmitBtn', 'clubTokenCancelBtn']) {
