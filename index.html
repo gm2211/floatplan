@@ -88,7 +88,7 @@ body {
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
 }
-#app, .topbar { max-width: 720px; margin: 0 auto; padding: 0 14px; }
+#app, .topbar, .plan-window-bar { max-width: 720px; margin: 0 auto; padding: 0 14px; }
 h1, h2, h3 { font-weight: 650; margin: 0 0 12px; color: var(--ink); }
 h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-dim); }
 p { margin: 4px 0; }
@@ -188,6 +188,20 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .custom-duration-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .custom-duration-row input[type="number"] { width: 80px; }
 .custom-duration-row .sub { margin: 0; }
+
+/* Global plan-window strip (departure + duration): app chrome, not a card, so it drops the
+   card's border/shadow/radius/background and instead reads as part of the header area. Base
+   rules here are the <700px shape — a plain stacked block, same as these fields looked inside
+   the old Plan card, just without the card box around them. The >=700px layout (single
+   horizontal row, sticky under the tab bar) is layered on in the tabbar media query below,
+   next to the other >=700px chrome rules it has to coordinate z-index with. */
+.plan-window-bar {
+  border-bottom: 1px solid var(--border);
+  padding-top: 8px; padding-bottom: 10px;
+}
+.plan-window-bar .field-row { margin: 6px 0; }
+.plan-window-bar .field-row:first-child { margin-top: 0; }
+.plan-window-bar .custom-duration-row { margin-top: 4px; margin-bottom: 0; }
 
 .plan-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
 .btn-primary, .btn-secondary, .btn-ghost {
@@ -1007,7 +1021,7 @@ pre#marineTextContent { white-space: pre-wrap; font-family: inherit; font-size: 
 @media (min-width: 700px) {
   /* Tabs mean a view holds two or three cards, so the page uses the whole window rather
      than a centred reading column that would waste most of a desktop display. */
-  #app, .topbar, .tabbar { max-width: none; padding-left: 22px; padding-right: 22px; }
+  #app, .topbar, .tabbar, .plan-window-bar { max-width: none; padding-left: 22px; padding-right: 22px; }
 
   /* Slim full-width verdict variant (>=700px, so it applies to both the 2- and 3-column
      layouts): banner goes from a stacked, centered block to an inline row (label + sub),
@@ -1032,7 +1046,7 @@ pre#marineTextContent { white-space: pre-wrap; font-family: inherit; font-size: 
 @media (min-width: 1200px) {
   /* Tabs mean a view holds two or three cards, so the page uses the whole window rather
      than a centred reading column that would waste most of a desktop display. */
-  #app, .topbar, .tabbar { max-width: none; padding-left: 22px; padding-right: 22px; }
+  #app, .topbar, .tabbar, .plan-window-bar { max-width: none; padding-left: 22px; padding-right: 22px; }
 }
 
 /* ============================== iOS-style mobile shell (<700px) ============================== */
@@ -1071,13 +1085,18 @@ body.mobile-tabs footer.app-footer { padding-bottom: 12px; }
 }
 body.mobile-tabs .tabbar { display: flex; }
 /* On a desktop window the bar moves to the top of the content and sticks there while the cards
-   scroll under it — a bottom bar is a thumb-reach affordance that a pointer does not need. The
-   nav sits before <main> in the DOM so this needs no repositioning tricks; on narrow it is
-   position:fixed, where DOM order does not matter. */
+   scroll under it — a bottom bar is a thumb-reach affordance that a pointer does not need. On
+   narrow it stays position:fixed (own rule above), where DOM/wrapper nesting doesn't matter.
+   The actual `position: sticky` lives on the .app-chrome-sticky wrapper (below), not on
+   .tabbar itself: the wrapper also holds .plan-window-bar, and pinning the WRAPPER — rather
+   than giving each of the two bars its own sticky top offset — is what lets the plan-window
+   strip sit flush under the tab bar without hardcoding the tab bar's rendered height. */
 @media (min-width: 700px) {
   .tabbar {
-    display: flex; position: sticky; top: 0; bottom: auto; left: auto; right: auto;
-    margin: 0 auto 18px; max-width: none;
+    /* Cancel the base rule's position:fixed/bottom:0 (the narrow bottom-bar placement) — at
+       this width the tab bar goes back into normal flow so it can sit, in document order,
+       above .plan-window-bar inside the sticky .app-chrome-sticky wrapper. */
+    display: flex; position: static; margin: 0 auto; max-width: none;
     border-top: 0; border-bottom: 0.5px solid var(--border);
     /* 4px here plus each item's own 18px lands the first label on the same 22px gutter the
        cards use, so the bar reads as aligned with the content rather than floating free. */
@@ -1088,6 +1107,25 @@ body.mobile-tabs .tabbar { display: flex; }
     font-size: 12.5px; padding: 10px 18px;
   }
   .tabbar-badge { position: static; margin-left: 1px; }
+
+  .app-chrome-sticky {
+    position: sticky; top: 0; z-index: 900;
+    background: var(--bg);
+  }
+  /* Single horizontal strip of app chrome (not a card): departure control on the left,
+     duration chips beside it, wrapping only if the window is too narrow for both. */
+  .plan-window-bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 24px;
+    border-bottom: 0; padding: 8px 22px 12px;
+    margin: 0 auto 18px;
+  }
+  .plan-window-bar .field-row { margin: 0; flex: 0 0 auto; }
+  .plan-window-bar .departure-row { flex: 1 1 260px; max-width: 420px; }
+  .plan-window-bar .departure-control { justify-content: flex-start; }
+  .plan-window-bar .plan-window-duration-row { gap: 8px; }
+  .plan-window-bar .custom-duration-row {
+    flex: 0 0 auto; margin: 0; padding: 6px 0 0; width: 100%;
+  }
 }
 .tabbar-item {
   flex: 1 1 0; min-width: 0; position: relative;
@@ -1117,6 +1155,13 @@ body.mobile-tabs .tabbar { display: flex; }
     content: ""; display: block; width: 36px; height: 5px; border-radius: 3px;
     background: var(--border); margin: 0 auto 14px;
   }
+
+  /* The strip only has to coexist with the (sticky, top) topbar here — the tab bar is
+     position:fixed at the bottom on narrow, so it never competes for this space. Compact it
+     down from the old in-card spacing so it doesn't crowd the condensed topbar above it. */
+  .plan-window-bar { padding-top: 6px; padding-bottom: 8px; }
+  .plan-window-bar .field-row { margin: 4px 0; gap: 8px; }
+  .plan-window-bar .field-row label { font-size: 12.5px; }
 }
 
 /* At half-window widths, the Alerts tab uses a compact two-up row. Hidden tab content
@@ -1159,7 +1204,7 @@ body.mobile-tabs .tabbar { display: flex; }
 @media print {
   body * { visibility: hidden; }
   #printSummary, #printSummary * { visibility: visible; }
-  #app, .topbar, footer.app-footer, .toast-container, .overlay { display: none !important; }
+  #app, .topbar, .plan-window-bar, footer.app-footer, .toast-container, .overlay { display: none !important; }
   #printSummary { display: block !important; position: absolute; top: 0; left: 0; width: 100%; color: #000; background: #fff; padding: 20px; }
   #printSummary h2 { color: #000; border-bottom: 1px solid #000; padding-bottom: 4px; }
   #printSummary .pf-row { margin: 4px 0; }
@@ -1192,6 +1237,14 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
   </button>
 </div>
 
+<!-- Wraps the tab bar + the global plan-window strip below so both can share ONE sticky
+     anchor at >=700px (see .app-chrome-sticky in CSS) instead of each guessing the other's
+     rendered height for a hand-tuned `top` offset — a wrapper is the only way to stack two
+     sticky siblings without hardcoding a pixel value that silently drifts out of sync the next
+     time tabbar-item padding/font-size changes. At <700px this div is unstyled and inert: the
+     tab bar goes position:fixed (own rule, untouched) and falls out of flow, so the strip below
+     just renders directly under the topbar as if the wrapper weren't there. -->
+<div class="app-chrome-sticky" id="appChromeSticky">
 <nav class="tabbar" id="mobileTabbar" aria-label="Sections">
   <button type="button" class="tabbar-item" data-mtab="plan" aria-label="Plan">
     <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1247,6 +1300,36 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
   </button>
 </nav>
 
+<!-- Departure/duration are global plan-window state: they drive every chart on every tab
+     (wind traces, current timeline, sail simulator, radar window shading, sun/twilight), not
+     just the Plan tab. This strip lives outside #app entirely, alongside .topbar/.tabbar, so
+     MOBILE_TABS/CARD_ORDER tab filtering can never hide it. -->
+<div class="plan-window-bar" id="planWindowBar">
+  <div class="field-row departure-row">
+    <label for="departureInput">Departure</label>
+    <div class="departure-control">
+      <input type="datetime-local" id="departureInput">
+      <div class="meridiem-toggle" role="group" aria-label="Departure AM or PM">
+        <button type="button" data-meridiem="am" aria-label="Set departure to AM" aria-pressed="false">AM</button>
+        <button type="button" data-meridiem="pm" aria-label="Set departure to PM" aria-pressed="false">PM</button>
+      </div>
+    </div>
+  </div>
+  <div class="field-row plan-window-duration-row">
+    <label>Duration</label>
+    <div class="chip-row" id="durationChips">
+      <button class="chip" data-hours="2">2h</button>
+      <button class="chip" data-hours="3">3h</button>
+      <button class="chip" data-hours="custom">Custom</button>
+    </div>
+  </div>
+  <div class="custom-duration-row hidden" id="customDurationRow">
+    <input type="number" id="customDurationInput" min="1" max="12" step="0.0166667">
+    <span class="sub">hours</span>
+  </div>
+</div>
+</div>
+
 <main id="app">
 
   <section class="changed-banner hidden" id="monitorChangedBanner" role="alert">
@@ -1257,28 +1340,6 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
 
   <section class="card" id="planCard">
     <h2>Sail Plan</h2>
-    <div class="field-row departure-row">
-      <label for="departureInput">Departure</label>
-      <div class="departure-control">
-        <input type="datetime-local" id="departureInput">
-        <div class="meridiem-toggle" role="group" aria-label="Departure AM or PM">
-          <button type="button" data-meridiem="am" aria-label="Set departure to AM" aria-pressed="false">AM</button>
-          <button type="button" data-meridiem="pm" aria-label="Set departure to PM" aria-pressed="false">PM</button>
-        </div>
-      </div>
-    </div>
-    <div class="field-row">
-      <label>Duration</label>
-      <div class="chip-row" id="durationChips">
-        <button class="chip" data-hours="2">2h</button>
-        <button class="chip" data-hours="3">3h</button>
-        <button class="chip" data-hours="custom">Custom</button>
-      </div>
-    </div>
-    <div class="custom-duration-row hidden" id="customDurationRow">
-      <input type="number" id="customDurationInput" min="1" max="12" step="0.0166667">
-      <span class="sub">hours</span>
-    </div>
     <div class="sunset-policy hidden" id="sunsetPolicy" role="status" aria-live="polite">
       <p id="sunsetPolicyMessage"></p>
       <label><input type="checkbox" id="sunsetOverrideAck"> <span>I acknowledge the club sunset limit and want to restore the later plan.</span></label>
