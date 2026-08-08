@@ -298,10 +298,22 @@ assert.ok(harborCurrentFactor(PIER25.lat) < harborCurrentFactor(40.67));
 assert.equal(harborCurrentAt([{ ms: 0, v: 2 }], 0, PIER25.lat), 2 * harborCurrentFactor(PIER25.lat));
 
 // The centre rail that used to hold the simulator is gone with the column dashboard; the
-// simulator now lives on the Water tab, which is what keeps it on a full-width row rather than
-// squeezed into a third of the page. A flex-wrap regression must not silently make it tall again.
-assert.match(html, /\{ id: 'water', cards: \[[^\]]*'sailSimCard'/);
+// simulator now lives on its own Sim tab, which is what keeps it on a full-width row rather than
+// squeezed into a narrow rail alongside other cards. A flex-wrap regression must not silently
+// make it tall again.
+assert.match(html, /\{ id: 'sim', cards: \[[^\]]*'sailSimCard'/);
 assert.match(html, /\.sailsim-top\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:/);
+
+// Every tab declared in MOBILE_TABS must have a matching button in the markup (and vice versa
+// isn't checked here, but a stray button with no data entry would just be dead UI, not a crash) -
+// this guards against a future tab being added to one but not the other.
+const mobileTabsBlock = html.match(/var MOBILE_TABS = \[([\s\S]*?)\];/)[1];
+const declaredTabIds = [...mobileTabsBlock.matchAll(/id:\s*'([^']+)'/g)].map(function (m) { return m[1]; });
+assert.ok(declaredTabIds.includes('sim'), 'MOBILE_TABS should declare the sim tab');
+declaredTabIds.forEach(function (tabId) {
+  assert.match(html, new RegExp('data-mtab="' + tabId + '"'),
+    `MOBILE_TABS id '${tabId}' should have a matching tabbar button`);
+});
 assert.doesNotMatch(physics, /mode:\s*['"]hold['"]/);
 assert.match(html, /True wind angle/);
 assert.match(html, /Working reach · ['"] \+ Math\.round\(SAIL_REACH_WEAVE_DEG\)/);

@@ -1215,6 +1215,14 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     </svg>
     <span>Water</span>
   </button>
+  <button type="button" class="tabbar-item" data-mtab="sim" aria-label="Sim">
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="8"></circle>
+      <path d="M12 4v3M12 17v3M4 12h3M17 12h3"></path>
+      <circle cx="12" cy="12" r="1.5"></circle>
+    </svg>
+    <span>Sim</span>
+  </button>
   <button type="button" class="tabbar-item" data-mtab="sky" aria-label="Sky">
     <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M12 2v2"></path>
@@ -12635,7 +12643,8 @@ function enforceDesktopLayoutInvariant() {
 var MOBILE_TABS = [
   { id: 'plan', cards: ['verdictCard', 'planCard'] },
   { id: 'wind', cards: ['windCard', 'observedCard'] },
-  { id: 'water', cards: ['directionCard', 'timelineCard', 'sailSimCard'] },
+  { id: 'water', cards: ['directionCard', 'timelineCard'] },
+  { id: 'sim', cards: ['sailSimCard'] },
   { id: 'sky', cards: ['weatherCard', 'radarCard', 'sunTwilightCard'] },
   { id: 'alerts', cards: ['advisoriesCard', 'marineTextCard'] }
 ];
