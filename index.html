@@ -522,6 +522,17 @@ th { color: var(--ink-dim); font-weight: 600; }
 #windTable tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--ink) 5%, transparent); }
 #windTable .wind-dir-cell { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
 .wind-dir-arrow { flex: 0 0 auto; }
+/* "All" hourly table (item: one column per model): each model's cell gets a left border in
+   that model's own chart-trace color (--model-color, set inline per cell) so a column reads
+   as visually tied to its line on the chart above without a separate legend. Sustained/gust
+   stack as two lines rather than sitting side by side — four models * two numbers is already
+   a lot of horizontal room, and a stacked pair stays narrow enough that the table only needs
+   to scroll on the narrowest phones. */
+.wind-all-cell { border-left: 3px solid var(--model-color, transparent); padding-top: 4px; padding-bottom: 4px; }
+.wind-all-sustained { display: block; }
+.wind-all-gust { display: block; font-size: 10px; color: var(--ink-dim); }
+#windTable th.wind-all-th { white-space: nowrap; }
+#windTable th.wind-all-th .line-key { margin-right: 4px; }
 
 .weather-headline { font-size: 17px; line-height: 1.35; font-weight: 680; color: var(--ink); margin: 0 0 5px; }
 .weather-headline .wx-alert { color: var(--red); font-weight: 700; }
@@ -1563,7 +1574,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     <div class="collapsible-body hidden" id="windHourlyBody">
       <div class="table-wrap">
         <table id="windTable">
-          <thead><tr><th>Time</th><th>Dir</th><th class="num">Sustained</th><th class="num">Gust</th></tr></thead>
+          <thead><tr id="windTableHeadRow"><th>Time</th><th>Dir</th><th class="num">Sustained</th><th class="num">Gust</th></tr></thead>
           <tbody id="windTableBody"></tbody>
         </table>
       </div>
@@ -6860,9 +6871,28 @@ function rerenderWindCard() {
 // Model-aware (item 5c): sources its rows from windRowsForModel(state.windModel, ...) — the
 // same NWS-gridpoint-with-hourly-text-fallback logic the chart uses (buildNwsWindRows), so
 // switching the model chip re-renders both together via rerenderWindCard(). "All" has no
-// single sustained/gust pair to tabulate, so it shows a pick-a-model note instead of an
-// empty table. Row coloring uses windCellClass's sustained-only rule (item 1) — a 14 kt
-// sustained hour with a big gust no longer reads as REEF here either.
+// single sustained/gust pair to tabulate one row per, so instead of a pick-a-model note it
+// renders a comparison table: one Time column plus one column per WIND_MODEL_ORDER entry,
+// union-of-hours across all four models (a model with no reading for a given hour gets an
+// em-dash rather than shrinking the row list to the intersection). Row coloring uses
+// windCellClass's sustained-only rule (item 1) — a 14 kt sustained hour with a big gust no
+// longer reads as REEF here either; the "all" columns skip that per-row hazard tint since a
+// single row can straddle four different models' verdicts and painting one row-level color
+// would misrepresent whichever models disagree.
+
+// Pure: builds the row set for the "All" comparison table — one entry per hour that ANY
+// model has data for, each carrying that model's row (or null) keyed by WIND_MODEL_ORDER.
+function windAllModelHourlyRows(winStart, winEnd) {
+  var byModel = {}, msSet = {};
+  WIND_MODEL_ORDER.forEach(function (mk) {
+    var rows = windRowsForModel(mk, winStart, winEnd);
+    var byMs = {};
+    rows.forEach(function (r) { byMs[r.ms] = r; msSet[r.ms] = true; });
+    byModel[mk] = byMs;
+  });
+  var msList = Object.keys(msSet).map(Number).sort(function (a, b) { return a - b; });
+  return { msList: msList, byModel: byModel };
+}
 
 function renderWindHourlyTable(hourlyPeriods, departureMs, returnMs, limits, chartStart, chartEnd) {
   var winStart = departureMs - 2 * 3600000, winEnd = returnMs + 2 * 3600000;
@@ -6896,27 +6926,58 @@ function renderWindHourlyTable(hourlyPeriods, departureMs, returnMs, limits, cha
 
   // windSummary describes the chart directly above it, not just the narrower hourly-table
   // slice. Using table rows here produced the contradictory “No wind data available” while
-  // the same model visibly had later data in the chart's longer domain.
-  var summaryRows = model === 'all' ? [] : windRowsForModel(model, chartStart, chartEnd);
+  // the same model visibly had later data in the chart's longer domain. For "all", the
+  // summary rolls every model's readings into one combined spread instead of pointing the
+  // user at a single model — the per-model breakdown now lives in the table columns below.
+  var summaryRows = model === 'all'
+    ? WIND_MODEL_ORDER.reduce(function (acc, mk) { return acc.concat(windRowsForModel(mk, chartStart, chartEnd)); }, [])
+    : windRowsForModel(model, chartStart, chartEnd);
   if (!summaryRows.length && approx) summaryRows = rows;
   var sustainedVals = summaryRows.map(function (r) { return r.sustained; }).filter(function (v) { return v != null; });
   var gustVals = summaryRows.map(function (r) { return r.gust; }).filter(function (v) { return v != null; });
   var dirVals = summaryRows.map(function (r) { return r.dir; }).filter(function (v) { return v != null; });
   var summaryParts = [];
   if (dirVals.length) summaryParts.push('Dominant ' + degToCompass(vectorMeanDirection(dirVals)));
-  if (sustainedVals.length) summaryParts.push('Sustained ' + round1(Math.min.apply(null, sustainedVals)) + '–' + round1(Math.max.apply(null, sustainedVals)) + ' kt');
+  if (sustainedVals.length) summaryParts.push('Sustained ' + round1(Math.min.apply(null, sustainedVals)) + '–' + round1(Math.max.apply(null, sustainedVals)) + ' kt' + (model === 'all' ? ' across models' : ''));
   if (gustVals.length) summaryParts.push('Max gust ' + round1(Math.max.apply(null, gustVals)) + ' kt');
   var noSummary = model === 'all'
-    ? 'Pick a specific model above to see its summary and hourly table.'
+    ? 'No wind model data in the displayed chart window.'
     : (!state.windModelSeries && model !== 'nws'
       ? 'Loading ' + (WIND_MODEL_LABELS[model] || model) + ' model data…'
       : 'No ' + (WIND_MODEL_LABELS[model] || model) + ' provider data in the displayed chart window.');
   $('windSummary').textContent = summaryParts.length ? summaryParts.join(' · ') : noSummary;
 
+  var headRow = $('windTableHeadRow');
   var tbody = $('windTableBody');
   if (model === 'all') {
-    tbody.innerHTML = '<tr><td colspan="4">Pick a specific model above to see the hourly table.</td></tr>';
+    // Header names each model and reuses windLegendLineSvg with that model's own
+    // WIND_MODEL_COLOR/DASH/OPACITY — the exact swatch already drawn in the chart legend
+    // above, so a column's identity matches its trace at a glance.
+    if (headRow) {
+      headRow.innerHTML = '<th>Time</th>' + WIND_MODEL_ORDER.map(function (mk) {
+        return '<th class="num wind-all-th">' +
+          windLegendLineSvg(WIND_MODEL_COLOR[mk], WIND_MODEL_DASH[mk], 2, WIND_MODEL_OPACITY[mk]) +
+          WIND_MODEL_LABELS[mk] + '</th>';
+      }).join('');
+    }
+    var allData = windAllModelHourlyRows(winStart, winEnd);
+    tbody.innerHTML = allData.msList.map(function (ms) {
+      var cells = WIND_MODEL_ORDER.map(function (mk) {
+        var r = allData.byModel[mk][ms];
+        // Missing model data at this hour renders as an em-dash, not blank/NaN — same
+        // convention the single-model columns already use.
+        var sustainedHtml = r && r.sustained != null ? round1(r.sustained) : '—';
+        var gustHtml = r && r.gust != null ? ('g' + round1(r.gust)) : '—';
+        return '<td class="num wind-all-cell" style="--model-color:' + WIND_MODEL_COLOR[mk] + '">' +
+          '<span class="wind-all-sustained">' + sustainedHtml + '</span>' +
+          '<span class="wind-all-gust">' + gustHtml + '</span></td>';
+      }).join('');
+      return '<tr><td>' + fmtTime(ms) + '</td>' + cells + '</tr>';
+    }).join('') || '<tr><td colspan="' + (WIND_MODEL_ORDER.length + 1) + '">No provider data for any model near the sail window.</td></tr>';
   } else {
+    if (headRow) {
+      headRow.innerHTML = '<th>Time</th><th>Dir</th><th class="num">Sustained</th><th class="num">Gust</th>';
+    }
     tbody.innerHTML = rows.map(function (r) {
       var cls = windCellClass(r.sustained, r.gust, limits);
       var dirDeg = r.dir;
