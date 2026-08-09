@@ -6626,6 +6626,13 @@ var WIND_MODEL_DASH = { nws: 'none', gfs_seamless: '5,3', ecmwf_ifs025: '2,2', i
 var WIND_MODEL_OPACITY = { nws: 1, gfs_seamless: 0.85, ecmwf_ifs025: 0.85, icon_seamless: 0.85 };
 var WIND_MODEL_COLOR = { nws: 'var(--accent)', gfs_seamless: 'var(--violet)', ecmwf_ifs025: 'var(--orange)', icon_seamless: 'var(--navy)' };
 var WIND_GUST_DASH = '7,3,1,3';
+// Measured wind traces (Robbins Reef, Willy Wall) only exist in the past, so they can only
+// occupy the slice of the chart to the left of NOW. When departure is soon, NOW sits right
+// next to domStart and that slice collapses to a sliver — widen the chart's start by up to
+// this much so a soon-to-depart sail still shows real width of measured history. Doesn't
+// need to be huge: past this lookback the trace is stale enough that seeing more of it
+// wouldn't change anyone's read of current conditions.
+var WIND_MEASURED_LOOKBACK_MS = 6 * 3600000;
 
 // Pure: one row PER HOUR boundary in [domStart,domEnd), NOT one row per NWS validTime span
 // start. A gridpoint quantitative-value layer packs consecutive identical-value hours into
@@ -7534,13 +7541,27 @@ function renderWindHourlyTable(hourlyPeriods, departureMs, returnMs, limits, cha
 
 /* ============================== Wind card orchestrator ============================== */
 
+// The forecast window starts 2h before departure, but measured observations only exist to
+// the left of NOW — so a sail departing soon leaves NOW right on top of domStart and the
+// measured traces no width to draw in. Pull the chart's start back toward NOW (never past
+// WIND_MEASURED_LOOKBACK_MS) so the traces get room; the model note and hourly table stay
+// on the forecast window since that's what they describe, so only the chart gets this. If
+// NOW is already further back than the lookback (planning tomorrow's sail, say), there's
+// nothing to gain — no measured point could land in the extension anyway, so skip it.
+function windChartStartMs(domStart, nowMs) {
+  if (nowMs == null || !isFinite(nowMs)) return domStart;
+  if (nowMs <= domStart - WIND_MEASURED_LOOKBACK_MS) return domStart;
+  return Math.min(domStart, Math.max(nowMs - WIND_MEASURED_LOOKBACK_MS, domStart - WIND_MEASURED_LOOKBACK_MS));
+}
+
 function renderWindCard(hourlyPeriods, departureMs, returnMs, limits) {
   limits = limits || DEFAULT_LIMITS;
   renderWindNow(state.observedRaw, limits);
+  var nowMs = Date.now();
   var domStart = departureMs - 2 * 3600000;
   var domEnd = departureMs + 18 * 3600000;
   renderWindModelNote(domStart, domEnd);
-  renderWindChart(domStart, domEnd, departureMs, returnMs, Date.now(), limits);
+  renderWindChart(windChartStartMs(domStart, nowMs), domEnd, departureMs, returnMs, nowMs, limits);
   renderWindHourlyTable(hourlyPeriods, departureMs, returnMs, limits, domStart, domEnd);
 }
 function valueAtMs(series, atMs) {
