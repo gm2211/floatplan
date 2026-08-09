@@ -95,16 +95,31 @@ assert.ok(html.includes('id="closeClubFilePanelBtn"'), 'the panel must have its 
 assert.ok(html.includes('id="fileClubPlanBtn" disabled>File with Atlantic Yachting</button>'),
   'the in-panel primary action must keep its existing filing label');
 
-/* ============================== Change 4: toolbar, top-of-card, Print/Copy gone ============================== */
+/* ============================== Change 4: toolbar, bottom-of-card, Print/Copy gone ============================== */
 
 assert.ok(!html.includes('id="printPlanBtn"'), 'the Print button must be removed');
 assert.ok(!html.includes('id="copyPlanBtn"'), 'the Copy-as-text button must be removed');
 assert.ok(!html.includes('importCodePanel'), 'the old importCodePanel id must be fully retired');
 
+// The toolbar sits last in source, after both columns. On the phone card these wrappers are
+// plain display:contents with no grid, so source order alone puts the actions at the bottom.
 const actionsColIndex = planCardHtml.indexOf('<div class="plan-actions-col">');
 const planAsideIndex = planCardHtml.indexOf('<div class="plan-aside">');
-assert.ok(actionsColIndex >= 0 && planAsideIndex >= 0 && actionsColIndex < planAsideIndex,
-  'the action toolbar must sit above the form/aside, not below it');
+const planMainIndex = planCardHtml.indexOf('<div class="plan-main">');
+assert.ok(actionsColIndex >= 0 && planAsideIndex >= 0 && planMainIndex >= 0,
+  'the toolbar, aside and main wrappers must all exist');
+assert.ok(actionsColIndex > planAsideIndex && actionsColIndex > planMainIndex,
+  'the action toolbar must sit below the form/aside and the main column, not above them');
+const sourcesIndex = planCardHtml.indexOf('<details class="source-links">');
+assert.ok(sourcesIndex > actionsColIndex,
+  'the toolbar must still come before the Sources row, so Sources stays the last thing in the card');
+
+// The desktop card places by named grid area, so its row order must be moved to match rather
+// than left relying on source order.
+assert.ok(html.includes('grid-template-areas: "head head" "aside main" "actions actions" "src src"'),
+  'the fit-shell plan grid must place the actions row below the aside/main row');
+assert.ok(html.includes('grid-template-rows: auto minmax(0, 1fr) auto auto;'),
+  'the aside/main row must be the flexible one, with the toolbar row sized to content');
 
 /* ============================== Change 5: Plan Code row is gated on generation ============================== */
 

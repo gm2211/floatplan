@@ -1440,20 +1440,22 @@ body.mobile-tabs .tabbar { display: flex; }
     grid-area: main; display: flex; flex-direction: column; min-height: 0; min-width: 0;
   }
 
-  /* Plan: a full-width action toolbar under the heading, then the form on the left and the
-     panels/status lines on the right. Same "#app > #planCard" specificity bump as windCard
-     above.
+  /* Plan: the form on the left and the panels/status lines on the right, then a full-width
+     action toolbar along the bottom above Sources. Same "#app > #planCard" specificity bump as
+     windCard above.
      The .plan-actions-col/.plan-aside/.plan-main split follows the card's existing DOM order
      exactly — a display:contents wrapper relabels a contiguous run of children, it does not
      reparent them, so any grouping that crossed the source order would have to move nodes and
      would reorder the phone card along with it. Hence the status lines (monitorStatus,
      planChangedChip, savePlanHint) ride along at the bottom of the right column rather than
-     under the form where they read more naturally. */
+     under the form where they read more naturally.
+     The toolbar sits last in source too, so the phone card (where these wrappers are plain
+     display:contents with no grid) puts the actions at the bottom without a second rule. */
   body.fit-shell #app > #planCard {
     display: grid; min-height: 0;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-rows: auto auto minmax(0, 1fr) auto;
-    grid-template-areas: "head head" "actions actions" "aside main" "src src";
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "head head" "aside main" "actions actions" "src src";
     column-gap: 20px;
   }
   body.fit-shell #planCard > h2 { grid-area: head; }
@@ -1652,18 +1654,6 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
 
   <section class="card" id="planCard">
     <h2>Sail Plan</h2>
-    <div class="plan-actions-col">
-    <div class="plan-actions">
-      <button class="btn-primary" id="savePlanBtn">Generate float plan</button>
-      <button class="btn-secondary" id="importCodeBtn">Import</button>
-      <button class="btn-secondary" id="openClubFilePanelBtn">Atlantic Yachting&hellip;</button>
-      <button class="btn-secondary" id="refreshBtn">Refresh</button>
-      <label class="toggle-row">
-        <input type="checkbox" id="monitorToggle" disabled>
-        <span>Monitor every <span id="monitorIntervalLabel">10</span> min</span>
-      </label>
-    </div>
-    </div>
     <div class="plan-aside">
     <!-- Departure lives in the global chrome strip because every tab's charts are drawn around
          it. Duration stays here by choice: it is set once while planning, and hoisting it too
@@ -1796,6 +1786,18 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <div class="plan-code-actions"><button type="button" class="btn-primary" id="previewPlanCodeBtn">Review code</button></div>
       <div class="plan-code-error hidden" id="planCodeError" role="alert"></div>
       <div class="plan-code-preview hidden" id="planCodePreview"></div>
+    </div>
+    </div>
+    <div class="plan-actions-col">
+    <div class="plan-actions">
+      <button class="btn-primary" id="savePlanBtn">Generate float plan</button>
+      <button class="btn-secondary" id="importCodeBtn">Import</button>
+      <button class="btn-secondary" id="openClubFilePanelBtn">Atlantic Yachting&hellip;</button>
+      <button class="btn-secondary" id="refreshBtn">Refresh</button>
+      <label class="toggle-row">
+        <input type="checkbox" id="monitorToggle" disabled>
+        <span>Monitor every <span id="monitorIntervalLabel">10</span> min</span>
+      </label>
     </div>
     </div>
     <details class="source-links"><summary>Sources</summary><div class="source-links-body"><span class="computed-source">Course recommendation uses</span><a id="srcPlanCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA current predictions</a></div></details>
