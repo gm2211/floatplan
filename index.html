@@ -7697,15 +7697,28 @@ function findModelSampleForMs(modelKey, ms) {
 // Weather card must never go blank because one source lacks coverage. Wind fields are never
 // touched here; the Wind card owns wind.
 function applyWeatherSource(rows, sourceKey) {
-  if (!sourceKey || sourceKey === 'nws') return rows;
+  if (!sourceKey || sourceKey === 'nws') {
+    // Passthrough path still stamps baseTempF/basePop from the row's own (NWS) values so every
+    // row reaching the renderer — regardless of selected source — carries the NWS baseline that
+    // weatherSpreadForRow relies on.
+    return rows.map(function (r) {
+      return Object.assign({}, r, { baseTempF: r.tempF, basePop: r.pop });
+    });
+  }
   var samples = state.windModelSeries && state.windModelSeries[sourceKey];
-  if (!samples || !samples.length) return rows;
+  if (!samples || !samples.length) {
+    return rows.map(function (r) {
+      return Object.assign({}, r, { baseTempF: r.tempF, basePop: r.pop });
+    });
+  }
   return rows.map(function (r) {
     var sample = findModelSampleForMs(sourceKey, r.ms);
-    if (!sample) return r;
+    if (!sample) return Object.assign({}, r, { baseTempF: r.tempF, basePop: r.pop });
     var tag = wmoCodeToTag(sample.weatherCode, r.isDaytime);
     var text = wmoCodeToText(sample.weatherCode);
     return Object.assign({}, r, {
+      baseTempF: r.tempF,
+      basePop: r.pop,
       tempF: sample.tempF != null ? sample.tempF : r.tempF,
       pop: sample.pop != null ? sample.pop : r.pop,
       humidity: sample.humidity != null ? sample.humidity : r.humidity,
@@ -7713,7 +7726,11 @@ function applyWeatherSource(rows, sourceKey) {
       tag: tag != null ? tag : r.tag,
       // Recomputed from the model's own WMO code rather than left as the NWS value — otherwise
       // the red thunder styling could contradict the condition this source is now displaying.
-      isThunder: sample.weatherCode === 95 || sample.weatherCode === 96 || sample.weatherCode === 99
+      // A null code (model has a sample for this hour but no weather code) falls back to the
+      // NWS flag instead of silently clearing it.
+      isThunder: sample.weatherCode != null
+        ? (sample.weatherCode === 95 || sample.weatherCode === 96 || sample.weatherCode === 99)
+        : r.isThunder
     });
   });
 }
@@ -7722,11 +7739,17 @@ function applyWeatherSource(rows, sourceKey) {
 // Compares NWS's own row values against each fallback model's sample for the same hour.
 // Sources with no value for this hour are simply excluded from the min/max, never treated as
 // 0 — a model that lacks coverage for an hour must not manufacture a false spread.
+// The NWS baseline is read from r.baseTempF/r.basePop (falling back to r.tempF/r.pop when
+// absent) rather than r.tempF/r.pop directly, precisely so selecting a non-NWS source chip
+// cannot change what the spread means: applyWeatherSource overwrites tempF/pop with the
+// selected model's values, but always preserves the original NWS values as baseTempF/basePop.
 function weatherSpreadForRow(r) {
   var temps = [], pops = [];
-  if (r.tempF != null) temps.push(r.tempF);
-  if (r.pop != null) pops.push(r.pop);
-  var sourceCount = (r.tempF != null || r.pop != null) ? 1 : 0;
+  var baseTempF = r.baseTempF != null ? r.baseTempF : r.tempF;
+  var basePop = r.basePop != null ? r.basePop : r.pop;
+  if (baseTempF != null) temps.push(baseTempF);
+  if (basePop != null) pops.push(basePop);
+  var sourceCount = (baseTempF != null || basePop != null) ? 1 : 0;
   WIND_FALLBACK_MODEL_ORDER.forEach(function (modelKey) {
     var sample = findModelSampleForMs(modelKey, r.ms);
     if (!sample) return;

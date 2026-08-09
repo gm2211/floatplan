@@ -59,13 +59,21 @@ function nwsRow(ms, overrides) {
   }, overrides || {});
 }
 
-// 'nws' source: rows returned unchanged (same reference even).
+// 'nws' source: field values pass through unchanged, but baseTempF/basePop are stamped from
+// the row's own tempF/pop so weatherSpreadForRow always has an NWS baseline to compare against.
 const nwsRows = [nwsRow(0), nwsRow(hour)];
-assert.equal(context.applyWeatherSource(nwsRows, 'nws'), nwsRows);
+const nwsPassthrough = context.applyWeatherSource(nwsRows, 'nws');
+assert.equal(nwsPassthrough[0].tempF, 70);
+assert.equal(nwsPassthrough[0].pop, 10);
+assert.equal(nwsPassthrough[0].baseTempF, 70, 'nws passthrough must stamp baseTempF from the row tempF');
+assert.equal(nwsPassthrough[0].basePop, 10, 'nws passthrough must stamp basePop from the row pop');
 
-// Missing model series: rows returned unchanged.
+// Missing model series: field values pass through unchanged, base fields still stamped.
 state.windModelSeries = {};
-assert.equal(context.applyWeatherSource(nwsRows, 'gfs_seamless'), nwsRows);
+const missingSeries = context.applyWeatherSource(nwsRows, 'gfs_seamless');
+assert.equal(missingSeries[0].tempF, 70);
+assert.equal(missingSeries[0].baseTempF, 70, 'missing-series path must stamp baseTempF from the row tempF');
+assert.equal(missingSeries[0].basePop, 10, 'missing-series path must stamp basePop from the row pop');
 
 // Model covers hour 0 only; hour 1 (3600000) has no sample and must keep its NWS values.
 state.windModelSeries = {
@@ -81,17 +89,22 @@ assert.equal(overridden[1].tempF, 70, 'hour with no model sample must keep the N
 assert.equal(overridden[1].pop, 10, 'hour with no model sample must keep the NWS pop');
 assert.equal(overridden[1].tag, 'sun', 'hour with no model sample must keep the NWS tag');
 
-// isThunder recomputed from the WMO code, not left as the NWS value.
+// isThunder recomputed from the WMO code, not left as the NWS value — except when the model
+// sample's weatherCode is null, in which case the NWS isThunder flag must be preserved rather
+// than silently wiped to false.
 state.windModelSeries = {
   gfs_seamless: [
-    { ms: 0, tempF: 75, pop: 5, humidity: 50, weatherCode: 95 },   // thunderstorm code
-    { ms: hour, tempF: 75, pop: 5, humidity: 50, weatherCode: 3 }  // plain cloudy, not thunder
+    { ms: 0, tempF: 75, pop: 5, humidity: 50, weatherCode: 95 },      // thunderstorm code
+    { ms: hour, tempF: 75, pop: 5, humidity: 50, weatherCode: 3 },    // plain cloudy, not thunder
+    { ms: 2 * hour, tempF: 75, pop: 5, humidity: 50, weatherCode: null } // sample present, no code
   ]
 };
 const thunderRows = context.applyWeatherSource(
-  [nwsRow(0, { isThunder: false }), nwsRow(hour, { isThunder: true })], 'gfs_seamless');
+  [nwsRow(0, { isThunder: false }), nwsRow(hour, { isThunder: true }), nwsRow(2 * hour, { isThunder: true })],
+  'gfs_seamless');
 assert.equal(thunderRows[0].isThunder, true, 'WMO 95 must flip isThunder true even if NWS said false');
 assert.equal(thunderRows[1].isThunder, false, 'a non-thunder WMO code must clear isThunder even if NWS said true');
+assert.equal(thunderRows[2].isThunder, true, 'a null weatherCode must keep the NWS isThunder flag, not wipe it to false');
 
 /* ============================== weatherSpreadForRow / weatherSpreadLabel ============================== */
 
@@ -133,5 +146,33 @@ state.windModelSeries = {
 const nullIgnored = context.weatherSpreadForRow(nwsRow(0, { tempF: 71, pop: 11 }));
 assert.equal(nullIgnored.tempSpreadF, 1, 'null-valued sources must be excluded, not counted as 0');
 assert.equal(nullIgnored.sourceCount, 2, 'only sources with an actual value count toward sourceCount');
+
+// sourceCount must not be inflated: with NWS plus exactly three models all having data for the
+// hour, sourceCount === 4 no matter which source is currently selected in the UI.
+state.windModelSeries = {
+  gfs_seamless: [{ ms: 0, tempF: 74, pop: 20, humidity: 55, weatherCode: 3 }],
+  ecmwf_ifs025: [{ ms: 0, tempF: 73, pop: 18, humidity: 55, weatherCode: 3 }],
+  icon_seamless: [{ ms: 0, tempF: 72, pop: 22, humidity: 55, weatherCode: 3 }]
+};
+const fourSourceNwsRow = context.applyWeatherSource([nwsRow(0, { tempF: 70, pop: 10 })], 'nws')[0];
+const fourSourceGfsRow = context.applyWeatherSource([nwsRow(0, { tempF: 70, pop: 10 })], 'gfs_seamless')[0];
+assert.equal(context.weatherSpreadForRow(fourSourceNwsRow).sourceCount, 4, 'NWS + 3 models with data must count as 4 sources under the nws chip');
+assert.equal(context.weatherSpreadForRow(fourSourceGfsRow).sourceCount, 4, 'NWS + 3 models with data must still count as 4 sources under a non-nws chip');
+
+// Regression for the model-agreement contamination defect: the spread reported for a given hour
+// must be identical whichever source chip is selected, because weatherSpreadForRow always reads
+// the NWS baseline from baseTempF/basePop rather than the (possibly overridden) tempF/pop.
+state.windModelSeries = {
+  gfs_seamless: [{ ms: 0, tempF: 84, pop: 45, humidity: 55, weatherCode: 61 }],
+  ecmwf_ifs025: [{ ms: 0, tempF: 80, pop: 40, humidity: 55, weatherCode: 61 }],
+  icon_seamless: [{ ms: 0, tempF: 78, pop: 35, humidity: 55, weatherCode: 61 }]
+};
+const baseRowForAgreement = nwsRow(0, { tempF: 70, pop: 10 });
+const spreadUnderNws = context.weatherSpreadForRow(context.applyWeatherSource([baseRowForAgreement], 'nws')[0]);
+const spreadUnderGfs = context.weatherSpreadForRow(context.applyWeatherSource([baseRowForAgreement], 'gfs_seamless')[0]);
+assert.equal(spreadUnderGfs.tempSpreadF, spreadUnderNws.tempSpreadF, 'tempSpreadF must be identical regardless of the selected source chip');
+assert.equal(spreadUnderGfs.popSpreadPct, spreadUnderNws.popSpreadPct, 'popSpreadPct must be identical regardless of the selected source chip');
+assert.equal(spreadUnderGfs.sourceCount, spreadUnderNws.sourceCount, 'sourceCount must be identical regardless of the selected source chip');
+assert.equal(spreadUnderNws.tempSpreadF, 84 - 70, 'NWS baseline (70) must always anchor the spread, not the overridden GFS tempF');
 
 console.log('Weather multi-source assertions passed');
