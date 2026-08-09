@@ -246,19 +246,17 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .club-file-actions a { display: inline-flex; align-items: center; text-decoration: none; }
 .club-file-status { margin: 8px 0 0; color: var(--ink-dim); font-size: 11px; line-height: 1.45; }
 .club-file-status.invalid { color: var(--red); }
+.club-file-head-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 
-.share-plan-panel {
+/* Import code shares the club panel's compact-box treatment (border, rounded corners, tinted
+   background) so the two toolbar-triggered panels read as one visual family. */
+.club-file-panel, .import-code-panel {
   margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px;
   background: color-mix(in srgb, var(--bg) 72%, var(--card));
 }
-.share-plan-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.share-plan-panel-head strong { display: block; color: var(--ink); font-size: 14px; }
-.share-plan-panel-head .sub { margin-top: 2px; max-width: 66ch; }
-.share-plan-switcher { margin-top: 10px; }
-.share-plan-intro { margin: 8px 0 0; max-width: 68ch; }
-.share-plan-section { padding: 10px 0; border-top: 1px dashed var(--border); }
-.share-plan-section:first-of-type { border-top: 0; padding-top: 0; }
-.share-plan-section-title { margin-bottom: 6px; color: var(--ink); font-size: 13px; font-weight: 700; }
+.import-code-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.import-code-head strong { display: block; color: var(--ink); font-size: 14px; }
+.import-code-panel .sub { margin-top: 6px; max-width: 66ch; }
 .plan-code-field {
   display: block; width: 100%; min-height: 62px; margin-top: 8px; resize: vertical;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px;
@@ -272,27 +270,25 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .plan-code-preview-item { font-size: 12px; }
 .plan-code-preview-item span { display: block; color: var(--ink-dim); font-size: 10px; }
 .plan-code-privacy { margin: 8px 0 0; color: var(--ink-dim); font-size: 10.5px; }
-.shared-plan-comparison { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--border); }
-.shared-plan-comparison-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.shared-plan-comparison-head strong { font-size: 13px; }
-.comparison-state {
-  border-radius: 999px; padding: 3px 8px; font-size: 10px; font-weight: 700;
-  letter-spacing: 0.04em; text-transform: uppercase;
-}
-.comparison-state.stable { background: var(--green-bg); color: var(--green); }
-.comparison-state.changed { background: var(--yellow-bg); color: var(--yellow); }
-.comparison-state.worse { background: var(--red-bg); color: var(--red); }
-.comparison-list { list-style: none; margin: 8px 0 0; padding: 0; }
-.comparison-list li {
-  display: flex; justify-content: space-between; gap: 12px; padding: 5px 0;
-  border-bottom: 1px dashed var(--border); font-size: 12px;
-}
-.comparison-list li:last-child { border-bottom: 0; }
-.comparison-list .compare-label { color: var(--ink-dim); }
-.comparison-list .compare-value { text-align: right; }
 @media (max-width: 440px) {
   .plan-code-preview-grid { grid-template-columns: 1fr; }
 }
+
+/* Single-row live Plan Code strip at the bottom of the card. The code itself scrolls within
+   its own row (overflow-x: auto) instead of widening the card or forcing page scroll — it can
+   run well past the card's width on a phone. */
+.plan-code-live-row {
+  display: flex; align-items: center; gap: 9px; margin-top: 14px; padding-top: 11px;
+  border-top: 1px solid var(--border);
+}
+.plan-code-live-label { flex: 0 0 auto; color: var(--ink-dim); font-size: 11px; }
+.plan-code-live-hint { color: var(--ink-dim); }
+.plan-code-live-value {
+  flex: 1 1 auto; min-width: 0; overflow-x: auto; white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px;
+  color: var(--ink); user-select: all;
+}
+.plan-code-copy-btn { flex: 0 0 auto; padding: 3px 9px; font-size: 11px; }
 
 .stale-chip {
   display: inline-block; font-size: 11px; background: var(--yellow-bg); color: var(--yellow);
@@ -1370,8 +1366,8 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
 
     <div class="plan-actions">
       <button class="btn-primary" id="savePlanBtn">Generate float plan</button>
-      <button class="btn-secondary" id="sharePlanBtn">Share plan</button>
-      <button class="btn-secondary" id="checkPlanBtn">Check a plan</button>
+      <button class="btn-secondary" id="importCodeBtn">Import code</button>
+      <button class="btn-secondary" id="openClubFilePanelBtn">Atlantic Yachting&hellip;</button>
       <button class="btn-secondary" id="refreshBtn">Refresh</button>
       <button class="btn-secondary" id="printPlanBtn">Print</button>
       <button class="btn-secondary" id="copyPlanBtn">Copy as text</button>
@@ -1380,13 +1376,27 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
         <span>Monitor every <span id="monitorIntervalLabel">10</span> min</span>
       </label>
     </div>
-    <div class="club-file-panel" id="clubFilePanel">
+    <div class="import-code-panel hidden" id="importCodePanel">
+      <div class="import-code-head">
+        <strong>Import code</strong>
+        <button type="button" class="btn-ghost" id="closeImportCodeBtn">Close</button>
+      </div>
+      <p class="sub">Paste a Plan Code to see what it contains, then load its schedule.</p>
+      <textarea class="plan-code-field" id="incomingPlanCode" placeholder="FP2-&hellip;" aria-label="Plan Code to load" autocomplete="off" spellcheck="false"></textarea>
+      <div class="plan-code-actions"><button type="button" class="btn-primary" id="previewPlanCodeBtn">Review code</button></div>
+      <div class="plan-code-error hidden" id="planCodeError" role="alert"></div>
+      <div class="plan-code-preview hidden" id="planCodePreview"></div>
+    </div>
+    <div class="club-file-panel hidden" id="clubFilePanel">
       <div class="club-file-head">
         <div>
           <strong>Atlantic Yachting</strong>
           <p class="sub">Load your booked voyages and file this plan without copying fields.</p>
         </div>
-        <span class="club-file-badge">Direct filing</span>
+        <div class="club-file-head-actions">
+          <span class="club-file-badge">Direct filing</span>
+          <button type="button" class="btn-ghost" id="closeClubFilePanelBtn">Close</button>
+        </div>
       </div>
       <div class="club-connection">
         <span class="club-connection-state" id="clubConnectionState"><span class="club-connection-dot" aria-hidden="true"></span><span id="clubConnectionLabel">Not connected</span></span>
@@ -1419,32 +1429,6 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       </div>
       <p class="club-file-status" id="clubFileStatus" role="status" aria-live="polite">Connect for this tab. Floatplan keeps the Club token only in memory and never stores it.</p>
     </div>
-    <div class="share-plan-panel hidden" id="sharePlanPanel">
-      <div class="share-plan-panel-head">
-        <div><strong>Plan Code</strong><p class="sub">A compact code for sharing a Pier 25 plan and checking it against current conditions.</p></div>
-        <button type="button" class="btn-ghost" id="closePlanCodeBtn">Close</button>
-      </div>
-      <div class="chip-row share-plan-switcher" id="sharePlanSwitcher" aria-label="Plan Code action">
-        <button type="button" class="chip active" data-plan-code-mode="share">Share mine</button>
-        <button type="button" class="chip" data-plan-code-mode="check">Check one</button>
-      </div>
-      <p class="sub share-plan-intro">The code contains the Pier 25 schedule, intended first leg, vessel summary, and the wind, verdict, and advisory snapshot from creation. It excludes names, phone numbers, and emergency contacts. Loading it fetches current source data for comparison.</p>
-      <div class="share-plan-section" id="sharePlanCreateSection">
-        <div class="share-plan-section-title">Your Plan Code</div>
-        <div id="generatedPlanCodeWrap">
-          <textarea class="plan-code-field" id="generatedPlanCode" readonly aria-label="Generated Plan Code"></textarea>
-          <div class="plan-code-actions"><button type="button" class="btn-primary" id="copyPlanCodeBtn">Copy Plan Code</button><span class="sub" id="generatedPlanCodeMeta"></span></div>
-        </div>
-      </div>
-      <div class="share-plan-section hidden" id="sharePlanCheckSection">
-        <div class="share-plan-section-title">Paste a Plan Code</div>
-        <textarea class="plan-code-field" id="incomingPlanCode" placeholder="FP1-…" aria-label="Plan Code to check" autocomplete="off" spellcheck="false"></textarea>
-        <div class="plan-code-actions"><button type="button" class="btn-primary" id="previewPlanCodeBtn">Review Plan Code</button></div>
-        <div class="plan-code-error hidden" id="planCodeError" role="alert"></div>
-        <div class="plan-code-preview hidden" id="planCodePreview"></div>
-      </div>
-    </div>
-    <div class="shared-plan-comparison hidden" id="sharedPlanComparison"></div>
     <div class="monitor-status hidden" id="monitorStatus">
       Last updated <span id="lastUpdated">--:--:--</span> &middot; next refresh in <span id="nextRefreshCountdown">--</span>
     </div>
@@ -1459,6 +1443,11 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
         <button class="btn-secondary" id="copyNarrativeBtn">Copy proposal</button>
         <button class="btn-secondary" id="generatePlanBtn">Regenerate proposal</button>
       </div>
+    </div>
+    <div class="plan-code-live-row" id="planCodeLiveRow">
+      <span class="plan-code-live-label">Plan Code <span class="plan-code-live-hint">— compact form of this plan</span></span>
+      <code class="plan-code-live-value" id="livePlanCode"></code>
+      <button type="button" class="btn-ghost plan-code-copy-btn" id="copyLivePlanCodeBtn" aria-label="Copy Plan Code">Copy</button>
     </div>
     <details class="source-links"><summary>Sources</summary><div class="source-links-body"><span class="computed-source">Course recommendation uses</span><a id="srcPlanCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA current predictions</a></div></details>
   </section>
@@ -9810,7 +9799,7 @@ var state = {
   timelineMode: 'current',
   sailSim: null,
   planWindowChanged: false, lastDiffSnapshot: null, lastNotifiedStateKey: null,
-  pendingSharedPlan: null, sharedPlanBaseline: null,
+  pendingSharedPlan: null,
   lastGoodUpdateMs: null,
   // Route/ETD/ETA/turn-around/sunset for the current plan window: computed once here and
   // read by the copy-as-text and print builders. These used to be scraped off readonly DOM
@@ -10453,7 +10442,7 @@ function recomputeWindowDependentUI() {
   updateFloatPlanAutoFields(direction, departureMs, returnMs);
   syncAtlanticYachtingFilingState();
   buildPrintSummary(verdict, direction, departureMs, returnMs, maxSustainedKt, maxGustKt);
-  renderSharedPlanComparison();
+  updateLivePlanCode();
 }
 
 // Resolves true if at least one source came back fresh this round, false only on a total
@@ -11163,10 +11152,16 @@ function crewSummaryLine() {
 // A compact, versioned share format for Pier 25 plans. The payload is a packed JSON array,
 // UTF-8/base64url encoded, with an FNV-1a checksum. Contact details and crew names are never
 // included. FP1 implies Pier 25 and gives us a clean migration path for future versions.
+//
+// FP2 dropped the creation-time verdict/wind/advisory/limits snapshot: those fields existed
+// solely to feed the plan-comparison feature, which is gone (loading a code now just applies
+// its schedule, same as any other control). No FP1 code has ever been shared outside this
+// dashboard, so there is no round-trip obligation to preserve — decodeFloatCode below rejects
+// an FP1 code outright with a message pointing at generating a fresh one, rather than parsing
+// a payload shape that no longer means anything.
 
-var FLOAT_CODE_PREFIX = 'FP1';
-var VERDICT_TO_FLOAT_CODE = { GO: 'G', REEF: 'R', CAUTION: 'C', NOGO: 'X' };
-var FLOAT_CODE_TO_VERDICT = { G: 'GO', R: 'REEF', C: 'CAUTION', X: 'NOGO' };
+var FLOAT_CODE_PREFIX = 'FP2';
+var LEGACY_FLOAT_CODE_PREFIX = 'FP1';
 
 function floatCodeHash(text) {
   var h = 2166136261;
@@ -11197,26 +11192,17 @@ function compactPlanText(value, maxLength) {
   return String(value == null ? '' : value).trim().replace(/\s+/g, ' ').slice(0, maxLength);
 }
 
-function alertHashes(alertIds) {
-  return (alertIds || []).map(function (id) { return floatCodeHash(String(id)).slice(-6); }).sort();
-}
-
 function buildFloatCodePlan() {
-  var snap = buildPlanSnapshot();
-  var limits = (state.settings && state.settings.limits) || DEFAULT_LIMITS;
+  // Sourced straight from state/DOM rather than buildPlanSnapshot(): the code no longer
+  // carries a verdict/wind snapshot, so there is no need to pay for that computation just to
+  // encode a schedule.
   var heading = state.lastDirectionRec && state.lastDirectionRec.initialHeading;
   var crewEl = $('fpCrewCount');
   return {
-    createdAtMs: snap.savedAtMs,
-    departureMs: snap.departureMs,
-    durationMinutes: Math.round(snap.durationHours * 60),
+    createdAtMs: Date.now(),
+    departureMs: state.departureMs,
+    durationMinutes: Math.round(state.durationHours * 60),
     heading: heading === 'N' || heading === 'S' ? heading : null,
-    verdictLevel: snap.verdictLevel,
-    maxSustainedKt: snap.maxSustainedKt,
-    maxGustKt: snap.maxGustKt,
-    thunder: !!snap.thunder,
-    alertHashes: alertHashes(snap.alertIds),
-    limits: [limits.reefLow, limits.reefHigh, limits.noGoSustained, limits.noGoGust],
     // The visible preset (AY10 / AY11) is the vessel identity most plans use. The old
     // encoder read only the hidden custom-name input, so preset boats silently vanished.
     vesselName: compactPlanText(getVesselDisplayName(), 36),
@@ -11226,20 +11212,12 @@ function buildFloatCodePlan() {
 
 function encodeFloatCode(plan) {
   var packed = [
-    1,
+    2,
     Math.round(plan.createdAtMs / 60000),
     Math.round(plan.departureMs / 60000),
     plan.durationMinutes,
     plan.heading,
-    VERDICT_TO_FLOAT_CODE[plan.verdictLevel] || 'G',
-    plan.maxSustainedKt == null ? null : Math.round(plan.maxSustainedKt * 10),
-    plan.maxGustKt == null ? null : Math.round(plan.maxGustKt * 10),
-    plan.thunder ? 1 : 0,
-    plan.alertHashes || [],
-    (plan.limits || []).map(function (n) { return Math.round(n * 10); }),
     compactPlanText(plan.vesselName, 36),
-    compactPlanText(plan.vesselType, 48),
-    compactPlanText(plan.sailNumber, 20),
     compactPlanText(plan.crewCount, 8)
   ];
   var payload = base64UrlEncodeUtf8(JSON.stringify(packed));
@@ -11248,13 +11226,16 @@ function encodeFloatCode(plan) {
 
 function decodeFloatCode(input) {
   var code = String(input == null ? '' : input).trim().replace(/\s+/g, '');
-  var match = /^FP1-([A-Za-z0-9_-]+)-([0-9a-z]{7})$/.exec(code);
-  if (!match) throw new Error('That does not look like an FP1 Plan Code.');
-  if (floatCodeHash(match[1]) !== match[2]) throw new Error('The code is damaged or incomplete. Check the copy and try again.');
+  var match = /^(FP1|FP2)-([A-Za-z0-9_-]+)-([0-9a-z]{7})$/.exec(code);
+  if (!match) throw new Error('That does not look like a Plan Code.');
+  if (match[1] === LEGACY_FLOAT_CODE_PREFIX) {
+    throw new Error('This Plan Code is from an older version of Floatplan and can no longer be read. Generate a fresh code from the current plan.');
+  }
+  if (floatCodeHash(match[2]) !== match[3]) throw new Error('The code is damaged or incomplete. Check the copy and try again.');
   var packed;
-  try { packed = JSON.parse(base64UrlDecodeUtf8(match[1])); }
+  try { packed = JSON.parse(base64UrlDecodeUtf8(match[2])); }
   catch (e) { throw new Error('The code payload could not be read.'); }
-  if (!Array.isArray(packed) || packed[0] !== 1 || packed.length < 15) throw new Error('This Plan Code version is not supported.');
+  if (!Array.isArray(packed) || packed[0] !== 2 || packed.length < 7) throw new Error('This Plan Code version is not supported.');
 
   var createdAtMs = Number(packed[1]) * 60000;
   var departureMs = Number(packed[2]) * 60000;
@@ -11268,22 +11249,6 @@ function decodeFloatCode(input) {
     throw new Error('The plan duration is invalid.');
   }
   var heading = packed[4] === 'N' || packed[4] === 'S' ? packed[4] : null;
-  var verdictLevel = FLOAT_CODE_TO_VERDICT[packed[5]];
-  if (!verdictLevel) throw new Error('The saved verdict is invalid.');
-  var packedLimits = Array.isArray(packed[10]) ? packed[10] : [];
-  var limits = packedLimits.length === 4 ? packedLimits.map(function (n) { return Number(n) / 10; }) :
-    [DEFAULT_LIMITS.reefLow, DEFAULT_LIMITS.reefHigh, DEFAULT_LIMITS.noGoSustained, DEFAULT_LIMITS.noGoGust];
-  if (limits.some(function (n) { return !isFinite(n) || n < 0 || n > 100; })) throw new Error('The saved wind limits are invalid.');
-  var maxSustainedKt = packed[6] == null ? null : Number(packed[6]) / 10;
-  var maxGustKt = packed[7] == null ? null : Number(packed[7]) / 10;
-  if ((maxSustainedKt != null && (!isFinite(maxSustainedKt) || maxSustainedKt < 0 || maxSustainedKt > 200)) ||
-      (maxGustKt != null && (!isFinite(maxGustKt) || maxGustKt < 0 || maxGustKt > 200))) {
-    throw new Error('The saved wind snapshot is invalid.');
-  }
-  var savedAlertHashes = Array.isArray(packed[9]) ? packed[9].map(String).slice(0, 20) : [];
-  if (savedAlertHashes.some(function (hash) { return !/^[0-9a-z]{1,7}$/.test(hash); })) {
-    throw new Error('The saved advisory snapshot is invalid.');
-  }
 
   return {
     code: code,
@@ -11291,16 +11256,8 @@ function decodeFloatCode(input) {
     departureMs: departureMs,
     durationMinutes: durationMinutes,
     heading: heading,
-    verdictLevel: verdictLevel,
-    maxSustainedKt: maxSustainedKt,
-    maxGustKt: maxGustKt,
-    thunder: packed[8] === 1,
-    alertHashes: savedAlertHashes,
-    limits: limits,
-    vesselName: compactPlanText(packed[11], 36),
-    vesselType: compactPlanText(packed[12], 48),
-    sailNumber: compactPlanText(packed[13], 20),
-    crewCount: compactPlanText(packed[14], 8)
+    vesselName: compactPlanText(packed[5], 36),
+    crewCount: compactPlanText(packed[6], 8)
   };
 }
 
@@ -11312,8 +11269,6 @@ function planDurationText(minutes) {
 function vesselSummaryForCode(plan) {
   var bits = [];
   if (plan.vesselName) bits.push(plan.vesselName);
-  if (plan.vesselType) bits.push(plan.vesselType);
-  if (plan.sailNumber) bits.push('sail ' + plan.sailNumber);
   if (plan.crewCount !== '') {
     var crew = parseInt(plan.crewCount, 10);
     if (isFinite(crew) && crew >= 0) bits.push(crew + ' crew + 1 skipper (' + (crew + 1) + ' aboard)');
@@ -11321,6 +11276,9 @@ function vesselSummaryForCode(plan) {
   return bits.length ? bits.join(' · ') : 'Not included';
 }
 
+// Pre-load summary for the Import code flow: departure/return/duration/first leg/vessel only
+// — exactly what "Load schedule" is about to apply. No verdict/wind row here on purpose; that
+// snapshot no longer exists in the FP2 payload (see the Float Codes header comment above).
 function renderPlanCodePreview(plan) {
   var preview = $('planCodePreview');
   var etaMs = plan.departureMs + plan.durationMinutes * 60000;
@@ -11332,29 +11290,33 @@ function renderPlanCodePreview(plan) {
       '<div class="plan-code-preview-item"><span>Return</span>' + escapeHtml(fmtDateTime(etaMs)) + '</div>' +
       '<div class="plan-code-preview-item"><span>Duration</span>' + escapeHtml(planDurationText(plan.durationMinutes)) + '</div>' +
       '<div class="plan-code-preview-item"><span>Intended first leg</span>' + escapeHtml(plan.heading === 'S' ? 'South' : plan.heading === 'N' ? 'North' : 'Not saved') + '</div>' +
-      '<div class="plan-code-preview-item"><span>Verdict when created</span>' + escapeHtml(VERDICT_LABELS[plan.verdictLevel]) + '</div>' +
       '<div class="plan-code-preview-item"><span>Vessel</span>' + escapeHtml(vesselSummaryForCode(plan)) + '</div>' +
     '</div>' +
-    (hasEnded ? '<p class="plan-code-error">This plan has already ended, so current forecast comparison may be limited.</p>' : '') +
-    '<p class="plan-code-privacy">The saved verdict and conditions are a creation-time snapshot. This dashboard fetches current data after loading. Contacts and crew names are not present.</p>' +
-    '<div class="plan-code-actions"><button type="button" class="btn-primary" id="applyPlanCodeBtn">Load schedule and compare live</button></div>';
+    (hasEnded ? '<p class="plan-code-error">This plan has already ended.</p>' : '') +
+    '<p class="plan-code-privacy">Contacts and crew names are not included in the code.</p>' +
+    '<div class="plan-code-actions"><button type="button" class="btn-primary" id="applyPlanCodeBtn">Load schedule</button></div>';
   showEl(preview);
   $('applyPlanCodeBtn').addEventListener('click', function () { applySharedPlan(plan); });
 }
 
-function createCurrentFloatCode() {
+// Keeps the bottom-of-card live Plan Code row in step with the current plan. Called from the
+// same recompute pass that redraws everything else window-dependent (recomputeWindowDependentUI)
+// so it never goes stale, plus right after a schedule loads via applySharedPlan.
+function updateLivePlanCode() {
+  var el = $('livePlanCode');
+  if (!el) return;
   try {
     var code = encodeFloatCode(buildFloatCodePlan());
-    $('generatedPlanCode').value = code;
-    setText('generatedPlanCodeMeta', code.length + ' characters · FP1 · contacts excluded');
-    showEl($('generatedPlanCodeWrap'));
+    el.textContent = code;
+    el.title = code;
   } catch (e) {
-    showToast('Could not create a Plan Code: ' + e.message);
+    el.textContent = '';
+    el.title = '';
   }
 }
 
-function copyCurrentFloatCode() {
-  var code = $('generatedPlanCode').value;
+function copyLivePlanCode() {
+  var code = $('livePlanCode').textContent;
   if (!code) return;
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(code).then(function () { showToast('Plan Code copied'); })
@@ -11364,27 +11326,19 @@ function copyCurrentFloatCode() {
   }
 }
 
-function setPlanCodeMode(mode) {
-  var checking = mode === 'check';
-  document.querySelectorAll('#sharePlanSwitcher [data-plan-code-mode]').forEach(function (btn) {
-    btn.classList.toggle('active', btn.dataset.planCodeMode === (checking ? 'check' : 'share'));
-  });
-  $('sharePlanCreateSection').classList.toggle('hidden', checking);
-  $('sharePlanCheckSection').classList.toggle('hidden', !checking);
-  if (checking) {
-    setTimeout(function () { try { $('incomingPlanCode').focus(); } catch (e) { /* ignore */ } }, 0);
-  } else {
-    createCurrentFloatCode();
-  }
+// Toolbar-triggered minimal panel: one button opens it, one control inside it closes it —
+// the same hidden-class open/close shape the old two-mode Plan Code panel used.
+function openImportCodePanel() {
+  showEl($('importCodePanel'));
+  setTimeout(function () { try { $('incomingPlanCode').focus(); } catch (e) { /* ignore */ } }, 0);
 }
 
-function openPlanCodePanel(mode) {
-  showEl($('sharePlanPanel'));
-  setPlanCodeMode(mode);
-}
-
-function closePlanCodePanel() {
-  hideEl($('sharePlanPanel'));
+function closeImportCodePanel() {
+  hideEl($('importCodePanel'));
+  hideEl($('planCodeError'));
+  hideEl($('planCodePreview'));
+  $('incomingPlanCode').value = '';
+  state.pendingSharedPlan = null;
 }
 
 function previewIncomingFloatCode() {
@@ -11403,9 +11357,10 @@ function previewIncomingFloatCode() {
   }
 }
 
+// Applies a decoded code's schedule (departure/duration) exactly like any other schedule edit
+// — no baseline is kept and nothing is diffed against it. Compare was deleted outright; this
+// dashboard just redraws current conditions around the newly-applied window.
 function applySharedPlan(plan) {
-  state.sharedPlanBaseline = plan;
-  lsSetJSON('sharedPlanBaseline', plan);
   resetSunsetOverrideForEdit();
   state.departureMs = plan.departureMs;
   state.durationHours = plan.durationMinutes / 60;
@@ -11426,77 +11381,8 @@ function applySharedPlan(plan) {
   loadCurrentsCurve();
   loadWater();
   recomputeWindowDependentUI();
-  showToast('Shared schedule loaded · checking current conditions');
-}
-
-function clearSharedPlanComparison() {
-  state.sharedPlanBaseline = null;
-  try { localStorage.removeItem(LS_PREFIX + 'sharedPlanBaseline'); } catch (e) { /* ignore */ }
-  hideEl($('sharedPlanComparison'));
-}
-
-function sameLimits(a, b) {
-  if (!a || !b || a.length !== 4 || b.length !== 4) return false;
-  return a.every(function (value, idx) { return Math.abs(value - b[idx]) < 0.05; });
-}
-
-function comparisonWindText(before, after) {
-  if (before == null && after == null) return 'Unavailable';
-  if (before == null) return 'Now ' + round1(after) + ' kt';
-  if (after == null) return round1(before) + ' kt → unavailable';
-  var delta = after - before;
-  return round1(before) + ' → ' + round1(after) + ' kt' + (Math.abs(delta) >= 0.1 ? ' (' + (delta > 0 ? '+' : '') + round1(delta) + ')' : '');
-}
-
-function renderSharedPlanComparison() {
-  var el = $('sharedPlanComparison');
-  var plan = state.sharedPlanBaseline;
-  if (!el || !plan) { if (el) hideEl(el); return; }
-  showEl(el);
-  var durationHours = plan.durationMinutes / 60;
-  if (state.departureMs !== plan.departureMs || Math.abs(state.durationHours - durationHours) > 0.001) {
-    el.innerHTML = '<div class="shared-plan-comparison-head"><strong>Plan Code comparison</strong><span class="comparison-state changed">Schedule changed</span></div>' +
-      '<p class="sub">The dashboard schedule no longer matches the loaded Plan Code.</p>' +
-      '<div class="plan-code-actions"><button type="button" class="btn-secondary" id="clearSharedComparisonBtn">Stop comparing</button></div>';
-    $('clearSharedComparisonBtn').addEventListener('click', clearSharedPlanComparison);
-    return;
-  }
-
-  var current = buildPlanSnapshotForWindow(plan.departureMs, durationHours);
-  var currentAlertHashes = alertHashes(current.alertIds);
-  var newAlerts = currentAlertHashes.filter(function (hash) { return plan.alertHashes.indexOf(hash) === -1; });
-  var currentHeading = state.lastDirectionRec && state.lastDirectionRec.initialHeading;
-  var headingChanged = !!(plan.heading && currentHeading && plan.heading !== currentHeading);
-  var levelDelta = LEVEL_ORDER.indexOf(current.verdictLevel) - LEVEL_ORDER.indexOf(plan.verdictLevel);
-  var windWorse = current.maxSustainedKt != null && plan.maxSustainedKt != null && current.maxSustainedKt - plan.maxSustainedKt >= 3;
-  var gustWorse = current.maxGustKt != null && plan.maxGustKt != null && current.maxGustKt - plan.maxGustKt >= 3;
-  var worse = levelDelta > 0 || windWorse || gustWorse || newAlerts.length > 0 || (current.thunder && !plan.thunder);
-  var localLimits = state.settings.limits;
-  var currentLimitArray = [localLimits.reefLow, localLimits.reefHigh, localLimits.noGoSustained, localLimits.noGoGust];
-  var limitsDiffer = !sameLimits(plan.limits, currentLimitArray);
-  var changed = worse || levelDelta !== 0 || headingChanged || limitsDiffer || currentAlertHashes.length !== plan.alertHashes.length || current.thunder !== plan.thunder;
-  var statusClass = worse ? 'worse' : changed ? 'changed' : 'stable';
-  var statusText = worse ? 'Conditions worsened' : changed ? 'Changed' : 'No material change';
-  var headingBefore = plan.heading === 'S' ? 'South' : plan.heading === 'N' ? 'North' : 'Not saved';
-  var headingNow = currentHeading === 'S' ? 'South' : currentHeading === 'N' ? 'North' : 'Unavailable';
-
-  var rows = [
-    ['Verdict', VERDICT_LABELS[plan.verdictLevel] + ' → ' + VERDICT_LABELS[current.verdictLevel]],
-    ['Max sustained', comparisonWindText(plan.maxSustainedKt, current.maxSustainedKt)],
-    ['Max gust', comparisonWindText(plan.maxGustKt, current.maxGustKt)],
-    ['First leg', headingBefore + ' → ' + headingNow],
-    ['Advisories', plan.alertHashes.length + ' → ' + currentAlertHashes.length + (newAlerts.length ? ' (' + newAlerts.length + ' new)' : '')],
-    ['Thunder in window', (plan.thunder ? 'Yes' : 'No') + ' → ' + (current.thunder ? 'Yes' : 'No')]
-  ];
-  if (limitsDiffer) rows.push(['Safety limits', 'Creator and this dashboard differ']);
-
-  el.innerHTML = '<div class="shared-plan-comparison-head"><strong>Compared with current conditions</strong><span class="comparison-state ' + statusClass + '">' + statusText + '</span></div>' +
-    '<p class="sub">Baseline created ' + escapeHtml(fmtDateTime(plan.createdAtMs)) + '.</p>' +
-    '<ul class="comparison-list">' + rows.map(function (row) {
-      return '<li><span class="compare-label">' + escapeHtml(row[0]) + '</span><span class="compare-value">' + escapeHtml(row[1]) + '</span></li>';
-    }).join('') + '</ul>' +
-    '<div class="plan-code-actions"><button type="button" class="btn-secondary" id="clearSharedComparisonBtn">Stop comparing</button></div>';
-  $('clearSharedComparisonBtn').addEventListener('click', clearSharedPlanComparison);
+  closeImportCodePanel();
+  showToast('Plan schedule loaded');
 }
 
 function verificationSources(departureMs) {
@@ -12937,11 +12823,9 @@ function init() {
 
   state.savedPlan = lsGetJSON('savedPlan', null, true);
   if (state.savedPlan) { $('monitorToggle').disabled = false; hideEl($('savePlanHint')); }
-  var storedSharedPlan = lsGetJSON('sharedPlanBaseline', null, true);
-  if (storedSharedPlan && storedSharedPlan.code) {
-    try { state.sharedPlanBaseline = decodeFloatCode(storedSharedPlan.code); }
-    catch (e) { state.sharedPlanBaseline = null; }
-  }
+  // Compare is gone, so any comparison-baseline key persisted by a previous session is dead
+  // weight — drop it rather than leave it sitting in localStorage forever unread.
+  try { localStorage.removeItem(LS_PREFIX + 'sharedPlanBaseline'); } catch (e) { /* best-effort cleanup */ }
 
   loadFloatPlanFields();
   initAtlanticYachtingConnection();
@@ -13002,14 +12886,10 @@ function init() {
   });
 
   $('savePlanBtn').addEventListener('click', onGeneratePlanMainClick);
-  $('sharePlanBtn').addEventListener('click', function () { openPlanCodePanel('share'); });
-  $('checkPlanBtn').addEventListener('click', function () { openPlanCodePanel('check'); });
-  $('closePlanCodeBtn').addEventListener('click', closePlanCodePanel);
-  document.querySelectorAll('#sharePlanSwitcher [data-plan-code-mode]').forEach(function (btn) {
-    btn.addEventListener('click', function () { setPlanCodeMode(btn.dataset.planCodeMode); });
-  });
-  $('copyPlanCodeBtn').addEventListener('click', copyCurrentFloatCode);
+  $('importCodeBtn').addEventListener('click', openImportCodePanel);
+  $('closeImportCodeBtn').addEventListener('click', closeImportCodePanel);
   $('previewPlanCodeBtn').addEventListener('click', previewIncomingFloatCode);
+  $('copyLivePlanCodeBtn').addEventListener('click', copyLivePlanCode);
   $('refreshBtn').addEventListener('click', manualRefresh);
   $('monitorToggle').addEventListener('change', function (e) {
     if (e.target.checked) startMonitor(); else stopMonitor();
@@ -13037,6 +12917,11 @@ function init() {
     window.print();
   });
   $('copyPlanBtn').addEventListener('click', copyFloatPlanText);
+  // Same hidden-by-default / toolbar-revealed / self-closing shape as the Import code panel
+  // above. Nothing on load depends on this panel being visible — syncAtlanticYachtingFilingState()
+  // and friends update it by id regardless of whether the container is shown.
+  $('openClubFilePanelBtn').addEventListener('click', function () { showEl($('clubFilePanel')); });
+  $('closeClubFilePanelBtn').addEventListener('click', function () { hideEl($('clubFilePanel')); });
   $('connectClubBtn').addEventListener('click', connectAtlanticYachting);
   $('disconnectClubBtn').addEventListener('click', disconnectAtlanticYachting);
   $('clubTokenSubmitBtn').addEventListener('click', submitAtlanticYachtingToken);
