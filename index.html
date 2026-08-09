@@ -1780,7 +1780,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
         <button class="btn-secondary" id="generatePlanBtn">Regenerate proposal</button>
       </div>
     </div>
-    <div class="plan-code-live-row" id="planCodeLiveRow">
+    <div class="plan-code-live-row hidden" id="planCodeLiveRow">
       <span class="plan-code-live-label">Plan Code <span class="plan-code-live-hint">— compact form of this plan</span></span>
       <code class="plan-code-live-value" id="livePlanCode"></code>
       <button type="button" class="btn-ghost plan-code-copy-btn" id="copyLivePlanCodeBtn" aria-label="Copy Plan Code">Copy</button>
@@ -12662,9 +12662,20 @@ function setNarrativeText(text) {
   state.planNarrative = text;
 }
 function setNarrativeStatus(text) { setText('fpNarrativeStatus', text); }
+// The live Plan Code row is revealed here rather than in its own updater: a code encodes the
+// generated plan, so advertising one before the user has generated anything offers a share
+// artifact for a plan that does not exist yet. Both reveal together and stay up afterwards.
+// updateLivePlanCode() runs on reveal because its only other caller is
+// recomputeWindowDependentUI, which need not have run yet on this load — without it the row
+// could appear holding an empty <code> beside a Copy button that silently does nothing.
 function showNarrativeSection() {
   var el = $('fpNarrativeBlock');
   if (el) showEl(el);
+  var codeRow = $('planCodeLiveRow');
+  if (codeRow) {
+    updateLivePlanCode();
+    showEl(codeRow);
+  }
 }
 function engineStatusText(engine) {
   if (engine === 'chrome-prompt-api' || engine === 'legacy-ai') return 'Generated on-device · verify against live data above';

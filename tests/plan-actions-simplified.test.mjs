@@ -45,13 +45,14 @@ assert.ok(html.includes('id="importCodeBtn">Import</button>'),
 assert.ok(!html.includes('Share plan</button>') && !html.includes('Check a plan</button>'),
   '"Share plan" and "Check a plan" buttons must be gone');
 
-// The live code row must exist, must not itself be hidden, and must not be nested inside the
-// Import code panel or the (also hidden-by-default) club panel.
+// The live code row must exist, must start hidden (a Plan Code encodes a generated plan, so
+// it is only offered once one exists), and must not be nested inside the Import code panel or
+// the (also hidden-by-default) club panel.
 const planCardStart = html.indexOf('<section class="card" id="planCard">');
 const planCardEnd = html.indexOf('</section>', planCardStart);
 const planCardHtml = html.slice(planCardStart, planCardEnd);
-assert.match(planCardHtml, /<div class="plan-code-live-row" id="planCodeLiveRow">/,
-  'the live Plan Code row must exist and start visible (no "hidden" class)');
+assert.match(planCardHtml, /<div class="plan-code-live-row hidden" id="planCodeLiveRow">/,
+  'the live Plan Code row must exist and start hidden until a plan is generated');
 assert.match(planCardHtml, /id="livePlanCode"/, 'the live row must carry the current code');
 assert.match(planCardHtml, /compact form of this plan/i,
   'the live row must carry a short one-line label explaining it is a compact form of the plan');
@@ -104,5 +105,32 @@ const actionsColIndex = planCardHtml.indexOf('<div class="plan-actions-col">');
 const planAsideIndex = planCardHtml.indexOf('<div class="plan-aside">');
 assert.ok(actionsColIndex >= 0 && planAsideIndex >= 0 && actionsColIndex < planAsideIndex,
   'the action toolbar must sit above the form/aside, not below it');
+
+/* ============================== Change 5: Plan Code row is gated on generation ============================== */
+
+// A Plan Code is the compact form of a *generated* plan, so the row that advertises one must
+// not appear before the user has generated anything. It is revealed by the same call that
+// reveals the proposal text, so the two can never disagree about whether a plan exists.
+const showNarrativeStart = html.indexOf('function showNarrativeSection()');
+assert.ok(showNarrativeStart >= 0, 'showNarrativeSection must exist');
+const showNarrativeBody = html.slice(showNarrativeStart, html.indexOf('\n}', showNarrativeStart));
+assert.match(showNarrativeBody, /fpNarrativeBlock/,
+  'showNarrativeSection must still reveal the proposal block');
+assert.match(showNarrativeBody, /planCodeLiveRow/,
+  'showNarrativeSection must also reveal the live Plan Code row');
+assert.match(showNarrativeBody, /showEl\(codeRow\)/,
+  'the Plan Code row must be revealed, not merely referenced');
+// recomputeWindowDependentUI is the only other caller of updateLivePlanCode and need not have
+// run yet on this load, so the row must be filled at the moment it is revealed — otherwise it
+// appears holding an empty code beside a Copy button that silently does nothing.
+assert.match(showNarrativeBody, /updateLivePlanCode\(\)/,
+  'the Plan Code row must be populated when it is revealed, not left blank');
+
+// Nothing else may reveal the row — in particular importing a code loads a schedule but does
+// not generate a plan, so applySharedPlan must leave it hidden.
+const applyShared = html.slice(html.indexOf('function applySharedPlan('),
+  html.indexOf('\n}', html.indexOf('function applySharedPlan(')));
+assert.ok(!applyShared.includes('planCodeLiveRow'),
+  'importing a schedule must not reveal the Plan Code row');
 
 console.log('Plan card simplification (compare removal, Plan Code panel, Atlantic Yachting toggle) assertions passed');
