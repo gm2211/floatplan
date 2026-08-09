@@ -137,6 +137,11 @@ button { font-family: inherit; }
 .reason-list { list-style: none; margin: 8px 0 0; padding: 0; font-size: 14px; }
 .reason-list li { padding: 5px 0 5px 20px; position: relative; color: var(--ink); }
 .reason-list li:before { content: "\2022"; position: absolute; left: 4px; color: var(--ink-dim); }
+/* Context entries (weather/current/sunset) are facts about the window, not reasons for the
+   verdict. Dim text plus a hollow bullet keeps the verdict's own justification reading first
+   while the conditions stay one glance away. */
+.reason-list li.reason-context { color: var(--ink-dim); }
+.reason-list li.reason-context:before { content: "\25E6"; }
 
 .changed-banner {
   background: var(--red-bg); color: var(--red); border: 1px solid var(--red);
@@ -1117,6 +1122,16 @@ pre#marineTextContent { white-space: pre-wrap; font-family: inherit; font-size: 
     border-radius: 999px; font-size: 12.5px;
   }
   .reason-list li:before { content: none; }
+  /* Same chip shape as a reason, one step back in the hierarchy: dim text on a dim border, so
+     the row still reads as "verdict, because…, and here's the day" left to right. */
+  .reason-list li.reason-context {
+    color: var(--ink-dim);
+    border-color: color-mix(in srgb, var(--border) 60%, transparent);
+  }
+  /* The generic `li:before { content: none }` above loses to the stacked-list rule's extra
+     class, so the hollow bullet has to be cleared explicitly here — otherwise it survives
+     inside the chip, where nothing is a list any more. */
+  .reason-list li.reason-context:before { content: none; }
 }
 
 @media (min-width: 1200px) {
@@ -4589,6 +4604,63 @@ var VERDICT_CLASSES = { GO: 'verdict-go', REEF: 'verdict-reef', CAUTION: 'verdic
 // the pill keeps the go/no-go answer visible (and one tap away) from every other tab.
 var VERDICT_PILL_LABELS = { GO: 'GO', REEF: 'REEF', CAUTION: 'CAUTION', NOGO: 'NO-GO' };
 
+// The reason chips answer "can I go". These three answer "what am I going out into" — weather,
+// current, sunset — which otherwise live one tab away each (Sky, Water, Sky), so the Plan tab's
+// answer strip arrives with the conditions attached instead of costing three tab visits. Pure
+// (no DOM, no reads of `state`) so the wording is smoke-testable. Each helper returns null when
+// its own inputs are missing so the chip is omitted entirely: an absent chip is quiet, whereas
+// an "n/a" chip reads as a data failure the verdict itself never claimed.
+
+function verdictWeatherContext(rows, departureMs, returnMs) {
+  if (!rows || !rows.length) return null;
+  var parts = [];
+  var range = windowTempRangeF(rows, departureMs, returnMs);
+  if (range) {
+    var lo = Math.round(range.min), hi = Math.round(range.max);
+    parts.push((lo === hi ? String(lo) : lo + '–' + hi) + '°F');
+  }
+  // Conditions at departure, not the window's worst hour: the worst hour already reaches the
+  // verdict through the reason chips (thunder, advisories), so repeating it here would tell
+  // the sailor the same thing twice and never say what it looks like when they cast off.
+  var atDeparture = findRowForMs(rows, departureMs) || rows[0];
+  if (atDeparture && atDeparture.shortForecast) parts.push(atDeparture.shortForecast);
+  var showers = windowShowerSummary(rows, departureMs, returnMs);
+  if (showers.wet || showers.thunder) parts.push(showers.text);
+  if (!parts.length) return null;
+  return 'Weather: ' + parts.join(', ');
+}
+
+function verdictCurrentContext(direction) {
+  if (!direction) return null;
+  var phase = direction.stateDep;
+  if (!phase || phase === 'unknown') return null;
+  var parts = [];
+  if (phase === 'slack') parts.push('slack at departure');
+  else if (direction.vDep != null && isFinite(direction.vDep)) {
+    parts.push(phase + ' ' + round1(Math.abs(direction.vDep)) + ' kt at departure');
+  } else parts.push(phase + ' at departure');
+  if (direction.nextSlack) parts.push('slack ' + fmtTime(direction.nextSlack.ms));
+  return 'Current: ' + parts.join(', ');
+}
+
+function verdictSunsetContext(sunsetMs, returnMs) {
+  if (sunsetMs == null || !isFinite(sunsetMs)) return null;
+  // The == null check is load-bearing: formatTwilightToSailEnd guards with isFinite(), and
+  // isFinite(null) is true (Number(null) === 0), so a null return time would otherwise be
+  // measured against the epoch and render as "20650d after sail end".
+  var delta = returnMs == null ? null : formatTwilightToSailEnd(sunsetMs, returnMs);
+  return 'Sunset ' + fmtTime(sunsetMs) + (delta ? ', ' + delta.text : '');
+}
+
+function composeVerdictContext(input) {
+  if (!input) return [];
+  return [
+    verdictWeatherContext(input.weatherRows, input.departureMs, input.returnMs),
+    verdictCurrentContext(input.direction),
+    verdictSunsetContext(input.sunsetMs, input.returnMs)
+  ].filter(function (chip) { return !!chip; });
+}
+
 function verdictPresentation(verdict, windowStart, windowEnd, nowMs) {
   var windowEnded = isFinite(windowEnd) && windowEnd <= nowMs;
   if (windowEnded) {
@@ -4616,7 +4688,7 @@ function verdictPresentation(verdict, windowStart, windowEnd, nowMs) {
   };
 }
 
-function renderVerdict(verdict, windowStart, windowEnd) {
+function renderVerdict(verdict, windowStart, windowEnd, context) {
   var presentation = verdictPresentation(verdict, windowStart, windowEnd, Date.now());
   var banner = $('verdictBanner');
   banner.className = 'verdict-banner ' + presentation.className;
@@ -4634,6 +4706,17 @@ function renderVerdict(verdict, windowStart, windowEnd) {
   presentation.reasons.forEach(function (r) {
     var li = document.createElement('li');
     li.textContent = r;
+    ul.appendChild(li);
+  });
+  // Context entries share the reason row rather than getting a row of their own — in the fit
+  // shell the whole verdict card is one centred line, and a second row would take the height
+  // straight out of the Sail Plan form below it. The dimmer .reason-context styling keeps "why
+  // this verdict" visually ahead of "what it's like out there", and they trail the reasons so
+  // the verdict's own justification always reads first.
+  (context || []).forEach(function (text) {
+    var li = document.createElement('li');
+    li.className = 'reason-context';
+    li.textContent = text;
     ul.appendChild(li);
   });
 }
@@ -8050,12 +8133,14 @@ function windowTempRangeF(rows, departureMs, returnMs) {
   return { min: Math.min.apply(null, vals), max: Math.max.apply(null, vals) };
 }
 
-// {text, thunder} — thunder flags the segment for red styling (item 4a: "thunder flag red").
+// {text, thunder, wet} — thunder flags the segment for red styling (item 4a: "thunder flag
+// red"); `wet` lets a caller distinguish the dry sentence from a real precipitation forecast
+// without string-matching the prose (see verdictWeatherContext).
 function windowShowerSummary(rows, departureMs, returnMs) {
   var inWindow = rows.filter(function (r) { return rowOverlapsWindow(r, departureMs, returnMs); });
   var thunder = inWindow.some(function (r) { return r.isThunder; });
   var wetHours = inWindow.filter(function (r) { return r.pop != null && r.pop > 15; });
-  if (!wetHours.length && !thunder) return { text: 'No showers expected', thunder: false };
+  if (!wetHours.length && !thunder) return { text: 'No showers expected', thunder: false, wet: false };
   var maxPop = wetHours.length ? Math.max.apply(null, wetHours.map(function (r) { return r.pop; })) : null;
   var label = thunder ? 'Thunderstorms possible' : 'Showers possible';
   if (wetHours.length) {
@@ -8064,7 +8149,7 @@ function windowShowerSummary(rows, departureMs, returnMs) {
     label += ' ' + fmtTime(lo) + (hi !== lo ? '–' + fmtTime(hi) : '');
   }
   if (maxPop != null) label += ' (' + maxPop + '%)';
-  return { text: label, thunder: thunder };
+  return { text: label, thunder: thunder, wet: wetHours.length > 0 };
 }
 
 // Returns an HTML string (not textContent) so the showers/thunder segment can be wrapped in
@@ -11155,10 +11240,25 @@ function recomputeWindowDependentUI() {
   var fallbackReason = windResolutionReason(windResolution);
   if (fallbackReason) verdict.reasons.push(fallbackReason);
   state.lastVerdict = verdict;
-  renderVerdict(verdict, departureMs, returnMs);
 
+  // Computed before the verdict renders because its departure current feeds a verdict context
+  // chip; the Direction card still renders from the same object further down, so the two can
+  // never disagree about the phase at departure.
   var direction = computeDirectionRec(state.curvePoints, state.slackEvents, departureMs, returnMs);
   state.lastDirectionRec = direction;
+
+  // The Weather card pads its domain by ±2h so its scroller has lead-in hours; the verdict
+  // context is strictly about the sail window, so it builds its own rows over exactly
+  // [departure, return) rather than reusing state.weatherRows (which is also written later in
+  // this same pass and would be one recompute stale here).
+  var contextWeatherRows = applyWeatherSource(
+    buildWeatherRows(state.hourlyRaw, state.gridSeries, departureMs, returnMs), state.weatherSource);
+  var solarDay = getNYParts(departureMs);
+  var contextSolar = twilightTimes(Date.UTC(solarDay.y, solarDay.m - 1, solarDay.d), PIER25.lat, PIER25.lon);
+  renderVerdict(verdict, departureMs, returnMs, composeVerdictContext({
+    weatherRows: contextWeatherRows, departureMs: departureMs, returnMs: returnMs,
+    direction: direction, sunsetMs: contextSolar.sunsetMs
+  }));
   renderDirection(direction);
 
   var preMotorAdvice = null;
