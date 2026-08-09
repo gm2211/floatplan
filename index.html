@@ -251,19 +251,17 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .club-file-actions a { display: inline-flex; align-items: center; text-decoration: none; }
 .club-file-status { margin: 8px 0 0; color: var(--ink-dim); font-size: 11px; line-height: 1.45; }
 .club-file-status.invalid { color: var(--red); }
+.club-file-head-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 
-.share-plan-panel {
+/* Import code shares the club panel's compact-box treatment (border, rounded corners, tinted
+   background) so the two toolbar-triggered panels read as one visual family. */
+.club-file-panel, .import-code-panel {
   margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px;
   background: color-mix(in srgb, var(--bg) 72%, var(--card));
 }
-.share-plan-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.share-plan-panel-head strong { display: block; color: var(--ink); font-size: 14px; }
-.share-plan-panel-head .sub { margin-top: 2px; max-width: 66ch; }
-.share-plan-switcher { margin-top: 10px; }
-.share-plan-intro { margin: 8px 0 0; max-width: 68ch; }
-.share-plan-section { padding: 10px 0; border-top: 1px dashed var(--border); }
-.share-plan-section:first-of-type { border-top: 0; padding-top: 0; }
-.share-plan-section-title { margin-bottom: 6px; color: var(--ink); font-size: 13px; font-weight: 700; }
+.import-code-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.import-code-head strong { display: block; color: var(--ink); font-size: 14px; }
+.import-code-panel .sub { margin-top: 6px; max-width: 66ch; }
 .plan-code-field {
   display: block; width: 100%; min-height: 62px; margin-top: 8px; resize: vertical;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px;
@@ -277,27 +275,25 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .plan-code-preview-item { font-size: 12px; }
 .plan-code-preview-item span { display: block; color: var(--ink-dim); font-size: 10px; }
 .plan-code-privacy { margin: 8px 0 0; color: var(--ink-dim); font-size: 10.5px; }
-.shared-plan-comparison { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--border); }
-.shared-plan-comparison-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.shared-plan-comparison-head strong { font-size: 13px; }
-.comparison-state {
-  border-radius: 999px; padding: 3px 8px; font-size: 10px; font-weight: 700;
-  letter-spacing: 0.04em; text-transform: uppercase;
-}
-.comparison-state.stable { background: var(--green-bg); color: var(--green); }
-.comparison-state.changed { background: var(--yellow-bg); color: var(--yellow); }
-.comparison-state.worse { background: var(--red-bg); color: var(--red); }
-.comparison-list { list-style: none; margin: 8px 0 0; padding: 0; }
-.comparison-list li {
-  display: flex; justify-content: space-between; gap: 12px; padding: 5px 0;
-  border-bottom: 1px dashed var(--border); font-size: 12px;
-}
-.comparison-list li:last-child { border-bottom: 0; }
-.comparison-list .compare-label { color: var(--ink-dim); }
-.comparison-list .compare-value { text-align: right; }
 @media (max-width: 440px) {
   .plan-code-preview-grid { grid-template-columns: 1fr; }
 }
+
+/* Single-row live Plan Code strip at the bottom of the card. The code itself scrolls within
+   its own row (overflow-x: auto) instead of widening the card or forcing page scroll — it can
+   run well past the card's width on a phone. */
+.plan-code-live-row {
+  display: flex; align-items: center; gap: 9px; margin-top: 14px; padding-top: 11px;
+  border-top: 1px solid var(--border);
+}
+.plan-code-live-label { flex: 0 0 auto; color: var(--ink-dim); font-size: 11px; }
+.plan-code-live-hint { color: var(--ink-dim); }
+.plan-code-live-value {
+  flex: 1 1 auto; min-width: 0; overflow-x: auto; white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px;
+  color: var(--ink); user-select: all;
+}
+.plan-code-copy-btn { flex: 0 0 auto; padding: 3px 9px; font-size: 11px; }
 
 .stale-chip {
   display: inline-block; font-size: 11px; background: var(--yellow-bg); color: var(--yellow);
@@ -505,6 +501,80 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
   .sailsim-readout-row--full { grid-column: 1 / -1; }
 }
 
+/* Sim tab fits the window instead of running off the bottom of it. The tab bar has already
+   spent the page's vertical budget on chrome, so a card taller than the viewport reads as
+   truncated rather than as something to scroll. The card becomes its own three-column grid,
+   sized to whatever --fp-sim-h (published by updateSimFitHeight) says is left below the
+   chrome: the route and the readout legend each take a full-height column, and the third
+   column absorbs everything that was previously stacked underneath them — playback controls,
+   warning, footnote, sources. Trading horizontal space (a desktop window has plenty spare
+   here) for vertical is the only way both the route and all six readout rows stay legible;
+   stacking the ancillary text under the legend instead squeezed the readouts to ~20px rows.
+   .sailsim-body/.sailsim-top go display:contents so the regrouping is pure CSS and no DOM is
+   reparented, which would drop the simulator's control listeners.
+   Six explicit rows, not `grid-auto-rows`, because `grid-row: 2 / -1` resolves against the
+   EXPLICIT grid only: with implicit rows the route would stay stuck one row tall. Unused
+   rows collapse to 0. The route scales by height (aspect-ratio on the wrapper, svg still at
+   width:100%) so the chart-zoom code's inline svg width keeps working untouched. */
+/* 900px, not 700px: below that the three columns can only be paid for out of the route's
+   width, which shrinks the chart to an illegible thumbnail. Narrower windows keep the
+   ordinary stacked card and scroll, exactly as before. */
+@media (min-width: 900px) {
+  body[data-mtab="sim"] footer.app-footer { padding: 10px 0 14px; }
+  body[data-mtab="sim"] #sailSimCard {
+    display: grid;
+    grid-template-columns: minmax(250px, 1.35fr) minmax(240px, 0.9fr) minmax(220px, 0.85fr);
+    /* The flexible row is the LAST one, not the row the route sits in: that leaves the third
+       column's controls/footnote/sources stacked tight at the top with the slack below them,
+       instead of strung out down the card on a tall window. */
+    grid-template-rows: repeat(5, min-content) minmax(0, 1fr);
+    column-gap: 16px; row-gap: 8px;
+    /* Floor so a very short window degrades to a small scroll rather than to a card whose
+       readout rows have collapsed to nothing; ceiling so a tall window doesn't stretch the
+       card into mostly whitespace. */
+    height: clamp(300px, var(--fp-sim-h, 560px), 520px);
+  }
+  body[data-mtab="sim"] #sailSimCard > h2 { grid-column: 1 / -1; margin-bottom: 0; }
+  body[data-mtab="sim"] .sailsim-body,
+  body[data-mtab="sim"] .sailsim-top { display: contents; }
+  body[data-mtab="sim"] .sailsim-strip-wrap {
+    grid-column: 1; grid-row: 2 / -1;
+    display: flex; flex-direction: column; min-height: 0; max-width: none;
+  }
+  body[data-mtab="sim"] #sailSimSvgWrap {
+    flex: 1 1 auto; min-height: 0; align-self: center;
+    aspect-ratio: 4 / 3; width: auto; max-width: 100%;
+  }
+  body[data-mtab="sim"] #sailSimSvgWrap svg { height: 100%; }
+  body[data-mtab="sim"] .sailsim-readouts {
+    grid-column: 2; grid-row: 2 / -1; align-self: start;
+    height: 100%; min-height: 0; max-height: 367px;
+    grid-template-rows: repeat(5, minmax(0, 1fr)) minmax(0, 1.3fr);
+    gap: 4px 12px; align-content: stretch;
+  }
+  /* Rows are now whatever an equal share of the card's height comes to, so the label/value
+     pair is tightened until two clamped value lines still land inside one share — otherwise
+     the row's overflow cuts the second line in half, which reads as broken rather than as
+     truncated. */
+  body[data-mtab="sim"] .sailsim-readout-row,
+  body[data-mtab="sim"] .sailsim-readout-row--full {
+    height: auto; min-height: 0; padding-bottom: 0;
+  }
+  body[data-mtab="sim"] .sailsim-readout-label { font-size: 9px; line-height: 1.2; }
+  body[data-mtab="sim"] .sailsim-readout-value { font-size: 11.5px; line-height: 1.2; margin-top: 0; }
+  body[data-mtab="sim"] .sailsim-controls,
+  body[data-mtab="sim"] .sailsim-warning,
+  body[data-mtab="sim"] #sailSimCard > .chart-footnote,
+  body[data-mtab="sim"] #sailSimCard > .card-error,
+  body[data-mtab="sim"] #sailSimCard > .source-links { grid-column: 3; }
+  /* The footnote is the one block that can grow without bound; keep it from starving the
+     route of height on a short window. */
+  body[data-mtab="sim"] #sailSimCard > .chart-footnote {
+    font-size: 10.5px; line-height: 1.4; margin-top: 0;
+    min-height: 0; overflow-y: auto;
+  }
+}
+
 .wind-summary { font-size: 14px; margin-bottom: 8px; color: var(--ink-dim); }
 .wind-now { text-align: center; padding: 4px 0 14px; }
 .wind-now-value { font-size: 40px; font-weight: 800; line-height: 1; display: inline-block; padding: 4px 16px; border-radius: 12px; }
@@ -571,6 +641,7 @@ th { color: var(--ink-dim); font-weight: 600; }
 .weather-item .wi-temp { font-size: 16px; line-height: 1.2; font-weight: 680; margin-top: 4px; }
 .weather-item .wi-pop { color: var(--ink-dim); font-size: 11px; min-height: 15px; margin-top: 2px; }
 .weather-item .wi-pop.wi-pop-active { color: var(--flood); font-weight: 600; }
+.weather-item .wi-spread { color: var(--ink-dim); font-size: 11px; margin-top: 1px; }
 .weather-item-thunder { background: color-mix(in srgb, var(--red-bg) 65%, transparent); }
 .weather-icon { display: block; margin: 0 auto; color: var(--ink); }
 .weather-icon-thunder { color: var(--red); }
@@ -1355,27 +1426,17 @@ body.mobile-tabs .tabbar { display: flex; }
     grid-area: main; display: flex; flex-direction: column; min-height: 0; min-width: 0;
   }
 
-  /* Plan: the form on the left, club filing / plan code / narrative on the right. Same
-     "#app > #planCard" specificity bump as windCard above.
-     Note on grouping: the spec this was built from grouped monitorStatus/planChangedChip/
-     savePlanHint with the LEFT (aside) column, alongside Duration/Vessel/actions. Those three
-     status elements sit in the DOM between clubFilePanel/sharePlanPanel/sharedPlanComparison
-     and the narrative block — i.e. inside the contiguous "main" run, not the aside run. A
-     `display:contents` wrapper can only wrap a contiguous slice of the DOM (it does not
-     reparent, it just relabels an existing parent/children relationship), so honoring that
-     grouping exactly would require physically moving those three nodes earlier in the DOM —
-     and since the wrappers are display:contents at phone width too, that move would reorder
-     the phone layout (savePlanHint's hint text would jump from after the Atlantic Yachting
-     panel to before it), which the no-scroll redesign is explicitly required to leave
-     untouched. Kept the DOM order intact instead: aside = items 1-6 (Duration through the
-     action buttons), main = items 7-13 (club filing through the narrative), which is exactly
-     the original source order split in two — monitorStatus/planChangedChip/savePlanHint render
-     at the bottom of the right column instead of the left. Phone markup is therefore
-     byte-identical to before this change; only the >=700px column assignment differs from the
-     literal spec. */
-  /* Two columns below 1100px, three above (see the wider block after this one): the action
+  /* Plan: the form on the left, the panels and status lines on the right. Same "#app >
+     #planCard" specificity bump as windCard above.
+     The .plan-aside/.plan-actions-col/.plan-main split follows the card's existing DOM order
+     exactly — a display:contents wrapper relabels a contiguous run of children, it does not
+     reparent them, so any grouping that crossed the source order would have to move nodes and
+     would reorder the phone card along with it. Hence the status lines (monitorStatus,
+     planChangedChip, savePlanHint) ride along at the bottom of the right column rather than
+     under the form where they read more naturally.
+     Two columns below 1000px, three above (see the wider block after this one): the action
      buttons want a column of their own, but only once the window is wide enough that taking
-     one does not squeeze the form and the club panel into unreadable strips. */
+     one does not squeeze the form and the panels into unreadable strips. */
   body.fit-shell #app > #planCard {
     display: grid; min-height: 0;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -1418,36 +1479,18 @@ body.mobile-tabs .tabbar { display: flex; }
   /* Radar: the map is the card. Drop the fixed 300px so it takes whatever is left. */
   body.fit-shell #radarCard .radar-map { height: auto; max-height: none; flex: 1 1 auto; min-height: 150px; }
 
-  /* Sail sim: the schematic scales inside its box instead of being redrawn at a new size —
-     it is a fixed-aspect diagram, so preserveAspectRatio does the work that a recomputed
-     viewBox height does for the time-series charts. */
-  body.fit-shell #sailSimCard .sailsim-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-  /* align-items:start (the base rule) leaves both grid items at their content height, so the
-     strip has no definite box to scale into and the svg's height:100% resolves against nothing
-     — it renders at its intrinsic aspect and spills out of the card. Stretching a single 1fr
-     row is what makes the height definite. */
-  body.fit-shell #sailSimCard .sailsim-top {
-    flex: 1 1 auto; min-height: 0;
-    /* The schematic is a tall, narrow harbor strip: letterboxed into the base 1.35fr track it
-       leaves wide empty gutters, so hand the width to the readouts instead. */
-    grid-template-columns: minmax(180px, 0.85fr) minmax(160px, 1.15fr);
-    grid-template-rows: minmax(0, 1fr); align-items: stretch;
-  }
-  body.fit-shell #sailSimCard .sailsim-strip-wrap { min-height: 0; display: flex; overflow: hidden; }
-  body.fit-shell #sailSimCard .sailsim-strip-wrap .svg-wrap {
-    flex: 1 1 auto; min-height: 0; display: flex; align-items: center; overflow: hidden;
-  }
-  /* width+height 100% over the viewBox: preserveAspectRatio (default xMidYMid meet) letterboxes
-     the fixed-aspect schematic inside whatever box is left, so it never needs redrawing. */
-  body.fit-shell #sailSimCard .sailsim-strip-wrap svg { width: 100%; height: 100%; }
-  /* The readout grid is authored at fixed 52/72px rows totalling 367px. Let the rows divide
-     whatever height the card actually has instead. */
-  body.fit-shell #sailSimCard .sailsim-readouts {
-    height: auto; min-height: 0; overflow: hidden;
-    grid-template-rows: repeat(5, minmax(0, 1fr)) minmax(0, 1.35fr);
-  }
-  body.fit-shell #sailSimCard .sailsim-readout-row,
-  body.fit-shell #sailSimCard .sailsim-readout-row--full { height: auto; min-height: 0; }
+  /* Sail sim is the one card the fit shell does not lay out. The min-width:900px sim block
+     earlier in this stylesheet already sizes it to --fp-sim-h and regroups its body into three
+     columns; a second mechanism on top of that would only fight it. All that is needed here is
+     to stop the tab grid stretching a card that has chosen its own height. */
+  body.fit-shell #app > #sailSimCard { align-self: start; }
+}
+
+/* Restores the sim card's own display:grid, which the fit shell's generic `#app > .card` flex
+   rule would otherwise win on specificity. Same 900px cutoff as the sim block itself — below
+   it the card has no three-column layout to protect and the flex column is correct. */
+@media (min-width: 900px) {
+  body.fit-shell #app > #sailSimCard { display: grid; }
 }
 
 /* ===== Fit shell, wide enough for a third column =====
@@ -1631,7 +1674,21 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
           <option value="custom">Custom&hellip;</option>
         </select>
       </div>
-      <div><label for="fpCrewCount">Crew (excl. skipper)</label><input type="number" id="fpCrewCount" min="0" max="12" step="1" inputmode="numeric" placeholder="0"></div>
+      <div><label for="fpCrewCount">Crew (excl. skipper)</label><select id="fpCrewCount">
+        <option value="0">0</option>
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5">5</option>
+        <option value="6">6</option>
+        <option value="7">7</option>
+        <option value="8">8</option>
+        <option value="9">9</option>
+        <option value="10">10</option>
+        <option value="11">11</option>
+        <option value="12">12</option>
+      </select></div>
       <div class="full hidden" id="fpVesselCustomRow"><label for="fpVesselName">Vessel name</label><input type="text" id="fpVesselName" placeholder="Custom vessel name"></div>
       <div class="full"><label for="fpPhones">Phone (optional)</label><input type="tel" id="fpPhones"></div>
     </div>
@@ -1647,8 +1704,8 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     <div class="plan-actions-col">
     <div class="plan-actions">
       <button class="btn-primary" id="savePlanBtn">Generate float plan</button>
-      <button class="btn-secondary" id="sharePlanBtn">Share plan</button>
-      <button class="btn-secondary" id="checkPlanBtn">Check a plan</button>
+      <button class="btn-secondary" id="importCodeBtn">Import code</button>
+      <button class="btn-secondary" id="openClubFilePanelBtn">Atlantic Yachting&hellip;</button>
       <button class="btn-secondary" id="refreshBtn">Refresh</button>
       <button class="btn-secondary" id="printPlanBtn">Print</button>
       <button class="btn-secondary" id="copyPlanBtn">Copy as text</button>
@@ -1659,13 +1716,27 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     </div>
     </div>
     <div class="plan-main">
-    <div class="club-file-panel" id="clubFilePanel">
+    <div class="import-code-panel hidden" id="importCodePanel">
+      <div class="import-code-head">
+        <strong>Import code</strong>
+        <button type="button" class="btn-ghost" id="closeImportCodeBtn">Close</button>
+      </div>
+      <p class="sub">Paste a Plan Code to see what it contains, then load its schedule.</p>
+      <textarea class="plan-code-field" id="incomingPlanCode" placeholder="FP2-&hellip;" aria-label="Plan Code to load" autocomplete="off" spellcheck="false"></textarea>
+      <div class="plan-code-actions"><button type="button" class="btn-primary" id="previewPlanCodeBtn">Review code</button></div>
+      <div class="plan-code-error hidden" id="planCodeError" role="alert"></div>
+      <div class="plan-code-preview hidden" id="planCodePreview"></div>
+    </div>
+    <div class="club-file-panel hidden" id="clubFilePanel">
       <div class="club-file-head">
         <div>
           <strong>Atlantic Yachting</strong>
           <p class="sub">Load your booked voyages and file this plan without copying fields.</p>
         </div>
-        <span class="club-file-badge">Direct filing</span>
+        <div class="club-file-head-actions">
+          <span class="club-file-badge">Direct filing</span>
+          <button type="button" class="btn-ghost" id="closeClubFilePanelBtn">Close</button>
+        </div>
       </div>
       <div class="club-connection">
         <span class="club-connection-state" id="clubConnectionState"><span class="club-connection-dot" aria-hidden="true"></span><span id="clubConnectionLabel">Not connected</span></span>
@@ -1698,32 +1769,6 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       </div>
       <p class="club-file-status" id="clubFileStatus" role="status" aria-live="polite">Connect for this tab. Floatplan keeps the Club token only in memory and never stores it.</p>
     </div>
-    <div class="share-plan-panel hidden" id="sharePlanPanel">
-      <div class="share-plan-panel-head">
-        <div><strong>Plan Code</strong><p class="sub">A compact code for sharing a Pier 25 plan and checking it against current conditions.</p></div>
-        <button type="button" class="btn-ghost" id="closePlanCodeBtn">Close</button>
-      </div>
-      <div class="chip-row share-plan-switcher" id="sharePlanSwitcher" aria-label="Plan Code action">
-        <button type="button" class="chip active" data-plan-code-mode="share">Share mine</button>
-        <button type="button" class="chip" data-plan-code-mode="check">Check one</button>
-      </div>
-      <p class="sub share-plan-intro">The code contains the Pier 25 schedule, intended first leg, vessel summary, and the wind, verdict, and advisory snapshot from creation. It excludes names, phone numbers, and emergency contacts. Loading it fetches current source data for comparison.</p>
-      <div class="share-plan-section" id="sharePlanCreateSection">
-        <div class="share-plan-section-title">Your Plan Code</div>
-        <div id="generatedPlanCodeWrap">
-          <textarea class="plan-code-field" id="generatedPlanCode" readonly aria-label="Generated Plan Code"></textarea>
-          <div class="plan-code-actions"><button type="button" class="btn-primary" id="copyPlanCodeBtn">Copy Plan Code</button><span class="sub" id="generatedPlanCodeMeta"></span></div>
-        </div>
-      </div>
-      <div class="share-plan-section hidden" id="sharePlanCheckSection">
-        <div class="share-plan-section-title">Paste a Plan Code</div>
-        <textarea class="plan-code-field" id="incomingPlanCode" placeholder="FP1-…" aria-label="Plan Code to check" autocomplete="off" spellcheck="false"></textarea>
-        <div class="plan-code-actions"><button type="button" class="btn-primary" id="previewPlanCodeBtn">Review Plan Code</button></div>
-        <div class="plan-code-error hidden" id="planCodeError" role="alert"></div>
-        <div class="plan-code-preview hidden" id="planCodePreview"></div>
-      </div>
-    </div>
-    <div class="shared-plan-comparison hidden" id="sharedPlanComparison"></div>
     <div class="monitor-status hidden" id="monitorStatus">
       Last updated <span id="lastUpdated">--:--:--</span> &middot; next refresh in <span id="nextRefreshCountdown">--</span>
     </div>
@@ -1738,6 +1783,11 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
         <button class="btn-secondary" id="copyNarrativeBtn">Copy proposal</button>
         <button class="btn-secondary" id="generatePlanBtn">Regenerate proposal</button>
       </div>
+    </div>
+    <div class="plan-code-live-row" id="planCodeLiveRow">
+      <span class="plan-code-live-label">Plan Code <span class="plan-code-live-hint">— compact form of this plan</span></span>
+      <code class="plan-code-live-value" id="livePlanCode"></code>
+      <button type="button" class="btn-ghost plan-code-copy-btn" id="copyLivePlanCodeBtn" aria-label="Copy Plan Code">Copy</button>
     </div>
     </div>
     <details class="source-links"><summary>Sources</summary><div class="source-links-body"><span class="computed-source">Course recommendation uses</span><a id="srcPlanCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA current predictions</a></div></details>
@@ -1913,25 +1963,32 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     <div class="card-error hidden" id="windError"></div>
     <div class="card-error hidden" id="windModelsError"></div>
     </div>
-    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS raw forecast</a><a href="https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly" target="_blank" rel="noopener noreferrer">NWS hourly forecast</a><a href="https://api.open-meteo.com/v1/forecast?latitude=40.7203&amp;longitude=-74.0135&amp;hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m&amp;wind_speed_unit=kn&amp;timezone=America%2FNew_York&amp;past_days=1&amp;forecast_days=3&amp;models=gfs_seamless,ecmwf_ifs025,icon_seamless" target="_blank" rel="noopener noreferrer">Open-Meteo models</a><a id="srcWindObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8530973" target="_blank" rel="noopener noreferrer">Robbins Reef NOAA</a><a href="https://www.wunderground.com/dashboard/pws/KNJNEWJE43" target="_blank" rel="noopener noreferrer">Willy Wall Wunderground</a></div></details>
+    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS raw forecast</a><a href="https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly" target="_blank" rel="noopener noreferrer">NWS hourly forecast</a><a href="https://api.open-meteo.com/v1/forecast?latitude=40.7203&amp;longitude=-74.0135&amp;hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m,temperature_2m,precipitation_probability,relative_humidity_2m,weather_code&amp;wind_speed_unit=kn&amp;temperature_unit=fahrenheit&amp;timezone=America%2FNew_York&amp;past_days=1&amp;forecast_days=3&amp;models=gfs_seamless,ecmwf_ifs025,icon_seamless" target="_blank" rel="noopener noreferrer">Open-Meteo models</a><a id="srcWindObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8530973" target="_blank" rel="noopener noreferrer">Robbins Reef NOAA</a><a href="https://www.wunderground.com/dashboard/pws/KNJNEWJE43" target="_blank" rel="noopener noreferrer">Willy Wall Wunderground</a></div></details>
   </section>
 
   <section class="card" id="weatherCard">
     <h2>Weather</h2>
     <p class="weather-headline" id="weatherHeadline">Loading&hellip;</p>
     <p class="weather-summary" id="weatherSummary"></p>
+    <div class="chip-row weather-source-row" id="weatherSourceRow">
+      <button type="button" class="chip active" data-source="nws">NWS</button>
+      <button type="button" class="chip" data-source="gfs_seamless">GFS</button>
+      <button type="button" class="chip" data-source="ecmwf_ifs025">ECMWF</button>
+      <button type="button" class="chip" data-source="icon_seamless">ICON</button>
+    </div>
+    <p class="approx-note hidden" id="weatherSourceNote"></p>
     <div class="weather-strip fit-scroll" id="weatherScroller"></div>
     <button class="weather-details-toggle" id="weatherDetailsToggle">More weather <span class="chev">&#9662;</span></button>
     <div class="collapsible-body hidden" id="weatherDetailsBody">
       <div class="chip-row weather-chip-row" id="weatherChipRow">
         <button type="button" class="chip" data-chip="humidity">Humidity</button>
         <button type="button" class="chip" data-chip="precip">Precip</button>
-        <button type="button" class="chip" data-chip="sky">Sky</button>
+        <button type="button" class="chip" data-chip="sky">Cloud cover</button>
       </div>
       <div class="weather-metric-strip" id="weatherMetricStrip"></div>
     </div>
     <div class="card-error hidden" id="weatherError"></div>
-    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a href="https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly" target="_blank" rel="noopener noreferrer">NWS hourly forecast</a><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS humidity, precipitation and sky</a></div></details>
+    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a href="https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly" target="_blank" rel="noopener noreferrer">NWS hourly forecast</a><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS humidity, precipitation and sky</a><a href="https://api.open-meteo.com/v1/forecast?latitude=40.7203&amp;longitude=-74.0135&amp;hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m,temperature_2m,precipitation_probability,relative_humidity_2m,weather_code&amp;wind_speed_unit=kn&amp;temperature_unit=fahrenheit&amp;timezone=America%2FNew_York&amp;past_days=1&amp;forecast_days=3&amp;models=gfs_seamless,ecmwf_ifs025,icon_seamless" target="_blank" rel="noopener noreferrer">Open-Meteo models</a></div></details>
   </section>
 
   <section class="card" id="radarCard">
@@ -2093,12 +2150,16 @@ var WILLY_WALL_STUCK_GUST_MPH = 3;
 var ZONE_MARINE = 'ANZ338';
 var GRID_URL = 'https://api.weather.gov/gridpoints/OKX/33,42';
 var HOURLY_URL = 'https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly';
-// Open-Meteo multi-model wind forecast (model switcher chips). hourly.time[] comes back as
-// bare "YYYY-MM-DDTHH:mm" strings in the REQUESTED timezone (America/New_York) with no UTC
-// offset suffix — must be parsed as NY wall-clock via nyWallTimeToUtcMs, never new Date().
-// wind_speed_unit=kn means the values are already knots, no conversion needed.
+// Open-Meteo multi-model wind forecast (model switcher chips). Also feeds the Weather card's
+// source chips and model-agreement indicator — temperature/precip-probability/humidity/
+// weather-code ride along on this same request at no extra HTTP cost. hourly.time[] comes
+// back as bare "YYYY-MM-DDTHH:mm" strings in the REQUESTED timezone (America/New_York) with
+// no UTC offset suffix — must be parsed as NY wall-clock via nyWallTimeToUtcMs, never new Date().
+// wind_speed_unit=kn means wind values are already knots; temperature_unit=fahrenheit means
+// temperatures are already °F — neither needs conversion.
 var WINDMODELS_URL = 'https://api.open-meteo.com/v1/forecast?latitude=40.7203&longitude=-74.0135' +
-  '&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m&wind_speed_unit=kn' +
+  '&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m,temperature_2m,precipitation_probability,relative_humidity_2m,weather_code' +
+  '&wind_speed_unit=kn&temperature_unit=fahrenheit' +
   '&timezone=America%2FNew_York&past_days=1&forecast_days=3&models=gfs_seamless,ecmwf_ifs025,icon_seamless';
 var ALERTS_POINT_URL = 'https://api.weather.gov/alerts/active?point=40.7203,-74.0135';
 var ALERTS_ZONE_URL = 'https://api.weather.gov/alerts/active?zone=' + ZONE_MARINE;
@@ -6420,6 +6481,8 @@ function renderWindNow(observedData, limits) {
 /* ============================== Wind card: model switcher + chart data model ========== */
 // NWS gridpoint stays the preferred model. GFS, ECMWF, and ICON come from one Open-Meteo
 // response and automatically backstop the verdict/simulator when NWS lacks full coverage.
+// The Weather card's own source chips (state.weatherSource) reuse WIND_MODEL_ORDER and
+// WIND_MODEL_LABELS below rather than duplicating the same four-source list.
 
 var WIND_MODEL_ORDER = ['nws', 'gfs_seamless', 'ecmwf_ifs025', 'icon_seamless'];
 var WIND_FALLBACK_MODEL_ORDER = ['gfs_seamless', 'ecmwf_ifs025', 'icon_seamless'];
@@ -7703,6 +7766,39 @@ function classifyConditionTag(text, isDaytime, isThunder) {
   return isDaytime === false ? 'partly-night' : 'partly-day';
 }
 
+// Open-Meteo model sources (GFS/ECMWF/ICON) give a numeric WMO weather code where NWS gives
+// prose — these two helpers translate that code into the same tag vocabulary/prose shape
+// classifyConditionTag already produces, so a source switch doesn't change the Weather card's
+// rendering contract. Unknown/null codes return null so the caller falls back to the NWS tag.
+function wmoCodeToTag(code, isDaytime) {
+  if (code == null) return null;
+  switch (code) {
+    case 0: return isDaytime === false ? 'moon' : 'sun';
+    case 1: case 2: return isDaytime === false ? 'partly-night' : 'partly-day';
+    case 3: return 'cloud';
+    case 45: case 48: return 'fog';
+    case 51: case 53: case 55: case 56: case 57: return 'drizzle';
+    case 61: case 63: case 65: case 66: case 67: case 80: case 81: case 82: return 'rain';
+    case 71: case 73: case 75: case 77: case 85: case 86: return 'snow';
+    case 95: case 96: case 99: return 'thunderstorm';
+    default: return null;
+  }
+}
+function wmoCodeToText(code) {
+  if (code == null) return null;
+  switch (code) {
+    case 0: return 'Clear';
+    case 1: case 2: return 'Partly cloudy';
+    case 3: return 'Cloudy';
+    case 45: case 48: return 'Fog';
+    case 51: case 53: case 55: case 56: case 57: return 'Light rain';
+    case 61: case 63: case 65: case 66: case 67: case 80: case 81: case 82: return 'Rain';
+    case 71: case 73: case 75: case 77: case 85: case 86: return 'Snow';
+    case 95: case 96: case 99: return 'Thunderstorms';
+    default: return null;
+  }
+}
+
 /* ============================== Weather summary sentence ============================== */
 
 function tagPhraseLower(tag) {
@@ -7923,6 +8019,131 @@ function rowOverlapsWindow(r, departureMs, returnMs) {
   return departureMs != null && returnMs != null && r.endMs > departureMs && r.ms < returnMs;
 }
 
+/* ============================== Weather card: source switcher (part A) ================ */
+// Same "sample covers this hour" convention as findWindRowForMs, applied directly to the raw
+// per-model series (which now carries wind AND weather fields together) instead of
+// windRowsForModel's filtered/wind-only shape.
+function findModelSampleForMs(modelKey, ms) {
+  var samples = state.windModelSeries && state.windModelSeries[modelKey];
+  if (!samples) return null;
+  for (var i = 0; i < samples.length; i++) {
+    if (ms >= samples[i].ms && ms < samples[i].ms + 3600000) return samples[i];
+  }
+  return null;
+}
+
+// The NWS-derived rows stay the structural spine (grid, isDaytime, wind). This only overrides
+// the condition-facing fields (temp/pop/humidity/condition) from a model source's own hourly
+// sample, hour by hour. An hour the model doesn't cover keeps its NWS values untouched — the
+// Weather card must never go blank because one source lacks coverage. Wind fields are never
+// touched here; the Wind card owns wind.
+function applyWeatherSource(rows, sourceKey) {
+  if (!sourceKey || sourceKey === 'nws') {
+    // Passthrough path still stamps baseTempF/basePop from the row's own (NWS) values so every
+    // row reaching the renderer — regardless of selected source — carries the NWS baseline that
+    // weatherSpreadForRow relies on.
+    return rows.map(function (r) {
+      return Object.assign({}, r, { baseTempF: r.tempF, basePop: r.pop });
+    });
+  }
+  var samples = state.windModelSeries && state.windModelSeries[sourceKey];
+  if (!samples || !samples.length) {
+    return rows.map(function (r) {
+      return Object.assign({}, r, { baseTempF: r.tempF, basePop: r.pop });
+    });
+  }
+  return rows.map(function (r) {
+    var sample = findModelSampleForMs(sourceKey, r.ms);
+    if (!sample) return Object.assign({}, r, { baseTempF: r.tempF, basePop: r.pop });
+    var tag = wmoCodeToTag(sample.weatherCode, r.isDaytime);
+    var text = wmoCodeToText(sample.weatherCode);
+    return Object.assign({}, r, {
+      baseTempF: r.tempF,
+      basePop: r.pop,
+      tempF: sample.tempF != null ? sample.tempF : r.tempF,
+      pop: sample.pop != null ? sample.pop : r.pop,
+      humidity: sample.humidity != null ? sample.humidity : r.humidity,
+      shortForecast: text != null ? text : r.shortForecast,
+      tag: tag != null ? tag : r.tag,
+      // Recomputed from the model's own WMO code rather than left as the NWS value — otherwise
+      // the red thunder styling could contradict the condition this source is now displaying.
+      // A null code (model has a sample for this hour but no weather code) falls back to the
+      // NWS flag instead of silently clearing it.
+      isThunder: sample.weatherCode != null
+        ? (sample.weatherCode === 95 || sample.weatherCode === 96 || sample.weatherCode === 99)
+        : r.isThunder
+    });
+  });
+}
+
+/* ============================== Weather card: model-agreement spread (part B) ========== */
+// Compares NWS's own row values against each fallback model's sample for the same hour.
+// Sources with no value for this hour are simply excluded from the min/max, never treated as
+// 0 — a model that lacks coverage for an hour must not manufacture a false spread.
+// The NWS baseline is read from r.baseTempF/r.basePop (falling back to r.tempF/r.pop when
+// absent) rather than r.tempF/r.pop directly, precisely so selecting a non-NWS source chip
+// cannot change what the spread means: applyWeatherSource overwrites tempF/pop with the
+// selected model's values, but always preserves the original NWS values as baseTempF/basePop.
+function weatherSpreadForRow(r) {
+  var temps = [], pops = [];
+  var baseTempF = r.baseTempF != null ? r.baseTempF : r.tempF;
+  var basePop = r.basePop != null ? r.basePop : r.pop;
+  if (baseTempF != null) temps.push(baseTempF);
+  if (basePop != null) pops.push(basePop);
+  var sourceCount = (baseTempF != null || basePop != null) ? 1 : 0;
+  WIND_FALLBACK_MODEL_ORDER.forEach(function (modelKey) {
+    var sample = findModelSampleForMs(modelKey, r.ms);
+    if (!sample) return;
+    var used = false;
+    if (sample.tempF != null) { temps.push(sample.tempF); used = true; }
+    if (sample.pop != null) { pops.push(sample.pop); used = true; }
+    if (used) sourceCount++;
+  });
+  return {
+    sourceCount: sourceCount,
+    tempMin: temps.length ? Math.min.apply(null, temps) : null,
+    tempMax: temps.length ? Math.max.apply(null, temps) : null,
+    tempSpreadF: temps.length >= 2 ? Math.max.apply(null, temps) - Math.min.apply(null, temps) : null,
+    popMin: pops.length ? Math.min.apply(null, pops) : null,
+    popMax: pops.length ? Math.max.apply(null, pops) : null,
+    popSpreadPct: pops.length >= 2 ? Math.max.apply(null, pops) - Math.min.apply(null, pops) : null
+  };
+}
+// Quiet per-hour label ('±3°' / 'rain split') — null unless at least 2 sources have data for
+// this hour AND one of the 4°F / 30-point thresholds is actually crossed.
+function weatherSpreadLabel(spread) {
+  if (!spread || spread.sourceCount < 2) return null;
+  var flagsTemp = spread.tempSpreadF != null && spread.tempSpreadF >= 4;
+  var flagsRain = spread.popSpreadPct != null && spread.popSpreadPct >= 30;
+  if (!flagsTemp && !flagsRain) return null;
+  if (flagsTemp && flagsRain) return '±' + Math.round(spread.tempSpreadF) + '° · rain split';
+  if (flagsTemp) return '±' + Math.round(spread.tempSpreadF) + '°';
+  return 'rain split';
+}
+// Card-level agreement clause appended to composeWeatherSummary's sentence — scoped to the
+// sail-window rows only (rowOverlapsWindow), same scope every other headline/summary stat
+// above uses. Returns '' when there is nothing yet to compare (e.g. models still loading).
+function weatherAgreementClause(rows, departureMs, returnMs) {
+  var inWindow = rows.filter(function (r) { return rowOverlapsWindow(r, departureMs, returnMs); });
+  if (!inWindow.length) return '';
+  var worstTemp = null, worstPop = null, sawComparison = false;
+  inWindow.forEach(function (r) {
+    var spread = weatherSpreadForRow(r);
+    if (spread.sourceCount < 2) return;
+    sawComparison = true;
+    if (spread.tempSpreadF != null && (!worstTemp || spread.tempSpreadF > worstTemp.tempSpreadF)) worstTemp = spread;
+    if (spread.popSpreadPct != null && (!worstPop || spread.popSpreadPct > worstPop.popSpreadPct)) worstPop = spread;
+  });
+  if (!sawComparison) return '';
+  if (worstTemp && worstTemp.tempSpreadF >= 4) {
+    return 'Models differ on temperature (' + Math.round(worstTemp.tempMin) + '–' + Math.round(worstTemp.tempMax) + '°).';
+  }
+  if (worstPop && worstPop.popSpreadPct >= 30) {
+    return 'Models split on rain (' + Math.round(worstPop.popMin) + '–' + Math.round(worstPop.popMax) + '%).';
+  }
+  return 'Models agree.';
+}
+
 /* ============================== Weather temperature curve (SVG) ============================== */
 
 function renderWeatherChart(rows, domStart, domEnd, departureMs, returnMs, nowMs, sunEvents) {
@@ -8039,6 +8260,8 @@ function renderWeatherScroller(rows, departureMs, returnMs) {
     var popHtml = r.pop != null ? '<div class="wi-pop' + (r.pop > 0 ? ' wi-pop-active' : '') + '">' + r.pop + '%</div>' : '';
     var cls = 'weather-item' + (r.isThunder ? ' weather-item-thunder' : '') +
       (inWindow ? ' in-window' : '') + (isSailStart ? ' sail-start' : '');
+    var spreadLabel = weatherSpreadLabel(weatherSpreadForRow(r));
+    var spreadHtml = spreadLabel ? '<div class="wi-spread">' + escapeHtml(spreadLabel) + '</div>' : '';
     if (focused) {
       var focusStats = [];
       focusStats.push('<div class="wi-focus-stat"><span>Temp</span><strong>' +
@@ -8056,6 +8279,9 @@ function renderWeatherScroller(rows, departureMs, returnMs) {
         focusStats.push('<div class="wi-focus-stat"><span>Wind</span><strong>' +
           escapeHtml((windDir ? windDir + ' ' : '') + Math.round(r.sustainedKt) + ' kt') + '</strong></div>');
       }
+      if (spreadLabel) {
+        focusStats.push('<div class="wi-focus-stat"><span>Spread</span><strong>' + escapeHtml(spreadLabel) + '</strong></div>');
+      }
       return '<div class="' + cls + '">' +
         '<div class="wi-time">' + escapeHtml(fmtTime(r.ms)) + '</div>' +
         weatherIconSvg(r.tag, 24) +
@@ -8067,7 +8293,7 @@ function renderWeatherScroller(rows, departureMs, returnMs) {
       '<div class="wi-time">' + escapeHtml(fmtTime(r.ms)) + '</div>' +
       weatherIconSvg(r.tag, 24) +
       '<div class="wi-temp">' + (r.tempF != null ? Math.round(r.tempF) + '°' : '--') + '</div>' +
-      popHtml + '</div>';
+      popHtml + spreadHtml + '</div>';
   }).join('');
 }
 
@@ -8077,9 +8303,27 @@ function windArrowSvg(dirDeg) {
   var rot = (dirDeg != null && isFinite(dirDeg)) ? dirDeg : 0;
   return '<svg class="metric-arrow" width="14" height="14" viewBox="0 0 24 24" style="transform:rotate(' + rot.toFixed(0) + 'deg)"><polygon points="12,3 18,17 12,13 6,17" fill="currentColor"/></svg>';
 }
+// Cloud cover as a hard-edged pie wedge rather than a translucent wash over the whole disc.
+// A fill-opacity fill is illegible exactly where the forecast usually sits — at 15-25% every
+// hour rendered as an apparently empty ring, so the glyph carried no signal at all. A wedge
+// swept clockwise from 12 o'clock at full opacity reads as a fraction at any value.
 function skyGlyphSvg(pct) {
   var p = pct == null ? 0 : clamp(pct, 0, 100) / 100;
-  return '<svg class="metric-sky" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="6.4" fill="currentColor" fill-opacity="' + p.toFixed(2) + '"/></svg>';
+  var CX = 8, CY = 8, R = 6.4;
+  var ring = '<circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.3"/>';
+  var wedge = '';
+  if (p >= 0.999) {
+    // A 360deg arc degenerates (start point == end point), so overcast draws as a plain disc.
+    wedge = '<circle cx="8" cy="8" r="6.4" fill="currentColor"/>';
+  } else if (p > 0) {
+    var a = p * 2 * Math.PI;
+    var x = CX + R * Math.sin(a), y = CY - R * Math.cos(a);
+    wedge = '<path d="M' + CX + ' ' + CY + ' L' + CX + ' ' + (CY - R).toFixed(2) +
+      ' A' + R + ' ' + R + ' 0 ' + (p > 0.5 ? 1 : 0) + ' 1 ' + x.toFixed(2) + ' ' + y.toFixed(2) +
+      ' Z" fill="currentColor"/>';
+  }
+  // Wedge under the ring so the outline stays crisp against the fill.
+  return '<svg class="metric-sky" width="16" height="16" viewBox="0 0 16 16">' + wedge + ring + '</svg>';
 }
 
 function weatherMetricCellHtml(chip, r, limits, maxPrecipIn, inWindow) {
@@ -8128,6 +8372,42 @@ function updateWeatherChipActive() {
   });
 }
 
+function updateWeatherSourceChipActive() {
+  var row = $('weatherSourceRow');
+  if (!row) return;
+  row.querySelectorAll('.chip').forEach(function (chip) {
+    chip.classList.toggle('active', chip.dataset.source === (state.weatherSource || 'nws'));
+  });
+}
+
+// Mirrors renderWindModelNote's show/hide idiom for the Weather card's own source chips. NWS
+// is always the fallback, so a model source that's still loading, failed, or simply has no
+// coverage for this window falls back silently in the rendered rows while this note explains
+// why the displayed data is still NWS.
+function updateWeatherSourceNote(domStart, domEnd) {
+  var el = $('weatherSourceNote');
+  if (!el) return;
+  var source = state.weatherSource || 'nws';
+  if (source === 'nws') { hideEl(el); return; }
+  var label = WIND_MODEL_LABELS[source] || source;
+  if (criticalSourceHealth.windModels === 'loading') {
+    showEl(el);
+    el.textContent = 'Loading ' + label + ' data…';
+    return;
+  }
+  var samples = state.windModelSeries && state.windModelSeries[source];
+  var hasRows = (samples || []).some(function (s) {
+    return (s.ms + 3600000) > domStart && s.ms < domEnd &&
+      (s.tempF != null || s.pop != null || s.weatherCode != null);
+  });
+  if (criticalSourceHealth.windModels === 'unavailable' || !hasRows) {
+    showEl(el);
+    el.textContent = label + ' unavailable — showing NWS.';
+    return;
+  }
+  hideEl(el);
+}
+
 /* ============================== Weather card orchestrator ============================== */
 // Item 4a (slim weather card): window±2h rather than the old fixed 20h (departure -2h..+18h)
 // span — a headline (temp range/sunset/showers) now carries the day-scale gist, so the chart
@@ -8139,7 +8419,9 @@ function renderWeatherCard(hourlyPeriods, gridSeries, departureMs, returnMs, lim
   var domEnd = (returnMs != null ? returnMs : departureMs) + 2 * 3600000;
 
   var rows = buildWeatherRows(hourlyPeriods, gridSeries, domStart, domEnd);
+  rows = applyWeatherSource(rows, state.weatherSource);
   state.weatherRows = rows;
+  updateWeatherSourceNote(domStart, domEnd);
 
   if (!rows.length) {
     $('weatherHeadline').textContent = 'No forecast data available.';
@@ -8154,7 +8436,12 @@ function renderWeatherCard(hourlyPeriods, gridSeries, departureMs, returnMs, lim
   // One or two hours are rendered as complete condition rows below. Repeating the same
   // condition and wind sentence above them wastes space and makes the compact state feel
   // unfinished, so reserve the prose summary for the normal multi-hour strip.
-  setText('weatherSummary', rows.length <= 2 ? '' : composeWeatherSummary(rows, sunEvents));
+  var summaryText = rows.length <= 2 ? '' : composeWeatherSummary(rows, sunEvents);
+  if (summaryText) {
+    var agreement = weatherAgreementClause(rows, departureMs, returnMs);
+    if (agreement) summaryText += ' ' + agreement;
+  }
+  setText('weatherSummary', summaryText);
   renderWeatherScroller(rows, departureMs, returnMs);
   renderWeatherMetricStrip(rows, limits || DEFAULT_LIMITS, departureMs, returnMs);
 }
@@ -10101,11 +10388,11 @@ var state = {
   monitorEnabled: false, savedPlan: null,
   lastManualRefreshMs: 0, lastTickMs: 0,
   planNarrative: '', planNarrativeDirty: false, planNarrativeEngine: null,
-  weatherRows: [], weatherChip: 'humidity', marineTab: 'summary',
+  weatherRows: [], weatherChip: 'humidity', weatherSource: 'nws', marineTab: 'summary',
   timelineMode: 'current',
   sailSim: null,
   planWindowChanged: false, lastDiffSnapshot: null, lastNotifiedStateKey: null,
-  pendingSharedPlan: null, sharedPlanBaseline: null,
+  pendingSharedPlan: null,
   lastGoodUpdateMs: null,
   // Route/ETD/ETA/turn-around/sunset for the current plan window: computed once here and
   // read by the copy-as-text and print builders. These used to be scraped off readonly DOM
@@ -10472,6 +10759,12 @@ function parseOpenMeteoWindModels(json) {
     var spd = hourly['wind_speed_10m_' + modelKey] || [];
     var gust = hourly['wind_gusts_10m_' + modelKey] || [];
     var dir = hourly['wind_direction_10m_' + modelKey] || [];
+    // Weather fields (Weather card source chips + model-agreement indicator) ride along on
+    // this same per-model hourly response — no separate fetch.
+    var temp = hourly['temperature_2m_' + modelKey] || [];
+    var pop = hourly['precipitation_probability_' + modelKey] || [];
+    var humidity = hourly['relative_humidity_2m_' + modelKey] || [];
+    var code = hourly['weather_code_' + modelKey] || [];
     var rows = [];
     for (var i = 0; i < times.length; i++) {
       var ms = parseOpenMeteoTimeToMs(times[i]);
@@ -10480,7 +10773,11 @@ function parseOpenMeteoWindModels(json) {
         ms: ms,
         sustained: spd[i] == null ? null : spd[i],
         gust: gust[i] == null ? null : gust[i],
-        dir: dir[i] == null ? null : dir[i]
+        dir: dir[i] == null ? null : dir[i],
+        tempF: temp[i] == null ? null : temp[i],
+        pop: pop[i] == null ? null : pop[i],
+        humidity: humidity[i] == null ? null : humidity[i],
+        weatherCode: code[i] == null ? null : code[i]
       });
     }
     out[modelKey] = rows;
@@ -10493,9 +10790,11 @@ var windModelsLoadInFlight = null;
 function loadWindModels() {
   if (windModelsLoadInFlight) return windModelsLoadInFlight;
   if (criticalSourceHealth.windModels !== 'available') criticalSourceHealth.windModels = 'loading';
-  // v2 adds past_days=1. A new cache namespace prevents the old current-day-only response
-  // from recreating a false leading coverage gap until the background refresh completes.
-  var pending = loadSource('windmodels-v2', fetchWindModels, 'windCard', function (data) {
+  // v3 adds temperature/precip-probability/humidity/weather-code per model (Weather card
+  // source chips + spread indicator). A new cache namespace prevents a stale v2 payload —
+  // which has no weather fields — from leaving every Weather-card model reading null until
+  // the background refresh completes.
+  var pending = loadSource('windmodels-v3', fetchWindModels, 'windCard', function (data) {
     state.windModelsRaw = data;
     state.windModelSeries = parseOpenMeteoWindModels(data);
   }).then(function () {
@@ -10748,7 +11047,7 @@ function recomputeWindowDependentUI() {
   updateFloatPlanAutoFields(direction, departureMs, returnMs);
   syncAtlanticYachtingFilingState();
   buildPrintSummary(verdict, direction, departureMs, returnMs, maxSustainedKt, maxGustKt);
-  renderSharedPlanComparison();
+  updateLivePlanCode();
 }
 
 // Resolves true if at least one source came back fresh this round, false only on a total
@@ -10926,9 +11225,23 @@ function loadFloatPlanFields() {
   }
   FLOATPLAN_FIELDS.forEach(function (id) {
     var el = $(id);
-    if (el && saved[id] != null) el.value = saved[id];
+    // fpCrewCount gets its own deliberate restore just below: unlike a free-text/number
+    // input, a <select> has no placeholder fallback, and assigning it a value that matches
+    // none of its options resolves differently across browsers rather than failing loudly.
+    if (el && id !== 'fpCrewCount' && saved[id] != null) el.value = saved[id];
     if (el) el.addEventListener('input', saveFloatPlanFields);
   });
+  // Land a saved crew count that is out of range (outside 0-12) or a malformed leftover from
+  // an older save (non-integer, e.g. "3.5" or "") on "0" rather than trust the browser's
+  // unmatched-select.value behavior — that must be a deliberate choice, not an accident of
+  // whichever option a given engine happens to fall back to.
+  var crewEl = $('fpCrewCount');
+  if (crewEl) {
+    var savedCrew = saved.fpCrewCount;
+    var crewIsCleanInt = typeof savedCrew === 'string' && /^\d{1,2}$/.test(savedCrew.trim());
+    var crewN = crewIsCleanInt ? parseInt(savedCrew, 10) : NaN;
+    crewEl.value = (crewIsCleanInt && crewN <= 12) ? String(crewN) : '0';
+  }
   var sel = $('fpVesselSelect');
   if (sel) {
     // <select> needs 'change' (Safari doesn't fire 'input' on selects); also drives the
@@ -11458,10 +11771,16 @@ function crewSummaryLine() {
 // A compact, versioned share format for Pier 25 plans. The payload is a packed JSON array,
 // UTF-8/base64url encoded, with an FNV-1a checksum. Contact details and crew names are never
 // included. FP1 implies Pier 25 and gives us a clean migration path for future versions.
+//
+// FP2 dropped the creation-time verdict/wind/advisory/limits snapshot: those fields existed
+// solely to feed the plan-comparison feature, which is gone (loading a code now just applies
+// its schedule, same as any other control). No FP1 code has ever been shared outside this
+// dashboard, so there is no round-trip obligation to preserve — decodeFloatCode below rejects
+// an FP1 code outright with a message pointing at generating a fresh one, rather than parsing
+// a payload shape that no longer means anything.
 
-var FLOAT_CODE_PREFIX = 'FP1';
-var VERDICT_TO_FLOAT_CODE = { GO: 'G', REEF: 'R', CAUTION: 'C', NOGO: 'X' };
-var FLOAT_CODE_TO_VERDICT = { G: 'GO', R: 'REEF', C: 'CAUTION', X: 'NOGO' };
+var FLOAT_CODE_PREFIX = 'FP2';
+var LEGACY_FLOAT_CODE_PREFIX = 'FP1';
 
 function floatCodeHash(text) {
   var h = 2166136261;
@@ -11492,26 +11811,17 @@ function compactPlanText(value, maxLength) {
   return String(value == null ? '' : value).trim().replace(/\s+/g, ' ').slice(0, maxLength);
 }
 
-function alertHashes(alertIds) {
-  return (alertIds || []).map(function (id) { return floatCodeHash(String(id)).slice(-6); }).sort();
-}
-
 function buildFloatCodePlan() {
-  var snap = buildPlanSnapshot();
-  var limits = (state.settings && state.settings.limits) || DEFAULT_LIMITS;
+  // Sourced straight from state/DOM rather than buildPlanSnapshot(): the code no longer
+  // carries a verdict/wind snapshot, so there is no need to pay for that computation just to
+  // encode a schedule.
   var heading = state.lastDirectionRec && state.lastDirectionRec.initialHeading;
   var crewEl = $('fpCrewCount');
   return {
-    createdAtMs: snap.savedAtMs,
-    departureMs: snap.departureMs,
-    durationMinutes: Math.round(snap.durationHours * 60),
+    createdAtMs: Date.now(),
+    departureMs: state.departureMs,
+    durationMinutes: Math.round(state.durationHours * 60),
     heading: heading === 'N' || heading === 'S' ? heading : null,
-    verdictLevel: snap.verdictLevel,
-    maxSustainedKt: snap.maxSustainedKt,
-    maxGustKt: snap.maxGustKt,
-    thunder: !!snap.thunder,
-    alertHashes: alertHashes(snap.alertIds),
-    limits: [limits.reefLow, limits.reefHigh, limits.noGoSustained, limits.noGoGust],
     // The visible preset (AY10 / AY11) is the vessel identity most plans use. The old
     // encoder read only the hidden custom-name input, so preset boats silently vanished.
     vesselName: compactPlanText(getVesselDisplayName(), 36),
@@ -11521,20 +11831,12 @@ function buildFloatCodePlan() {
 
 function encodeFloatCode(plan) {
   var packed = [
-    1,
+    2,
     Math.round(plan.createdAtMs / 60000),
     Math.round(plan.departureMs / 60000),
     plan.durationMinutes,
     plan.heading,
-    VERDICT_TO_FLOAT_CODE[plan.verdictLevel] || 'G',
-    plan.maxSustainedKt == null ? null : Math.round(plan.maxSustainedKt * 10),
-    plan.maxGustKt == null ? null : Math.round(plan.maxGustKt * 10),
-    plan.thunder ? 1 : 0,
-    plan.alertHashes || [],
-    (plan.limits || []).map(function (n) { return Math.round(n * 10); }),
     compactPlanText(plan.vesselName, 36),
-    compactPlanText(plan.vesselType, 48),
-    compactPlanText(plan.sailNumber, 20),
     compactPlanText(plan.crewCount, 8)
   ];
   var payload = base64UrlEncodeUtf8(JSON.stringify(packed));
@@ -11543,13 +11845,16 @@ function encodeFloatCode(plan) {
 
 function decodeFloatCode(input) {
   var code = String(input == null ? '' : input).trim().replace(/\s+/g, '');
-  var match = /^FP1-([A-Za-z0-9_-]+)-([0-9a-z]{7})$/.exec(code);
-  if (!match) throw new Error('That does not look like an FP1 Plan Code.');
-  if (floatCodeHash(match[1]) !== match[2]) throw new Error('The code is damaged or incomplete. Check the copy and try again.');
+  var match = /^(FP1|FP2)-([A-Za-z0-9_-]+)-([0-9a-z]{7})$/.exec(code);
+  if (!match) throw new Error('That does not look like a Plan Code.');
+  if (match[1] === LEGACY_FLOAT_CODE_PREFIX) {
+    throw new Error('This Plan Code is from an older version of Floatplan and can no longer be read. Generate a fresh code from the current plan.');
+  }
+  if (floatCodeHash(match[2]) !== match[3]) throw new Error('The code is damaged or incomplete. Check the copy and try again.');
   var packed;
-  try { packed = JSON.parse(base64UrlDecodeUtf8(match[1])); }
+  try { packed = JSON.parse(base64UrlDecodeUtf8(match[2])); }
   catch (e) { throw new Error('The code payload could not be read.'); }
-  if (!Array.isArray(packed) || packed[0] !== 1 || packed.length < 15) throw new Error('This Plan Code version is not supported.');
+  if (!Array.isArray(packed) || packed[0] !== 2 || packed.length < 7) throw new Error('This Plan Code version is not supported.');
 
   var createdAtMs = Number(packed[1]) * 60000;
   var departureMs = Number(packed[2]) * 60000;
@@ -11563,22 +11868,6 @@ function decodeFloatCode(input) {
     throw new Error('The plan duration is invalid.');
   }
   var heading = packed[4] === 'N' || packed[4] === 'S' ? packed[4] : null;
-  var verdictLevel = FLOAT_CODE_TO_VERDICT[packed[5]];
-  if (!verdictLevel) throw new Error('The saved verdict is invalid.');
-  var packedLimits = Array.isArray(packed[10]) ? packed[10] : [];
-  var limits = packedLimits.length === 4 ? packedLimits.map(function (n) { return Number(n) / 10; }) :
-    [DEFAULT_LIMITS.reefLow, DEFAULT_LIMITS.reefHigh, DEFAULT_LIMITS.noGoSustained, DEFAULT_LIMITS.noGoGust];
-  if (limits.some(function (n) { return !isFinite(n) || n < 0 || n > 100; })) throw new Error('The saved wind limits are invalid.');
-  var maxSustainedKt = packed[6] == null ? null : Number(packed[6]) / 10;
-  var maxGustKt = packed[7] == null ? null : Number(packed[7]) / 10;
-  if ((maxSustainedKt != null && (!isFinite(maxSustainedKt) || maxSustainedKt < 0 || maxSustainedKt > 200)) ||
-      (maxGustKt != null && (!isFinite(maxGustKt) || maxGustKt < 0 || maxGustKt > 200))) {
-    throw new Error('The saved wind snapshot is invalid.');
-  }
-  var savedAlertHashes = Array.isArray(packed[9]) ? packed[9].map(String).slice(0, 20) : [];
-  if (savedAlertHashes.some(function (hash) { return !/^[0-9a-z]{1,7}$/.test(hash); })) {
-    throw new Error('The saved advisory snapshot is invalid.');
-  }
 
   return {
     code: code,
@@ -11586,16 +11875,8 @@ function decodeFloatCode(input) {
     departureMs: departureMs,
     durationMinutes: durationMinutes,
     heading: heading,
-    verdictLevel: verdictLevel,
-    maxSustainedKt: maxSustainedKt,
-    maxGustKt: maxGustKt,
-    thunder: packed[8] === 1,
-    alertHashes: savedAlertHashes,
-    limits: limits,
-    vesselName: compactPlanText(packed[11], 36),
-    vesselType: compactPlanText(packed[12], 48),
-    sailNumber: compactPlanText(packed[13], 20),
-    crewCount: compactPlanText(packed[14], 8)
+    vesselName: compactPlanText(packed[5], 36),
+    crewCount: compactPlanText(packed[6], 8)
   };
 }
 
@@ -11607,8 +11888,6 @@ function planDurationText(minutes) {
 function vesselSummaryForCode(plan) {
   var bits = [];
   if (plan.vesselName) bits.push(plan.vesselName);
-  if (plan.vesselType) bits.push(plan.vesselType);
-  if (plan.sailNumber) bits.push('sail ' + plan.sailNumber);
   if (plan.crewCount !== '') {
     var crew = parseInt(plan.crewCount, 10);
     if (isFinite(crew) && crew >= 0) bits.push(crew + ' crew + 1 skipper (' + (crew + 1) + ' aboard)');
@@ -11616,6 +11895,9 @@ function vesselSummaryForCode(plan) {
   return bits.length ? bits.join(' · ') : 'Not included';
 }
 
+// Pre-load summary for the Import code flow: departure/return/duration/first leg/vessel only
+// — exactly what "Load schedule" is about to apply. No verdict/wind row here on purpose; that
+// snapshot no longer exists in the FP2 payload (see the Float Codes header comment above).
 function renderPlanCodePreview(plan) {
   var preview = $('planCodePreview');
   var etaMs = plan.departureMs + plan.durationMinutes * 60000;
@@ -11627,29 +11909,33 @@ function renderPlanCodePreview(plan) {
       '<div class="plan-code-preview-item"><span>Return</span>' + escapeHtml(fmtDateTime(etaMs)) + '</div>' +
       '<div class="plan-code-preview-item"><span>Duration</span>' + escapeHtml(planDurationText(plan.durationMinutes)) + '</div>' +
       '<div class="plan-code-preview-item"><span>Intended first leg</span>' + escapeHtml(plan.heading === 'S' ? 'South' : plan.heading === 'N' ? 'North' : 'Not saved') + '</div>' +
-      '<div class="plan-code-preview-item"><span>Verdict when created</span>' + escapeHtml(VERDICT_LABELS[plan.verdictLevel]) + '</div>' +
       '<div class="plan-code-preview-item"><span>Vessel</span>' + escapeHtml(vesselSummaryForCode(plan)) + '</div>' +
     '</div>' +
-    (hasEnded ? '<p class="plan-code-error">This plan has already ended, so current forecast comparison may be limited.</p>' : '') +
-    '<p class="plan-code-privacy">The saved verdict and conditions are a creation-time snapshot. This dashboard fetches current data after loading. Contacts and crew names are not present.</p>' +
-    '<div class="plan-code-actions"><button type="button" class="btn-primary" id="applyPlanCodeBtn">Load schedule and compare live</button></div>';
+    (hasEnded ? '<p class="plan-code-error">This plan has already ended.</p>' : '') +
+    '<p class="plan-code-privacy">Contacts and crew names are not included in the code.</p>' +
+    '<div class="plan-code-actions"><button type="button" class="btn-primary" id="applyPlanCodeBtn">Load schedule</button></div>';
   showEl(preview);
   $('applyPlanCodeBtn').addEventListener('click', function () { applySharedPlan(plan); });
 }
 
-function createCurrentFloatCode() {
+// Keeps the bottom-of-card live Plan Code row in step with the current plan. Called from the
+// same recompute pass that redraws everything else window-dependent (recomputeWindowDependentUI)
+// so it never goes stale, plus right after a schedule loads via applySharedPlan.
+function updateLivePlanCode() {
+  var el = $('livePlanCode');
+  if (!el) return;
   try {
     var code = encodeFloatCode(buildFloatCodePlan());
-    $('generatedPlanCode').value = code;
-    setText('generatedPlanCodeMeta', code.length + ' characters · FP1 · contacts excluded');
-    showEl($('generatedPlanCodeWrap'));
+    el.textContent = code;
+    el.title = code;
   } catch (e) {
-    showToast('Could not create a Plan Code: ' + e.message);
+    el.textContent = '';
+    el.title = '';
   }
 }
 
-function copyCurrentFloatCode() {
-  var code = $('generatedPlanCode').value;
+function copyLivePlanCode() {
+  var code = $('livePlanCode').textContent;
   if (!code) return;
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(code).then(function () { showToast('Plan Code copied'); })
@@ -11659,27 +11945,19 @@ function copyCurrentFloatCode() {
   }
 }
 
-function setPlanCodeMode(mode) {
-  var checking = mode === 'check';
-  document.querySelectorAll('#sharePlanSwitcher [data-plan-code-mode]').forEach(function (btn) {
-    btn.classList.toggle('active', btn.dataset.planCodeMode === (checking ? 'check' : 'share'));
-  });
-  $('sharePlanCreateSection').classList.toggle('hidden', checking);
-  $('sharePlanCheckSection').classList.toggle('hidden', !checking);
-  if (checking) {
-    setTimeout(function () { try { $('incomingPlanCode').focus(); } catch (e) { /* ignore */ } }, 0);
-  } else {
-    createCurrentFloatCode();
-  }
+// Toolbar-triggered minimal panel: one button opens it, one control inside it closes it —
+// the same hidden-class open/close shape the old two-mode Plan Code panel used.
+function openImportCodePanel() {
+  showEl($('importCodePanel'));
+  setTimeout(function () { try { $('incomingPlanCode').focus(); } catch (e) { /* ignore */ } }, 0);
 }
 
-function openPlanCodePanel(mode) {
-  showEl($('sharePlanPanel'));
-  setPlanCodeMode(mode);
-}
-
-function closePlanCodePanel() {
-  hideEl($('sharePlanPanel'));
+function closeImportCodePanel() {
+  hideEl($('importCodePanel'));
+  hideEl($('planCodeError'));
+  hideEl($('planCodePreview'));
+  $('incomingPlanCode').value = '';
+  state.pendingSharedPlan = null;
 }
 
 function previewIncomingFloatCode() {
@@ -11698,9 +11976,10 @@ function previewIncomingFloatCode() {
   }
 }
 
+// Applies a decoded code's schedule (departure/duration) exactly like any other schedule edit
+// — no baseline is kept and nothing is diffed against it. Compare was deleted outright; this
+// dashboard just redraws current conditions around the newly-applied window.
 function applySharedPlan(plan) {
-  state.sharedPlanBaseline = plan;
-  lsSetJSON('sharedPlanBaseline', plan);
   resetSunsetOverrideForEdit();
   state.departureMs = plan.departureMs;
   state.durationHours = plan.durationMinutes / 60;
@@ -11721,77 +12000,8 @@ function applySharedPlan(plan) {
   loadCurrentsCurve();
   loadWater();
   recomputeWindowDependentUI();
-  showToast('Shared schedule loaded · checking current conditions');
-}
-
-function clearSharedPlanComparison() {
-  state.sharedPlanBaseline = null;
-  try { localStorage.removeItem(LS_PREFIX + 'sharedPlanBaseline'); } catch (e) { /* ignore */ }
-  hideEl($('sharedPlanComparison'));
-}
-
-function sameLimits(a, b) {
-  if (!a || !b || a.length !== 4 || b.length !== 4) return false;
-  return a.every(function (value, idx) { return Math.abs(value - b[idx]) < 0.05; });
-}
-
-function comparisonWindText(before, after) {
-  if (before == null && after == null) return 'Unavailable';
-  if (before == null) return 'Now ' + round1(after) + ' kt';
-  if (after == null) return round1(before) + ' kt → unavailable';
-  var delta = after - before;
-  return round1(before) + ' → ' + round1(after) + ' kt' + (Math.abs(delta) >= 0.1 ? ' (' + (delta > 0 ? '+' : '') + round1(delta) + ')' : '');
-}
-
-function renderSharedPlanComparison() {
-  var el = $('sharedPlanComparison');
-  var plan = state.sharedPlanBaseline;
-  if (!el || !plan) { if (el) hideEl(el); return; }
-  showEl(el);
-  var durationHours = plan.durationMinutes / 60;
-  if (state.departureMs !== plan.departureMs || Math.abs(state.durationHours - durationHours) > 0.001) {
-    el.innerHTML = '<div class="shared-plan-comparison-head"><strong>Plan Code comparison</strong><span class="comparison-state changed">Schedule changed</span></div>' +
-      '<p class="sub">The dashboard schedule no longer matches the loaded Plan Code.</p>' +
-      '<div class="plan-code-actions"><button type="button" class="btn-secondary" id="clearSharedComparisonBtn">Stop comparing</button></div>';
-    $('clearSharedComparisonBtn').addEventListener('click', clearSharedPlanComparison);
-    return;
-  }
-
-  var current = buildPlanSnapshotForWindow(plan.departureMs, durationHours);
-  var currentAlertHashes = alertHashes(current.alertIds);
-  var newAlerts = currentAlertHashes.filter(function (hash) { return plan.alertHashes.indexOf(hash) === -1; });
-  var currentHeading = state.lastDirectionRec && state.lastDirectionRec.initialHeading;
-  var headingChanged = !!(plan.heading && currentHeading && plan.heading !== currentHeading);
-  var levelDelta = LEVEL_ORDER.indexOf(current.verdictLevel) - LEVEL_ORDER.indexOf(plan.verdictLevel);
-  var windWorse = current.maxSustainedKt != null && plan.maxSustainedKt != null && current.maxSustainedKt - plan.maxSustainedKt >= 3;
-  var gustWorse = current.maxGustKt != null && plan.maxGustKt != null && current.maxGustKt - plan.maxGustKt >= 3;
-  var worse = levelDelta > 0 || windWorse || gustWorse || newAlerts.length > 0 || (current.thunder && !plan.thunder);
-  var localLimits = state.settings.limits;
-  var currentLimitArray = [localLimits.reefLow, localLimits.reefHigh, localLimits.noGoSustained, localLimits.noGoGust];
-  var limitsDiffer = !sameLimits(plan.limits, currentLimitArray);
-  var changed = worse || levelDelta !== 0 || headingChanged || limitsDiffer || currentAlertHashes.length !== plan.alertHashes.length || current.thunder !== plan.thunder;
-  var statusClass = worse ? 'worse' : changed ? 'changed' : 'stable';
-  var statusText = worse ? 'Conditions worsened' : changed ? 'Changed' : 'No material change';
-  var headingBefore = plan.heading === 'S' ? 'South' : plan.heading === 'N' ? 'North' : 'Not saved';
-  var headingNow = currentHeading === 'S' ? 'South' : currentHeading === 'N' ? 'North' : 'Unavailable';
-
-  var rows = [
-    ['Verdict', VERDICT_LABELS[plan.verdictLevel] + ' → ' + VERDICT_LABELS[current.verdictLevel]],
-    ['Max sustained', comparisonWindText(plan.maxSustainedKt, current.maxSustainedKt)],
-    ['Max gust', comparisonWindText(plan.maxGustKt, current.maxGustKt)],
-    ['First leg', headingBefore + ' → ' + headingNow],
-    ['Advisories', plan.alertHashes.length + ' → ' + currentAlertHashes.length + (newAlerts.length ? ' (' + newAlerts.length + ' new)' : '')],
-    ['Thunder in window', (plan.thunder ? 'Yes' : 'No') + ' → ' + (current.thunder ? 'Yes' : 'No')]
-  ];
-  if (limitsDiffer) rows.push(['Safety limits', 'Creator and this dashboard differ']);
-
-  el.innerHTML = '<div class="shared-plan-comparison-head"><strong>Compared with current conditions</strong><span class="comparison-state ' + statusClass + '">' + statusText + '</span></div>' +
-    '<p class="sub">Baseline created ' + escapeHtml(fmtDateTime(plan.createdAtMs)) + '.</p>' +
-    '<ul class="comparison-list">' + rows.map(function (row) {
-      return '<li><span class="compare-label">' + escapeHtml(row[0]) + '</span><span class="compare-value">' + escapeHtml(row[1]) + '</span></li>';
-    }).join('') + '</ul>' +
-    '<div class="plan-code-actions"><button type="button" class="btn-secondary" id="clearSharedComparisonBtn">Stop comparing</button></div>';
-  $('clearSharedComparisonBtn').addEventListener('click', clearSharedPlanComparison);
+  closeImportCodePanel();
+  showToast('Plan schedule loaded');
 }
 
 function verificationSources(departureMs) {
@@ -13071,6 +13281,7 @@ function afterLayoutChange() {
   if (radarState.map) radarState.map.invalidateSize();
   refreshCurrentSensorMapLayout();
   recomputeWindowDependentUI();
+  updateSimFitHeight();
 }
 
 var viewportResizeTimer = null;
@@ -13092,6 +13303,10 @@ function setupResponsiveLayout() {
     });
   }
   window.addEventListener('resize', function () {
+    // The Sim card's height tracks the window directly, so it re-measures on every resize
+    // frame rather than waiting out the 200ms debounce the heavier relayout needs — a card
+    // that lags a drag by a fifth of a second looks like it is failing to fit.
+    updateSimFitHeight();
     clearTimeout(viewportResizeTimer);
     viewportResizeTimer = setTimeout(onViewportResize, 200);
   });
@@ -13136,15 +13351,41 @@ function isValidMobileTab(tabId) {
 
 // Reconciles card visibility + tab bar highlight + the body.mobile-tabs shell class with the
 // current breakpoint and active tab. Safe to call any time after applyLayout has run once.
+// Space left for the Sim card once the chrome above and below it has taken its share. The
+// Sim tab holds a single card, and with the tab bar owning the page's vertical budget a card
+// that overruns the window reads as truncated rather than as something to scroll — so the
+// card sizes itself to this instead (see the min-width:700px sim block in the stylesheet).
+// Measured from the card's own document offset rather than by adding up each chrome bar:
+// that stays correct however the plan-window strip wraps, and it can't drift out of sync
+// with the bars' padding. Cleared below 900px — matching the stylesheet's own cutoff, where
+// the card goes back to stacking and scrolling — and while the card is on a hidden tab (its
+// offset would be meaningless).
+var SIM_FIT_MIN_WIDTH = 900;
+function updateSimFitHeight() {
+  var root = document.documentElement;
+  var card = $('sailSimCard');
+  if (!card || card.classList.contains('mtab-hidden') || window.innerWidth < SIM_FIT_MIN_WIDTH) {
+    root.style.removeProperty('--fp-sim-h');
+    return;
+  }
+  var footer = document.querySelector('footer.app-footer');
+  var cardTop = card.getBoundingClientRect().top + window.scrollY;
+  // 24px covers the card's own 12px vertical margins; the footer is measured because its
+  // padding is compacted on this tab.
+  var below = (footer ? footer.getBoundingClientRect().height : 0) + 24;
+  root.style.setProperty('--fp-sim-h', Math.round(window.innerHeight - cardTop - below) + 'px');
+}
+
 function applyMobileTabVisibility() {
   // body.mobile-tabs stays narrow-only: it carries the phone chrome (safe-area padding, the
   // condensed topbar), which a desktop window has no use for. Card filtering, by contrast, now
   // runs at every width — the tab bar is the only thing dividing the cards up.
   document.body.classList.toggle('mobile-tabs', layoutUI.current === 'narrow');
   // >=700px gets the fit shell: a fixed-height flex page whose card area is a per-tab CSS
-  // grid, so a tab never scrolls. data-mtab is what selects that tab's grid-template-areas.
+  // grid, so a tab never scrolls. Which tab is showing is therefore a layout input, not just a
+  // highlight — data-mtab is what selects that tab's grid-template-areas.
   document.body.classList.toggle('fit-shell', layoutUI.current !== 'narrow');
-  document.body.setAttribute('data-mtab', mobileTabUI.active);
+  document.body.dataset.mtab = mobileTabUI.active;
   MOBILE_TABS.forEach(function (tab) {
     var isActive = tab.id === mobileTabUI.active;
     tab.cards.forEach(function (id) {
@@ -13157,6 +13398,7 @@ function applyMobileTabVisibility() {
     btn.classList.toggle('active', isActive);
     btn.setAttribute('aria-current', isActive ? 'page' : 'false');
   });
+  updateSimFitHeight();
 }
 
 function setMobileTab(tabId) {
@@ -13186,6 +13428,17 @@ function initMobileTabs() {
       window.scrollTo(0, 0);
     });
   }
+  // The chrome above the card changes height without the window changing size — the
+  // plan-window strip rewraps, the custom-duration row appears, the topbar's verdict pill
+  // grows a second line. Watch the bars themselves so the Sim card's fit follows.
+  if (window.ResizeObserver) {
+    var chromeObserver = new ResizeObserver(function () { updateSimFitHeight(); });
+    ['.topbar', '.app-chrome-sticky', 'footer.app-footer'].forEach(function (sel) {
+      var el = document.querySelector(sel);
+      if (el) chromeObserver.observe(el);
+    });
+  }
+  applyMobileTabVisibility();
 }
 
 /* ============================== Init ============================== */
@@ -13236,11 +13489,9 @@ function init() {
 
   state.savedPlan = lsGetJSON('savedPlan', null, true);
   if (state.savedPlan) { $('monitorToggle').disabled = false; hideEl($('savePlanHint')); }
-  var storedSharedPlan = lsGetJSON('sharedPlanBaseline', null, true);
-  if (storedSharedPlan && storedSharedPlan.code) {
-    try { state.sharedPlanBaseline = decodeFloatCode(storedSharedPlan.code); }
-    catch (e) { state.sharedPlanBaseline = null; }
-  }
+  // Compare is gone, so any comparison-baseline key persisted by a previous session is dead
+  // weight — drop it rather than leave it sitting in localStorage forever unread.
+  try { localStorage.removeItem(LS_PREFIX + 'sharedPlanBaseline'); } catch (e) { /* best-effort cleanup */ }
 
   loadFloatPlanFields();
   initAtlanticYachtingConnection();
@@ -13301,14 +13552,10 @@ function init() {
   });
 
   $('savePlanBtn').addEventListener('click', onGeneratePlanMainClick);
-  $('sharePlanBtn').addEventListener('click', function () { openPlanCodePanel('share'); });
-  $('checkPlanBtn').addEventListener('click', function () { openPlanCodePanel('check'); });
-  $('closePlanCodeBtn').addEventListener('click', closePlanCodePanel);
-  document.querySelectorAll('#sharePlanSwitcher [data-plan-code-mode]').forEach(function (btn) {
-    btn.addEventListener('click', function () { setPlanCodeMode(btn.dataset.planCodeMode); });
-  });
-  $('copyPlanCodeBtn').addEventListener('click', copyCurrentFloatCode);
+  $('importCodeBtn').addEventListener('click', openImportCodePanel);
+  $('closeImportCodeBtn').addEventListener('click', closeImportCodePanel);
   $('previewPlanCodeBtn').addEventListener('click', previewIncomingFloatCode);
+  $('copyLivePlanCodeBtn').addEventListener('click', copyLivePlanCode);
   $('refreshBtn').addEventListener('click', manualRefresh);
   $('monitorToggle').addEventListener('change', function (e) {
     if (e.target.checked) startMonitor(); else stopMonitor();
@@ -13336,6 +13583,11 @@ function init() {
     window.print();
   });
   $('copyPlanBtn').addEventListener('click', copyFloatPlanText);
+  // Same hidden-by-default / toolbar-revealed / self-closing shape as the Import code panel
+  // above. Nothing on load depends on this panel being visible — syncAtlanticYachtingFilingState()
+  // and friends update it by id regardless of whether the container is shown.
+  $('openClubFilePanelBtn').addEventListener('click', function () { showEl($('clubFilePanel')); });
+  $('closeClubFilePanelBtn').addEventListener('click', function () { hideEl($('clubFilePanel')); });
   $('connectClubBtn').addEventListener('click', connectAtlanticYachting);
   $('disconnectClubBtn').addEventListener('click', disconnectAtlanticYachting);
   $('clubTokenSubmitBtn').addEventListener('click', submitAtlanticYachtingToken);
@@ -13390,6 +13642,24 @@ function init() {
       // call (which does pass them) ever lit it up. Pass the same window recomputeWindowDependentUI does.
       renderWeatherMetricStrip(state.weatherRows, (state.settings && state.settings.limits) || DEFAULT_LIMITS,
         state.departureMs, state.departureMs != null ? getReturnMs() : null);
+    });
+  });
+
+  // Weather card source chips (part A of the multi-source compare): defaults to NWS. A saved
+  // value from a prior session that no longer names a known model (schema drift, a removed
+  // source) falls back to 'nws' rather than silently rendering an all-unhighlighted row.
+  state.weatherSource = lsGetJSON('weatherSource', 'nws');
+  if (WIND_MODEL_ORDER.indexOf(state.weatherSource) === -1) state.weatherSource = 'nws';
+  updateWeatherSourceChipActive();
+  document.querySelectorAll('#weatherSourceRow .chip').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      var source = chip.dataset.source;
+      if (source === state.weatherSource) return;
+      state.weatherSource = source;
+      lsSetJSON('weatherSource', state.weatherSource);
+      updateWeatherSourceChipActive();
+      if (source !== 'nws' && !state.windModelSeries) loadWindModels();
+      recomputeWindowDependentUI();
     });
   });
 
