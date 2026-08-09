@@ -1645,7 +1645,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <div class="chip-row weather-chip-row" id="weatherChipRow">
         <button type="button" class="chip" data-chip="humidity">Humidity</button>
         <button type="button" class="chip" data-chip="precip">Precip</button>
-        <button type="button" class="chip" data-chip="sky">Sky</button>
+        <button type="button" class="chip" data-chip="sky">Cloud cover</button>
       </div>
       <div class="weather-metric-strip" id="weatherMetricStrip"></div>
     </div>
@@ -7785,9 +7785,27 @@ function windArrowSvg(dirDeg) {
   var rot = (dirDeg != null && isFinite(dirDeg)) ? dirDeg : 0;
   return '<svg class="metric-arrow" width="14" height="14" viewBox="0 0 24 24" style="transform:rotate(' + rot.toFixed(0) + 'deg)"><polygon points="12,3 18,17 12,13 6,17" fill="currentColor"/></svg>';
 }
+// Cloud cover as a hard-edged pie wedge rather than a translucent wash over the whole disc.
+// A fill-opacity fill is illegible exactly where the forecast usually sits — at 15-25% every
+// hour rendered as an apparently empty ring, so the glyph carried no signal at all. A wedge
+// swept clockwise from 12 o'clock at full opacity reads as a fraction at any value.
 function skyGlyphSvg(pct) {
   var p = pct == null ? 0 : clamp(pct, 0, 100) / 100;
-  return '<svg class="metric-sky" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="6.4" fill="currentColor" fill-opacity="' + p.toFixed(2) + '"/></svg>';
+  var CX = 8, CY = 8, R = 6.4;
+  var ring = '<circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.3"/>';
+  var wedge = '';
+  if (p >= 0.999) {
+    // A 360deg arc degenerates (start point == end point), so overcast draws as a plain disc.
+    wedge = '<circle cx="8" cy="8" r="6.4" fill="currentColor"/>';
+  } else if (p > 0) {
+    var a = p * 2 * Math.PI;
+    var x = CX + R * Math.sin(a), y = CY - R * Math.cos(a);
+    wedge = '<path d="M' + CX + ' ' + CY + ' L' + CX + ' ' + (CY - R).toFixed(2) +
+      ' A' + R + ' ' + R + ' 0 ' + (p > 0.5 ? 1 : 0) + ' 1 ' + x.toFixed(2) + ' ' + y.toFixed(2) +
+      ' Z" fill="currentColor"/>';
+  }
+  // Wedge under the ring so the outline stays crisp against the fill.
+  return '<svg class="metric-sky" width="16" height="16" viewBox="0 0 16 16">' + wedge + ring + '</svg>';
 }
 
 function weatherMetricCellHtml(chip, r, limits, maxPrecipIn, inWindow) {
