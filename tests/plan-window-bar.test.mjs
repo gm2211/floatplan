@@ -33,15 +33,22 @@ const cardOrderBlock = html.match(/var CARD_ORDER = \[([\s\S]*?)\];/)[1];
 assert.doesNotMatch(cardOrderBlock, /planWindowBar/,
   'planWindowBar must never be in CARD_ORDER — that array is appendChild-ed into #columnsRow, which would move it inside #app');
 
-// planCard (Sail Plan, a Plan-tab-only card) must no longer contain the departure/duration
-// controls — they were moved out, not duplicated.
+// Departure is the control every tab's charts are drawn around, so it must not sit inside a
+// Plan-tab-only card. Duration deliberately stays behind: it is chosen once while planning, so
+// hoisting it too would widen the always-on strip for a control nobody reaches mid-scan.
 const planCardStart = html.indexOf('<section class="card" id="planCard">');
 const planCardEnd = html.indexOf('</section>', planCardStart);
 assert.ok(planCardStart >= 0 && planCardEnd > planCardStart, 'planCard must still exist');
 const planCardHtml = html.slice(planCardStart, planCardEnd);
 assert.doesNotMatch(planCardHtml, /id="departureInput"/, 'departureInput must have moved out of planCard');
-assert.doesNotMatch(planCardHtml, /id="durationChips"/, 'durationChips must have moved out of planCard');
-assert.doesNotMatch(planCardHtml, /id="customDurationRow"/, 'customDurationRow must have moved out of planCard');
+assert.match(planCardHtml, /id="durationChips"/, 'durationChips must stay in planCard');
+assert.match(planCardHtml, /id="customDurationRow"/, 'customDurationRow must stay in planCard');
+
+// The strip carries the departure control and nothing else, so it stays one line on a phone.
+const stripStart = html.indexOf('<div class="plan-window-bar" id="planWindowBar">');
+const stripHtml = html.slice(stripStart, html.indexOf('<main id="app">', stripStart));
+assert.match(stripHtml, /id="departureInput"/, 'the strip must carry the departure control');
+assert.doesNotMatch(stripHtml, /id="durationChips"/, 'duration must not be duplicated into the strip');
 // sunsetPolicy is advisory status about the chosen departure, not a control — it stays put.
 assert.match(planCardHtml, /id="sunsetPolicy"/, 'sunsetPolicy must remain in planCard');
 assert.match(planCardHtml, /id="fpVesselSelect"/, 'the vessel/crew form-grid must remain in planCard');

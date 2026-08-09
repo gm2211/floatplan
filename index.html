@@ -1122,7 +1122,6 @@ body.mobile-tabs .tabbar { display: flex; }
   .plan-window-bar .field-row { margin: 0; flex: 0 0 auto; }
   .plan-window-bar .departure-row { flex: 1 1 260px; max-width: 420px; }
   .plan-window-bar .departure-control { justify-content: flex-start; }
-  .plan-window-bar .plan-window-duration-row { gap: 8px; }
   .plan-window-bar .custom-duration-row {
     flex: 0 0 auto; margin: 0; padding: 6px 0 0; width: 100%;
   }
@@ -1315,18 +1314,6 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       </div>
     </div>
   </div>
-  <div class="field-row plan-window-duration-row">
-    <label>Duration</label>
-    <div class="chip-row" id="durationChips">
-      <button class="chip" data-hours="2">2h</button>
-      <button class="chip" data-hours="3">3h</button>
-      <button class="chip" data-hours="custom">Custom</button>
-    </div>
-  </div>
-  <div class="custom-duration-row hidden" id="customDurationRow">
-    <input type="number" id="customDurationInput" min="1" max="12" step="0.0166667">
-    <span class="sub">hours</span>
-  </div>
 </div>
 </div>
 
@@ -1340,6 +1327,21 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
 
   <section class="card" id="planCard">
     <h2>Sail Plan</h2>
+    <!-- Departure lives in the global chrome strip because every tab's charts are drawn around
+         it. Duration stays here by choice: it is set once while planning, and hoisting it too
+         would widen the strip on a phone for a control that is not reached mid-scan. -->
+    <div class="field-row">
+      <label>Duration</label>
+      <div class="chip-row" id="durationChips">
+        <button class="chip" data-hours="2">2h</button>
+        <button class="chip" data-hours="3">3h</button>
+        <button class="chip" data-hours="custom">Custom</button>
+      </div>
+    </div>
+    <div class="custom-duration-row hidden" id="customDurationRow">
+      <input type="number" id="customDurationInput" min="1" max="12" step="0.0166667">
+      <span class="sub">hours</span>
+    </div>
     <div class="sunset-policy hidden" id="sunsetPolicy" role="status" aria-live="polite">
       <p id="sunsetPolicyMessage"></p>
       <label><input type="checkbox" id="sunsetOverrideAck"> <span>I acknowledge the club sunset limit and want to restore the later plan.</span></label>
