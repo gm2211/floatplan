@@ -133,6 +133,7 @@ Logic over current predictions within the window:
 - Timeline, wind, and simulator SVG charts have accessible zoom-out/reset/zoom-in controls, preserve the viewed point while zooming, support two-finger pinch zoom, and allow horizontal panning when enlarged, especially on mobile.
 
 - Mobile-first single column, max-width ~720px centered on desktop. Cards with rounded corners, generous spacing.
+- The Sim tab fits the window at 900 CSS px and wider instead of running off the bottom of it: the simulator card is sized to the space the chrome leaves, spends the desktop's spare width on three columns (route, readout legend, then playback controls plus warning, footnote and sources), and scales the route by height. Below 900 px the card keeps its ordinary stacked layout and the page scrolls.
 - Auto dark/light via prefers-color-scheme; manual override toggle (localStorage).
 - Nautical but restrained aesthetic: deep navy/ink dark theme, off-white light theme, signal colors reserved for verdict/limits. System font stack. Verdict banner is the loudest element on the page.
 - Header: "Pier 25 Float Plan" + date, settings gear (limits, monitor interval, theme).
