@@ -115,6 +115,11 @@ button { font-family: inherit; }
   padding: 16px; margin: 12px 0; box-shadow: var(--shadow); position: relative;
 }
 
+/* Layout-only wrappers. At phone width they vanish from the box tree entirely, so the card
+   reads exactly as it did before they existed; the fit shell (>=700px) turns them into the
+   two columns of a side-by-side card. */
+.wind-aside, .wind-main, .plan-aside, .plan-actions-col, .plan-main { display: contents; }
+
 /* Verdict banner: the loudest element on the page */
 .verdict-banner {
   border-radius: 12px; padding: 18px 16px; text-align: center; margin-bottom: 10px;
@@ -1269,6 +1274,247 @@ body.mobile-tabs .tabbar { display: flex; }
   to { transform: translateY(0); }
 }
 
+@media (min-width: 700px) {
+  /* ===== Fit shell: one tab, one screenful, no page scroll =====
+     JS adds body.fit-shell at the medium/wide breakpoints and mirrors the active tab onto
+     body[data-mtab]. The page becomes a fixed-height flex column — chrome above, a per-tab
+     CSS grid of cards filling exactly what is left — so the only thing that can ever scroll
+     is an explicitly-marked inner region (a data table, a long advisory list). Phone width
+     is untouched: none of this exists below 700px. */
+  html { height: 100%; }
+  body.fit-shell {
+    height: 100%; overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  /* The chrome is already sticky; inside a fixed-height flex column it just needs to stop
+     growing and stop shrinking. */
+  body.fit-shell .app-chrome-sticky { position: static; flex: 0 0 auto; }
+  body.fit-shell .topbar { flex: 0 0 auto; }
+  body.fit-shell .plan-window-bar { margin-bottom: 8px; padding-bottom: 8px; }
+  body.fit-shell footer.app-footer { flex: 0 0 auto; padding: 4px 0 8px; font-size: 10px; }
+
+  /* A 720px reading column wastes most of a desktop window that now has to hold two card
+     columns side by side. The >=1200px rule already did this; do it from 700px up. Also kill
+     the `margin: 0 auto` the base rule (and the >=700px .tabbar rule) pair with that max-width:
+     with max-width:none removed but auto margins still in effect, a flex item's cross-axis
+     auto margins win over align-items:stretch (see CSS Flexbox ยง8.3) and the bar shrinks to
+     fit its own content instead of filling the row — 720px-wide became ~250px-wide, not full
+     width. margin-left/right (not shorthand `margin`) so the vertical margins other rules set
+     (.plan-window-bar's bottom margin, etc.) survive. */
+  body.fit-shell #app, body.fit-shell .topbar, body.fit-shell .plan-window-bar,
+  body.fit-shell .tabbar { max-width: none; margin-left: 0; margin-right: 0; }
+
+  body.fit-shell #app {
+    flex: 1 1 auto; min-height: 0; overflow: hidden;
+    display: grid; gap: 12px; padding-bottom: 4px;
+    align-items: stretch;
+  }
+
+  /* Named areas rather than auto-placement: a tab's cards keep their fixed DOM order from
+     CARD_ORDER, but a tab wants them arranged by meaning (the tall chart on the right, the
+     short reference cards stacked on the left), which auto-placement cannot express. */
+  body.fit-shell #monitorChangedBanner { grid-area: banner; }
+  body.fit-shell #verdictCard { grid-area: verdict; }
+  body.fit-shell #planCard { grid-area: plan; }
+  body.fit-shell #windCard { grid-area: wind; }
+  body.fit-shell #directionCard { grid-area: direction; }
+  body.fit-shell #observedCard { grid-area: observed; }
+  body.fit-shell #sunTwilightCard { grid-area: sun; }
+  body.fit-shell #timelineCard { grid-area: timeline; }
+  body.fit-shell #sailSimCard { grid-area: sim; }
+  body.fit-shell #weatherCard { grid-area: weather; }
+  body.fit-shell #radarCard { grid-area: radar; }
+  body.fit-shell #advisoriesCard { grid-area: advisories; }
+  body.fit-shell #marineTextCard { grid-area: marine; }
+
+  /* Every card is itself a flex column that clips. Children default to their natural height;
+     exactly one child per card carries .fit-grow and absorbs the slack (or the shortfall). */
+  /* overflow:auto rather than hidden: the per-tab grids are sized so nothing needs to scroll at
+     the sizes this was tuned for, but a narrow window wraps a chip row or a headline onto an
+     extra line and a card can come up short. Scrolling that one card is a graceful miss;
+     clipping it hides content with no way to reach it. */
+  body.fit-shell #app > .card {
+    display: flex; flex-direction: column; min-height: 0; min-width: 0;
+    overflow: auto; margin: 0;
+  }
+  body.fit-shell #app > .card > * { flex: 0 0 auto; }
+  /* `#app` is carried into both selectors deliberately: the `> .card > *` rule above scores
+     one id and two classes, so a plain `.fit-grow` would lose to it on a direct card child
+     (#marineTextBody, #radarMap) no matter how late it appears. Matching its score lets
+     source order decide, which is what the cascade should be doing here. */
+  body.fit-shell #app .fit-grow { flex: 1 1 auto; min-height: 0; }
+  /* Unbounded content — a forecast table, an advisory list — cannot be made to fit by
+     shrinking. It scrolls inside its own box so the PAGE still never scrolls. */
+  body.fit-shell #app .fit-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  /* An expanded Sources block must not be able to push a card past its box. */
+  body.fit-shell .source-links[open] .source-links-body { max-height: 96px; overflow: auto; }
+
+  /* ---- Per-tab grids ---- */
+  /* The banner row is `auto`: when #monitorChangedBanner is .hidden it collapses to zero and
+     only the row gap is spent. */
+  body.fit-shell[data-mtab="plan"] #app {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-areas: "banner banner" "verdict verdict" "plan plan";
+  }
+  body.fit-shell[data-mtab="wind"] #app {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "banner" "wind";
+  }
+  body.fit-shell[data-mtab="water"] #app {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+    /* Current Reference is a fixed four-chip readout with nothing to give, so it takes its
+       natural height and Direction — whose recommendation paragraph is the elastic part —
+       absorbs whatever the left column has left. */
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: "banner banner" "direction timeline" "observed timeline";
+  }
+  body.fit-shell[data-mtab="sim"] #app {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "banner" "sim";
+  }
+  /* Two columns is the fallback for a window too narrow to give three of them a usable width;
+     the three-column version (which is what actually fits a short window) takes over at 1100px
+     — see the block after this one. */
+  body.fit-shell[data-mtab="sky"] #app {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-areas: "banner banner" "weather radar" "sun radar";
+  }
+  body.fit-shell[data-mtab="alerts"] #app {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "banner banner" "advisories marine";
+  }
+
+  /* ---- Per-card internals ---- */
+  /* Verdict: three stacked rows (banner, reason chips, Sources) cost ~190px of a ~450px
+     content budget for what is one sentence of information. In the fit shell the card becomes
+     a single centred row — verdict + window on the left, the reason chips taking the slack,
+     Sources parked at the right edge — so the Sail Plan form below it gets the space instead. */
+  body.fit-shell #app > #verdictCard {
+    display: grid; align-items: center; column-gap: 16px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    padding-top: 12px; padding-bottom: 12px;
+  }
+  body.fit-shell #verdictCard .verdict-banner { margin-bottom: 0; }
+  body.fit-shell #verdictCard .reason-list { margin: 0; }
+  body.fit-shell #verdictCard > .source-links { margin-top: 0; border-top: 0; padding-top: 0; }
+
+  /* Wind: readouts and model chips on the left, the trace and its table on the right. The
+     two wrappers are display:contents everywhere else, so the phone card is unchanged.
+     Selector is "#app > #windCard", not just "#windCard": the generic `#app > .card` rule
+     above carries two classes (.fit-shell, .card) to this rule's one (.fit-shell), which
+     beats a lone #windCard on specificity despite losing on source order — the extra `#app >`
+     adds a second id to outrank it outright. */
+  body.fit-shell #app > #windCard {
+    display: grid; min-height: 0;
+    grid-template-columns: minmax(220px, 0.8fr) minmax(0, 2fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: "head head" "aside main" "src src";
+    column-gap: 18px;
+  }
+  body.fit-shell #windCard > h2 { grid-area: head; }
+  body.fit-shell #windCard > .source-links { grid-area: src; }
+  body.fit-shell .wind-aside {
+    grid-area: aside; display: flex; flex-direction: column; gap: 8px;
+    min-height: 0; overflow: auto;
+  }
+  body.fit-shell .wind-main {
+    grid-area: main; display: flex; flex-direction: column; min-height: 0; min-width: 0;
+  }
+
+  /* Plan: the form on the left, the panels and status lines on the right. Same "#app >
+     #planCard" specificity bump as windCard above.
+     The .plan-aside/.plan-actions-col/.plan-main split follows the card's existing DOM order
+     exactly — a display:contents wrapper relabels a contiguous run of children, it does not
+     reparent them, so any grouping that crossed the source order would have to move nodes and
+     would reorder the phone card along with it. Hence the status lines (monitorStatus,
+     planChangedChip, savePlanHint) ride along at the bottom of the right column rather than
+     under the form where they read more naturally.
+     Two columns below 1000px, three above (see the wider block after this one): the action
+     buttons want a column of their own, but only once the window is wide enough that taking
+     one does not squeeze the form and the panels into unreadable strips. */
+  body.fit-shell #app > #planCard {
+    display: grid; min-height: 0;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "head head" "aside main" "actions main" "src src";
+    column-gap: 20px;
+  }
+  body.fit-shell #planCard > h2 { grid-area: head; }
+  body.fit-shell #planCard > .source-links { grid-area: src; }
+  body.fit-shell .plan-aside {
+    grid-area: aside; display: flex; flex-direction: column;
+    min-height: 0; overflow: auto;
+  }
+  body.fit-shell .plan-actions-col {
+    grid-area: actions; display: flex; flex-direction: column;
+    min-height: 0; overflow: auto;
+  }
+  body.fit-shell .plan-main {
+    grid-area: main; display: flex; flex-direction: column;
+    min-height: 0; overflow: auto;
+  }
+
+  /* Direction's recommendation paragraph is the only part that can run long, so it takes the
+     squeeze — otherwise a narrow column pushes the Sources row off the bottom of the card. */
+  /* align-items:flex-start, not the base rule's `center`: once this box can be shorter than its
+     text the centring clips the first line of the recommendation off the top, which reads as
+     corrupt rather than as scrollable. */
+  body.fit-shell #app #directionCard .direction-body {
+    flex: 1 1 auto; min-height: 0; overflow: auto; align-items: flex-start;
+  }
+
+  /* The current-and-water-level card carries two flexing regions: give the main trace twice
+     the slack of the sensor mini-map so the map stays a locator, not the subject. */
+  body.fit-shell #timelineCard #timelineSvgWrap { flex: 2 1 0; min-height: 110px; }
+  body.fit-shell #timelineCard .timeline-sensor-map-section {
+    flex: 1 1 0; min-height: 0; display: flex; flex-direction: column;
+  }
+  body.fit-shell #timelineCard .timeline-sensor-map { flex: 1 1 auto; height: auto; min-height: 70px; }
+
+  /* Radar: the map is the card. Drop the fixed 300px so it takes whatever is left. */
+  body.fit-shell #radarCard .radar-map { height: auto; max-height: none; flex: 1 1 auto; min-height: 150px; }
+
+  /* Sail sim is the one card the fit shell does not lay out. The min-width:900px sim block
+     earlier in this stylesheet already sizes it to --fp-sim-h and regroups its body into three
+     columns; a second mechanism on top of that would only fight it. All that is needed here is
+     to stop the tab grid stretching a card that has chosen its own height. */
+  body.fit-shell #app > #sailSimCard { align-self: start; }
+}
+
+/* Restores the sim card's own display:grid, which the fit shell's generic `#app > .card` flex
+   rule would otherwise win on specificity. Same 900px cutoff as the sim block itself — below
+   it the card has no three-column layout to protect and the flex column is correct. */
+@media (min-width: 900px) {
+  body.fit-shell #app > #sailSimCard { display: grid; }
+}
+
+/* ===== Fit shell, wide enough for a third column =====
+   Both of these tabs fit a short window only when their cards sit side by side rather than
+   stacked — Weather (~310px) plus Sun & Twilight (~280px) needs ~600px of stacked column, and
+   the Sail Plan action buttons wrap to six rows in a half-width column and bury the primary
+   button. Below 1000px a third column would be too narrow to read, so the two-column fallbacks
+   in the block above stand and the affected card scrolls instead. */
+@media (min-width: 1000px) {
+  body.fit-shell[data-mtab="sky"] #app {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 0.8fr) minmax(0, 1.35fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "banner banner banner" "weather sun radar";
+  }
+  body.fit-shell #app > #planCard {
+    grid-template-columns: minmax(0, 1.15fr) minmax(150px, 0.55fr) minmax(0, 1.3fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: "head head head" "aside actions main" "src src src";
+  }
+  body.fit-shell .plan-actions-col .plan-actions {
+    margin-top: 0; flex-direction: column; align-items: stretch; gap: 6px;
+  }
+}
+
 .print-only { display: none; }
 .pf-pre { white-space: pre-wrap; }
 @media print {
@@ -1398,6 +1644,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
 
   <section class="card" id="planCard">
     <h2>Sail Plan</h2>
+    <div class="plan-aside">
     <!-- Departure lives in the global chrome strip because every tab's charts are drawn around
          it. Duration stays here by choice: it is set once while planning, and hoisting it too
          would widen the strip on a phone for a control that is not reached mid-scan. -->
@@ -1453,6 +1700,8 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       </div>
     </div>
 
+    </div>
+    <div class="plan-actions-col">
     <div class="plan-actions">
       <button class="btn-primary" id="savePlanBtn">Generate float plan</button>
       <button class="btn-secondary" id="importCodeBtn">Import code</button>
@@ -1465,6 +1714,8 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
         <span>Monitor every <span id="monitorIntervalLabel">10</span> min</span>
       </label>
     </div>
+    </div>
+    <div class="plan-main">
     <div class="import-code-panel hidden" id="importCodePanel">
       <div class="import-code-head">
         <strong>Import code</strong>
@@ -1538,6 +1789,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <code class="plan-code-live-value" id="livePlanCode"></code>
       <button type="button" class="btn-ghost plan-code-copy-btn" id="copyLivePlanCodeBtn" aria-label="Copy Plan Code">Copy</button>
     </div>
+    </div>
     <details class="source-links"><summary>Sources</summary><div class="source-links-body"><span class="computed-source">Course recommendation uses</span><a id="srcPlanCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA current predictions</a></div></details>
   </section>
 
@@ -1563,7 +1815,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <button class="collapsible-header observed-more-toggle" id="observedMoreToggle" aria-expanded="false" aria-controls="observedMoreBody">More <span class="chev">&#9662;</span></button>
       <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a id="srcObservedHudson" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">Hudson prediction NOAA</a><a id="srcObservedKvk" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n06010" target="_blank" rel="noopener noreferrer">Kill Van Kull NOAA</a><a id="srcObservedNewark" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n07010" target="_blank" rel="noopener noreferrer">Newark Bay NOAA</a><a id="srcObservedNarrows" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=n03020" target="_blank" rel="noopener noreferrer">The Narrows NOAA</a><a id="srcObservedBattery" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">The Battery NOAA</a></div></details>
     </div>
-    <div class="collapsible-body hidden" id="observedMoreBody">
+    <div class="collapsible-body hidden fit-scroll" id="observedMoreBody">
       <div class="observed-source-kicker">The Battery readings</div>
       <p class="sub" id="observedAsOf"></p>
       <div id="observedBody"></div>
@@ -1614,7 +1866,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <button type="button" class="chip active" data-mode="current">Current only</button>
       <button type="button" class="chip" data-mode="combined">Current + water level</button>
     </div>
-    <div class="svg-wrap" id="timelineSvgWrap"></div>
+    <div class="svg-wrap fit-grow" id="timelineSvgWrap"></div>
     <div class="chart-legend" id="timelineLegend">
       <span><span class="swatch swatch-current"></span>Hudson current &middot; forecast</span>
       <span id="timelineLegendKvk"><span class="swatch swatch-measured-current"></span>Kill Van Kull current &middot; measured <span class="legend-status" id="timelineLegendKvkStatus">&middot; unavailable</span></span>
@@ -1670,6 +1922,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
 
   <section class="card" id="windCard">
     <h2>Wind</h2>
+    <div class="wind-aside">
     <div class="wind-now" id="windNow">
       <div class="wind-now-value" id="windNowValue">&mdash;</div>
       <div class="wind-now-dir" id="windNowDir"></div>
@@ -1692,11 +1945,13 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <button type="button" class="chip" data-model="all">All</button>
     </div>
     <p class="approx-note hidden" id="windModelNote">NWS preferred; GFS, ECMWF, and ICON provide automatic fallback.</p>
-    <div class="svg-wrap" id="windChartWrap"></div>
+    </div>
+    <div class="wind-main">
+    <div class="svg-wrap fit-grow" id="windChartWrap"></div>
     <div class="chart-legend" id="windChartLegend"></div>
     <p class="wind-summary" id="windSummary"></p>
     <button class="collapsible-header" id="windHourlyToggle">Hourly table <span class="chev">&#9662;</span></button>
-    <div class="collapsible-body hidden" id="windHourlyBody">
+    <div class="collapsible-body hidden fit-scroll" id="windHourlyBody">
       <div class="table-wrap">
         <table id="windTable">
           <thead><tr id="windTableHeadRow"><th>Time</th><th>Dir</th><th class="num">Sustained</th><th class="num">Gust</th></tr></thead>
@@ -1707,6 +1962,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     </div>
     <div class="card-error hidden" id="windError"></div>
     <div class="card-error hidden" id="windModelsError"></div>
+    </div>
     <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS raw forecast</a><a href="https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly" target="_blank" rel="noopener noreferrer">NWS hourly forecast</a><a href="https://api.open-meteo.com/v1/forecast?latitude=40.7203&amp;longitude=-74.0135&amp;hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m,temperature_2m,precipitation_probability,relative_humidity_2m,weather_code&amp;wind_speed_unit=kn&amp;temperature_unit=fahrenheit&amp;timezone=America%2FNew_York&amp;past_days=1&amp;forecast_days=3&amp;models=gfs_seamless,ecmwf_ifs025,icon_seamless" target="_blank" rel="noopener noreferrer">Open-Meteo models</a><a id="srcWindObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8530973" target="_blank" rel="noopener noreferrer">Robbins Reef NOAA</a><a href="https://www.wunderground.com/dashboard/pws/KNJNEWJE43" target="_blank" rel="noopener noreferrer">Willy Wall Wunderground</a></div></details>
   </section>
 
@@ -1721,7 +1977,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <button type="button" class="chip" data-source="icon_seamless">ICON</button>
     </div>
     <p class="approx-note hidden" id="weatherSourceNote"></p>
-    <div class="weather-strip" id="weatherScroller"></div>
+    <div class="weather-strip fit-scroll" id="weatherScroller"></div>
     <button class="weather-details-toggle" id="weatherDetailsToggle">More weather <span class="chev">&#9662;</span></button>
     <div class="collapsible-body hidden" id="weatherDetailsBody">
       <div class="chip-row weather-chip-row" id="weatherChipRow">
@@ -1741,7 +1997,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <button type="button" class="chip active" data-mode="live">Live &middot; NEXRAD</button>
       <button type="button" class="chip" data-mode="forecast">Animated &middot; Radar loop</button>
     </div>
-    <div class="radar-map" id="radarMap"></div>
+    <div class="radar-map fit-grow" id="radarMap"></div>
     <div class="radar-layer-status hidden" id="radarLayerStatus" role="status" aria-live="polite"></div>
     <div class="radar-storm-toolbar">
       <label class="radar-storm-toggle"><input type="checkbox" id="radarStormToggle" checked> Storm cells &amp; NWS warnings</label>
@@ -1769,7 +2025,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
 
   <section class="card" id="advisoriesCard">
     <h2>Advisories</h2>
-    <div class="advisories-list" id="advisoriesList"></div>
+    <div class="advisories-list fit-scroll" id="advisoriesList"></div>
     <div class="card-error hidden" id="advisoriesError"></div>
     <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a href="https://api.weather.gov/alerts/active?point=40.7203,-74.0135" target="_blank" rel="noopener noreferrer">NWS point alerts</a><a href="https://api.weather.gov/alerts/active?zone=ANZ338" target="_blank" rel="noopener noreferrer">NWS NY Harbor alerts</a></div></details>
   </section>
@@ -1777,7 +2033,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
   <section class="card" id="marineTextCard">
     <button class="collapsible-header open" id="marineTextToggle">Marine Forecast <span class="chev">&#9662;</span></button>
     <p class="sub marine-subtitle">NWS forecaster-written outlook for the whole NY Harbor zone (ANZ338) &mdash; the product behind VHF broadcasts and Small Craft Advisories. Coarser than the hourly widgets but adds wave heights; use it to pick a sail day, the hourly cards to tune the window.</p>
-    <div class="collapsible-body" id="marineTextBody">
+    <div class="collapsible-body fit-scroll" id="marineTextBody">
       <button type="button" class="info-toggle" id="marineInfoToggle">&#9432; What do the row colors mean?</button>
       <div class="marine-info-block hidden" id="marineInfoBlock">
         <p>Wind cells are colored against your Settings wind limits, by SUSTAINED wind only: green is under the reef band, yellow is inside/above the reef band, red is past your no-go sustained OR gust threshold.</p>
@@ -1791,7 +2047,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
           <span class="ai-digest-tag">On-device summary</span>
           <p id="marineDigestText"></p>
         </div>
-        <div class="table-wrap" id="marineTableWrap"></div>
+        <div class="table-wrap fit-scroll" id="marineTableWrap"></div>
         <p class="approx-note hidden" id="marineFootnote"></p>
       </div>
       <div class="hidden" id="marineRawPanel">
@@ -4689,7 +4945,7 @@ function renderMeasuredCurrentHistory(kvkAll, narrowsAll, nowMs, primaryHasMeasu
   }
 
   var W = wrapEl.getBoundingClientRect().width || 680;
-  var H = 112, padL = 30, padR = 8, padT = 8, padB = 19;
+  var H = measuredChartHeight(wrapEl, 112, 90), padL = 30, padR = 8, padT = 8, padB = 19;
   function x(ms) { return padL + (ms - historyStart) / (nowMs - historyStart) * (W - padL - padR); }
 
   var maxAbs = 1;
@@ -4739,6 +4995,17 @@ function renderMeasuredCurrentHistory(kvkAll, narrowsAll, nowMs, primaryHasMeasu
   return true;
 }
 
+// Charts render as <svg viewBox="0 0 W H"> where W is the wrap's measured pixel width and the
+// CSS is width:100%/height:auto — so one viewBox unit is one CSS pixel and H IS the rendered
+// height. In the fit shell the wrap is a flex child with min-height:0, so its height comes
+// from the flex container rather than from the svg: reading clientHeight here is not circular.
+// Before the first layout settles clientHeight is 0, hence the fallback to the old constant.
+function measuredChartHeight(wrap, fallbackH, minH) {
+  var h = wrap && wrap.clientHeight ? Math.round(wrap.clientHeight) : 0;
+  if (!h) return fallbackH;
+  return Math.max(minH, h);
+}
+
 function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, levelObservedPoints, hiloEvents, departureMs, returnMs, nowMs) {
   var wrapEl = $('timelineSvgWrap');
   var showWater = state.timelineMode === 'combined';
@@ -4746,7 +5013,7 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
   // fixed 680 only if the wrap can't be measured yet) so a font-size of N viewBox units maps
   // to ~N real CSS px regardless of viewport — see the identical pattern in renderWeatherChart.
   var W = (wrapEl && wrapEl.getBoundingClientRect().width) || 680;
-  var H = 250, padL = 34, padR = 34, padT = 16, padB = 26;
+  var H = measuredChartHeight(wrapEl, 250, 150), padL = 34, padR = 34, padT = 16, padB = 26;
   var MIN_SPAN = 8 * 3600000;
   var domStart = departureMs - 2 * 3600000;
   var domEnd = returnMs + 2 * 3600000;
@@ -6721,7 +6988,7 @@ function renderWindChart(domStart, domEnd, departureMs, returnMs, nowMs, limits)
   var model = state.windModel || 'nws';
 
   var W = (wrap && wrap.getBoundingClientRect().width) || 680;
-  var H = 232, padL = 30, padR = 46, padT = 48, padB = 49;
+  var H = measuredChartHeight(wrap, 232, 150), padL = 30, padR = 46, padT = 48, padB = 49;
   function x(ms) { return padL + (ms - domStart) / (domEnd - domStart) * (W - padL - padR); }
   function xToMs(px) { return domStart + (px - padL) / (W - padL - padR) * (domEnd - domStart); }
   var accent = 'var(--accent)', inkDim = 'var(--ink-dim)';
@@ -13114,8 +13381,10 @@ function applyMobileTabVisibility() {
   // condensed topbar), which a desktop window has no use for. Card filtering, by contrast, now
   // runs at every width — the tab bar is the only thing dividing the cards up.
   document.body.classList.toggle('mobile-tabs', layoutUI.current === 'narrow');
-  // Which tab is showing is a layout input, not just a highlight: the Sim tab reshapes its
-  // card to fit the window, so the stylesheet needs to see the active tab on <body>.
+  // >=700px gets the fit shell: a fixed-height flex page whose card area is a per-tab CSS
+  // grid, so a tab never scrolls. Which tab is showing is therefore a layout input, not just a
+  // highlight — data-mtab is what selects that tab's grid-template-areas.
+  document.body.classList.toggle('fit-shell', layoutUI.current !== 'narrow');
   document.body.dataset.mtab = mobileTabUI.active;
   MOBILE_TABS.forEach(function (tab) {
     var isActive = tab.id === mobileTabUI.active;
