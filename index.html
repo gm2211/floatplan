@@ -1542,7 +1542,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <span id="timelineLegendKvk"><span class="swatch swatch-measured-current"></span>Kill Van Kull current &middot; measured <span class="legend-status" id="timelineLegendKvkStatus">&middot; unavailable</span></span>
       <span id="timelineLegendNarrows"><span class="swatch swatch-narrows-current"></span>The Narrows current &middot; measured <span class="legend-status" id="timelineLegendNarrowsStatus">&middot; unavailable</span></span>
       <span class="timeline-water-legend hidden"><span class="swatch swatch-pred"></span>Battery water level &middot; forecast</span>
-      <span class="timeline-water-legend hidden" id="timelineLegendObs"><span class="swatch swatch-obs"></span>Battery water level &middot; measured</span>
+      <span class="timeline-water-legend hidden" id="timelineLegendObs"><span class="swatch swatch-obs"></span><span id="timelineLegendObsLabel">Battery water level &middot; measured</span></span>
     </div>
     <div class="timeline-measured-section hidden" id="timelineMeasuredSection">
       <div class="timeline-measured-heading">Measured harbor current &middot; last 24h</div>
@@ -1561,7 +1561,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
         <div class="chart-footnote" id="timelineCurrentCompare"></div>
         <div class="chart-footnote">Forecast current: Hudson River Entrance &middot; measured current: Kill Van Kull and The Narrows &middot; forecast and measured water level: The Battery</div>
       </div>
-      <a id="srcTimelinePorts" href="https://tidesandcurrents.noaa.gov/ports/index.html?port=ny" target="_blank" rel="noopener noreferrer">NY/NJ PORTS map</a><a id="srcTimelineCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">Hudson forecast current</a><a id="srcTimelineKvk" href="https://tidesandcurrents.noaa.gov/cdata/DataPlot?id=n06010&amp;view=data" target="_blank" rel="noopener noreferrer">Kill Van Kull measured current</a><a id="srcTimelineNarrows" href="https://tidesandcurrents.noaa.gov/cdata/DataPlot?id=n03020&amp;view=data" target="_blank" rel="noopener noreferrer">The Narrows measured current</a><a id="srcTimelineLevelPredicted" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Battery forecast water level</a><a id="srcTimelineLevelObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Battery measured water level</a>
+      <a id="srcTimelinePorts" href="https://tidesandcurrents.noaa.gov/ports/index.html?port=ny" target="_blank" rel="noopener noreferrer">NY/NJ PORTS map</a><a id="srcTimelineCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">Hudson forecast current</a><a id="srcTimelineKvk" href="https://tidesandcurrents.noaa.gov/cdata/DataPlot?id=n06010&amp;view=data" target="_blank" rel="noopener noreferrer">Kill Van Kull measured current</a><a id="srcTimelineNarrows" href="https://tidesandcurrents.noaa.gov/cdata/DataPlot?id=n03020&amp;view=data" target="_blank" rel="noopener noreferrer">The Narrows measured current</a><a id="srcTimelineLevelPredicted" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Battery forecast water level</a><a id="srcTimelineLevelObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8518750" target="_blank" rel="noopener noreferrer">Battery measured water level</a><a id="srcTimelineAirGap" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8517986" target="_blank" rel="noopener noreferrer">Verrazano air gap</a>
     </div></details>
   </section>
 
@@ -1790,6 +1790,23 @@ var STATION_WIND_ROBBINS_REEF = '8530973'; // Battery has no wind sensor; neares
 var STATION_KVK_CURRENT = 'n06010'; // Kill Van Kull LB 14 — live meter, different water body from Pier 25.
 var STATION_NEWARK_CURRENT = 'n07010'; // Newark Bay Entrance LB 18, live PORTS current meter.
 var STATION_NARROWS_CURRENT = 'n03020'; // The Narrows, active PORTS station; may report no live sample.
+// Verrazano-Narrows air gap = distance from the water surface to the bridge soffit, i.e. an
+// inverted water-level gauge. It is a fallback for The Battery's own water_level product, not
+// an upgrade: The Battery sits 1.4 nmi from Pier 25, the bridge ~8 nmi south, and the tide
+// reaches the Narrows about half an hour earlier. Its value is that it is a wholly independent
+// sensor, so a Battery outage stops being a dead end.
+var STATION_AIRGAP_VERRAZANO = '8517986';
+// Measured lead of the Verrazano tide over The Battery. Cross-correlating 48h of both series
+// peaks at +5 six-minute steps (r=0.991, against r=0.962 unshifted).
+var AIRGAP_LEAD_MS = 30 * 60000;
+// NOAA publishes no datum for 8517986 — its datums.json is entirely null — so the soffit
+// elevation has to be solved for. It is also NOT a constant: thermal expansion sags the deck
+// in summer and lifts it in winter, and the implied value swings ~3.5 ft across the year
+// (235.8 ft in January vs 232.3 ft in August). Hardcoding it would be wrong for half the year,
+// so it is recalibrated from live overlap and expires.
+var AIRGAP_CAL_KEY = 'airgapSoffitFt';
+var AIRGAP_CAL_MIN_SAMPLES = 30;
+var AIRGAP_CAL_MAX_AGE_MS = 14 * 86400000;
 var KVK_FLOOD_AXIS_DEG = 255; // LB 14 flood runs toward 255°; positive chart values mean flood-axis flow.
 var NARROWS_FLOOD_AXIS_DEG = 324; // The Narrows flood runs toward 324°; positive means its local flood axis.
 var MEASURED_CURRENT_HISTORY_HOURS = 24;
@@ -2134,6 +2151,15 @@ function buildLevelObservedUrl(departureMs) {
     '?product=water_level&station=' + STATION_TIDE + '&begin_date=' + begin +
     '&range=96&datum=MLLW&units=english&time_zone=gmt&format=json&application=floatplan';
 }
+// Air gap takes no datum — it is a distance, not an elevation. Requesting units explicitly
+// matters here: NOAA's own station page labels this plot "Feet Above Water Surface" while
+// rendering metres, so never infer the unit from a label.
+function buildAirGapUrl(departureMs) {
+  var begin = beginDateFor(departureMs);
+  return 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter' +
+    '?product=air_gap&station=' + STATION_AIRGAP_VERRAZANO + '&begin_date=' + begin +
+    '&range=96&units=english&time_zone=gmt&format=json&application=floatplan';
+}
 
 // Keep verification links synchronized with the selected sail date. NOAA requests are
 // date-bound, so these open the same raw products the cards use instead of generic pages.
@@ -2206,18 +2232,97 @@ function fetchLevelObserved(departureMs) {
     return json.data || [];
   });
 }
+// Resolves to [] rather than rejecting: air gap is a backstop, and its own outage must never
+// be the thing that fails the water card.
+function fetchAirGap(departureMs) {
+  return fetchCoopsJson(buildAirGapUrl(departureMs), 'Air gap').then(function (json) {
+    return json.data || [];
+  }).catch(function () { return []; });
+}
+
+/* ------------------------- Air gap → water level derivation ------------------------- */
+// Both products share the {t, v} row shape and a 6-minute cadence, so pairing is a straight
+// timestamp lookup once the Verrazano lead is removed.
+function airGapRowsToMap(rows) {
+  var map = new Map();
+  (rows || []).forEach(function (r) {
+    if (!r || r.v == null) return;
+    var ms = parseNoaaGmt(r.t);
+    var v = parseFloat(r.v);
+    if (ms == null || !isFinite(ms) || !isFinite(v)) return;
+    map.set(ms, v);
+  });
+  return map;
+}
+// Solves for the bridge soffit elevation C in `waterLevel = C - airGap`, pairing each air gap
+// sample with the Battery sample AIRGAP_LEAD_MS later. Median, not mean: the air gap feed
+// carries occasional single-sample spikes (visible as vertical hairlines on NOAA's own plot)
+// and one of those would drag an average by a foot.
+function calibrateAirGapSoffit(airGapRows, observedRows, nowMs) {
+  var gaps = airGapRowsToMap(airGapRows);
+  var levels = airGapRowsToMap(observedRows);
+  if (!gaps.size || !levels.size) return null;
+  var sums = [];
+  gaps.forEach(function (gap, ms) {
+    var level = levels.get(ms + AIRGAP_LEAD_MS);
+    if (level == null) return;
+    sums.push(level + gap);
+  });
+  if (sums.length < AIRGAP_CAL_MIN_SAMPLES) return null;
+  sums.sort(function (a, b) { return a - b; });
+  var mid = Math.floor(sums.length / 2);
+  var soffitFt = sums.length % 2 ? sums[mid] : (sums[mid - 1] + sums[mid]) / 2;
+  return { soffitFt: soffitFt, samples: sums.length, ms: nowMs != null ? nowMs : Date.now() };
+}
+// A stored calibration older than AIRGAP_CAL_MAX_AGE_MS is discarded rather than trusted:
+// seasonal deck movement makes a stale constant worse than no fallback at all.
+function readAirGapCalibration(nowMs) {
+  var cal = lsGetJSON(AIRGAP_CAL_KEY, null, true);
+  if (!cal || !isFinite(cal.soffitFt) || !isFinite(cal.ms)) return null;
+  var age = (nowMs != null ? nowMs : Date.now()) - cal.ms;
+  if (!(age >= 0) || age > AIRGAP_CAL_MAX_AGE_MS) return null;
+  return cal;
+}
+// Emits rows in the observed-water-level shape so every downstream consumer (buildLevelPoints,
+// the chart, the scrub readout) keeps working unchanged. Timestamps carry the lead correction
+// so the derived curve lands on Battery time, not Verrazano time.
+// noaaUtcMinute() formats for begin_date ("YYYYMMDD HH:MM"), which parseNoaaGmt cannot read
+// back. Row timestamps use the dashed form, so derived rows must too or they round-trip to NaN.
+function noaaRowTimestamp(ms) {
+  var d = new Date(ms);
+  return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate()) +
+    ' ' + pad2(d.getUTCHours()) + ':' + pad2(d.getUTCMinutes());
+}
+function deriveLevelFromAirGap(airGapRows, soffitFt) {
+  if (!isFinite(soffitFt)) return [];
+  var out = [];
+  (airGapRows || []).forEach(function (r) {
+    if (!r || r.v == null) return;
+    var ms = parseNoaaGmt(r.t);
+    var gap = parseFloat(r.v);
+    if (ms == null || !isFinite(ms) || !isFinite(gap)) return;
+    out.push({ t: noaaRowTimestamp(ms + AIRGAP_LEAD_MS), v: (soffitFt - gap).toFixed(3) });
+  });
+  return out;
+}
+
 // Combines the three water-level-related fetches (predicted curve, hilo markers,
 // observed curve) into one source group. A partial failure (e.g. observed-only outage)
 // still renders whatever succeeded; only a total failure surfaces a card error.
-function fetchWaterGroup(departureMs) {
+// The Verrazano air gap rides along as a fourth fetch. While The Battery is healthy it is
+// only used to keep the soffit calibration fresh; it substitutes for the observed curve
+// solely when The Battery's own product fails and a usable calibration already exists.
+function fetchWaterGroup(departureMs, nowMs) {
   var prevCached = cacheGet('water');
   var prev = (prevCached && prevCached.data) || {};
+  var atMs = nowMs != null ? nowMs : Date.now();
   return Promise.allSettled([
     fetchLevelPredicted(departureMs),
     fetchTides(departureMs),
-    fetchLevelObserved(departureMs)
+    fetchLevelObserved(departureMs),
+    fetchAirGap(departureMs)
   ]).then(function (results) {
-    var allFailed = results.every(function (r) { return r.status !== 'fulfilled'; });
+    var allFailed = results.slice(0, 3).every(function (r) { return r.status !== 'fulfilled'; });
     if (allFailed) {
       var reason = results[0].reason || results[1].reason || results[2].reason;
       throw new Error((reason && reason.message) || 'all water level products unavailable');
@@ -2229,10 +2334,32 @@ function fetchWaterGroup(departureMs) {
       if (results[idx].status === 'fulfilled') return results[idx].value;
       return (prev[key] && prev[key].length) ? prev[key] : [];
     }
+    var observed = pick(2, 'observed');
+    var airGap = results[3].status === 'fulfilled' ? results[3].value : [];
+    var observedLive = results[2].status === 'fulfilled' && results[2].value && results[2].value.length > 0;
+    var derivedFrom = null;
+
+    // Recalibrate whenever both feeds are live. This is also the only way a calibration is
+    // ever created, which means the fallback cannot cold-start: a first-ever load during a
+    // Battery outage has nothing to solve C with, and correctly stays empty.
+    if (observedLive && airGap.length) {
+      var cal = calibrateAirGapSoffit(airGap, results[2].value, atMs);
+      if (cal) lsSetJSON(AIRGAP_CAL_KEY, cal);
+    } else if (!observedLive && airGap.length) {
+      var stored = readAirGapCalibration(atMs);
+      if (stored) {
+        var derived = deriveLevelFromAirGap(airGap, stored.soffitFt);
+        if (derived.length) {
+          observed = derived;
+          derivedFrom = { station: STATION_AIRGAP_VERRAZANO, soffitFt: stored.soffitFt, calibratedMs: stored.ms };
+        }
+      }
+    }
     return {
       predicted: pick(0, 'predicted'),
       hilo: pick(1, 'hilo'),
-      observed: pick(2, 'observed')
+      observed: observed,
+      observedDerivedFrom: derivedFrom
     };
   });
 }
@@ -4910,6 +5037,14 @@ function renderTimelineSvg(curvePoints, slackEvents, levelPredictedPoints, level
     el.classList.toggle('hidden', !showWater || (el.id === 'timelineLegendObs' && !hasObs));
   });
   if (obsFootnoteEl) obsFootnoteEl.classList.toggle('hidden', !showWater || hasObs);
+  // A derived curve must never read as a Battery measurement. Name the substitute station so
+  // the 30-minute lead and the calibration are attributable to something the user can check.
+  var legendObsLabelEl = $('timelineLegendObsLabel');
+  if (legendObsLabelEl) {
+    legendObsLabelEl.textContent = state.levelObservedDerivedFrom
+      ? 'Water level · derived from Verrazano air gap'
+      : 'Battery water level · measured';
+  }
   var kvkLegendStatus = $('timelineLegendKvkStatus');
   var narrowsLegendStatus = $('timelineLegendNarrowsStatus');
   if (kvkLegendStatus) kvkLegendStatus.textContent = kvkAll.length ?
@@ -9791,7 +9926,7 @@ var state = {
   sunsetOverrideAck: false, sunsetRequestedWindow: null,
   settings: null,
   currentsSlackRaw: null, currentsCurveRaw: null, tidesRaw: null,
-  levelPredictedRaw: null, levelObservedRaw: null,
+  levelPredictedRaw: null, levelObservedRaw: null, levelObservedDerivedFrom: null,
   gridpointRaw: null, hourlyRaw: null, alertsRaw: null, stormAlertsRaw: null, stormCellsRaw: null, marineTextRaw: null,
   stormCellHistorySnapshots: [],
   observedRaw: null, windModelsRaw: null, windModelSeries: null, windModel: 'nws', windModelAutoFallback: false,
@@ -10074,6 +10209,7 @@ function loadWater() {
     state.levelPredictedPoints = buildLevelPoints(data.predicted);
     state.levelObservedRaw = data.observed;
     state.levelObservedPoints = buildLevelPoints(data.observed);
+    state.levelObservedDerivedFrom = data.observedDerivedFrom || null;
   }).then(function () { clearCardError('waterError'); return true; })
     .catch(function (err) { showCardError('waterError', 'Water level: ' + err.message, loadWater); return false; });
 }
