@@ -1365,12 +1365,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <div class="full computed-field">
         <span class="computed-field-label">Planned course</span>
         <output class="computed-field-value" id="fpPlannedRouteDisplay" aria-live="polite"></output>
-        <input type="hidden" id="fpPlannedRoute">
       </div>
-      <div><label for="fpEtd">ETD</label><input type="text" id="fpEtd" readonly></div>
-      <div><label for="fpEta">ETA</label><input type="text" id="fpEta" readonly></div>
-      <div><label for="fpTurnaround">Turn-around (computed)</label><input type="text" id="fpTurnaround" readonly></div>
-      <div><label for="fpSunset">Sunset</label><input type="text" id="fpSunset" readonly></div>
     </div>
 
     <div class="plan-actions">
@@ -9816,7 +9811,11 @@ var state = {
   sailSim: null,
   planWindowChanged: false, lastDiffSnapshot: null, lastNotifiedStateKey: null,
   pendingSharedPlan: null, sharedPlanBaseline: null,
-  lastGoodUpdateMs: null
+  lastGoodUpdateMs: null,
+  // Route/ETD/ETA/turn-around/sunset for the current plan window: computed once here and
+  // read by the copy-as-text and print builders. These used to be scraped off readonly DOM
+  // inputs that only echoed values the app already knew; now they live in state directly.
+  planComputed: null
 };
 
 // Cached payloads preserve continuity, but a failed live refresh is not evidence that the
@@ -11072,21 +11071,20 @@ function computeTurnaroundMs(departureMs, returnMs) {
 
 function updateFloatPlanAutoFields(direction, departureMs, returnMs) {
   var route = 'Depart Pier 25 mooring → Hudson ' + (direction.initialHeading === 'S' ? 'South' : 'North') + ' → return';
-  $('fpPlannedRoute').value = route;
   $('fpPlannedRouteDisplay').textContent = route;
-  $('fpEtd').value = fmtDateTime(departureMs);
-  $('fpEta').value = fmtDateTime(returnMs);
-  var taEl = $('fpTurnaround');
-  if (taEl) {
-    var turnMs = computeTurnaroundMs(departureMs, returnMs);
-    taEl.value = turnMs != null ? '~' + fmtTime(turnMs) : '—';
-  }
-  var ssEl = $('fpSunset');
-  if (ssEl) {
-    var day = getNYParts(departureMs);
-    var tw = twilightTimes(Date.UTC(day.y, day.m - 1, day.d), PIER25.lat, PIER25.lon);
-    ssEl.value = tw.sunsetMs != null ? fmtTime(tw.sunsetMs) : '—';
-  }
+  var turnMs = computeTurnaroundMs(departureMs, returnMs);
+  var day = getNYParts(departureMs);
+  var tw = twilightTimes(Date.UTC(day.y, day.m - 1, day.d), PIER25.lat, PIER25.lon);
+  // Route/ETD/ETA/turn-around/sunset used to be scraped back out of readonly DOM inputs that
+  // merely echoed values computed right here — store them once instead so the copy-as-text
+  // and print builders have a plain data source rather than the DOM.
+  state.planComputed = {
+    route: route,
+    etd: fmtDateTime(departureMs),
+    eta: fmtDateTime(returnMs),
+    turnaround: turnMs != null ? '~' + fmtTime(turnMs) : '—',
+    sunset: tw.sunsetMs != null ? fmtTime(tw.sunsetMs) : '—'
+  };
 }
 
 /* ============================== Computed window summaries ============================== */
@@ -11513,6 +11511,7 @@ function verificationSources(departureMs) {
 
 function buildFloatPlanText() {
   function v(id) { var el = $(id); return el ? el.value : ''; }
+  var pc = state.planComputed || {};
   var departureMs = state.departureMs, returnMs = getReturnMs();
   var lines = [
     'FLOAT PLAN — Pier 25',
@@ -11522,9 +11521,9 @@ function buildFloatPlanText() {
   var phone = String(v('fpPhones') || '').trim();
   if (phone) lines.push('Phone: ' + phone);
   lines.push(
-    'Course: ' + v('fpPlannedRoute'),
-    'ETD: ' + v('fpEtd') + '   Turn-around: ' + v('fpTurnaround') + '   ETA: ' + v('fpEta'),
-    'Sunset: ' + v('fpSunset'),
+    'Course: ' + (pc.route || ''),
+    'ETD: ' + (pc.etd || '') + '   Turn-around: ' + (pc.turnaround || '') + '   ETA: ' + (pc.eta || ''),
+    'Sunset: ' + (pc.sunset || ''),
     '',
     'CONDITIONS',
     'Verdict: ' + (state.lastVerdict ? VERDICT_LABELS[state.lastVerdict.level] : 'n/a')
@@ -11584,6 +11583,7 @@ function legacyCopy(text, successMsg) {
 
 function buildPrintSummary(verdict, direction, departureMs, returnMs, maxSustainedKt, maxGustKt) {
   function v(id) { var el = $(id); return el ? el.value : ''; }
+  var pc = state.planComputed || {};
   var advisoryText = (state.alertsRaw && state.alertsRaw.length)
     ? state.alertsRaw.map(function (a) { return a.properties.event; }).join(', ')
     : 'None';
@@ -11597,9 +11597,9 @@ function buildPrintSummary(verdict, direction, departureMs, returnMs, maxSustain
     '<div class="pf-row"><strong>Vessel:</strong> ' + escapeHtml(getVesselDisplayName()) + '</div>' +
     '<div class="pf-row"><strong>Aboard:</strong> ' + escapeHtml(crewSummaryLine()) + '</div>' +
     (phone ? '<div class="pf-row"><strong>Phone:</strong> ' + escapeHtml(phone) + '</div>' : '') +
-    '<div class="pf-row"><strong>Course:</strong> ' + escapeHtml(v('fpPlannedRoute')) + '</div>' +
-    '<div class="pf-row"><strong>ETD:</strong> ' + escapeHtml(v('fpEtd')) + ' &middot; <strong>Turn-around:</strong> ' + escapeHtml(v('fpTurnaround')) + ' &middot; <strong>ETA:</strong> ' + escapeHtml(v('fpEta')) + '</div>' +
-    '<div class="pf-row"><strong>Sunset:</strong> ' + escapeHtml(v('fpSunset')) + '</div>' +
+    '<div class="pf-row"><strong>Course:</strong> ' + escapeHtml(pc.route || '') + '</div>' +
+    '<div class="pf-row"><strong>ETD:</strong> ' + escapeHtml(pc.etd || '') + ' &middot; <strong>Turn-around:</strong> ' + escapeHtml(pc.turnaround || '') + ' &middot; <strong>ETA:</strong> ' + escapeHtml(pc.eta || '') + '</div>' +
+    '<div class="pf-row"><strong>Sunset:</strong> ' + escapeHtml(pc.sunset || '') + '</div>' +
     '<h2>Conditions Summary</h2>' +
     '<div class="pf-row"><strong>Verdict:</strong> ' + VERDICT_LABELS[verdict.level] + '</div>' +
     '<div class="pf-row">' + verdict.reasons.map(escapeHtml).join('<br>') + '</div>' +
