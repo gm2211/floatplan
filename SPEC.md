@@ -56,6 +56,7 @@ Beneath: bullet reasons, each with the number that triggered it, e.g.:
 - "Gusts to 27 kt at 15:00 (> 25 limit)"
 - "Small Craft Advisory until 18:00"
 - "Thunderstorms in forecast 16:00–17:00"
+Alongside the reasons — same chip row, visually one step back — the strip also carries the three at-a-glance conditions the verdict itself does not state: weather (temperature range across the window, conditions at the departure hour, and any shower/thunder phrase), current (phase and speed at departure plus the next slack), and sunset (time, and how it falls relative to the planned return). Each is dropped entirely when its own source is missing rather than shown as "n/a", and the reasons always read first.
 Window = departure → departure + duration. Compute max sustained & max gust across all grid periods overlapping window; list thunder hours from forecastHourly shortForecast regex /thunder|t-?storm/i.
 
 ## Direction recommendation card
