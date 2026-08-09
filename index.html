@@ -585,6 +585,9 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .wind-now-value.cell-green { background: var(--green-bg); color: var(--green); }
 .wind-now-value.cell-yellow { background: var(--yellow-bg); color: var(--yellow); }
 .wind-now-value.cell-red { background: var(--red-bg); color: var(--red); }
+/* A reading too old to be "now" must not wear a limits color — a green pill reads as a
+   go-ahead on live conditions, which is exactly what a stale number is not. */
+.wind-now-value.is-stale { background: transparent; color: var(--ink-dim); }
 .wind-now-unit { font-size: 16px; font-weight: 600; margin-left: 3px; }
 .wind-now-gust { font-size: 15px; font-weight: 600; opacity: 0.8; margin-left: 6px; }
 .wind-now-dir { font-size: 15px; font-weight: 600; margin-top: 6px; }
@@ -6443,16 +6446,27 @@ function selectObsWindStation(station) {
   lsSetJSON('obsWindStation', station);
   updateObsWindStationChipActive();
   renderObsWindRow((state.settings && state.settings.limits) || DEFAULT_LIMITS);
+  // Explicit: rerenderWindCard() no-ops before a departure/settings exist, and the headline
+  // still has to follow the chip on that first pre-plan tap.
+  renderWindNow((state.settings && state.settings.limits) || DEFAULT_LIMITS);
   rerenderWindCard();
 }
 
-function updateWillyWallChipState(available) {
+// "Available" means the station is reporting wind *now*, not merely that the feed answered.
+// KNJNEWJE43's anemometer fails by pinning sustained at 0.0 under live gusts; the parser
+// drops those rows, so the feed keeps loading while the newest usable observation silently
+// ages out. Flag the chip on staleness, not just on a dead request.
+function updateWillyWallChipState(latest) {
   var chip = $('obsStationWeatherflowChip');
   if (!chip) return;
   showEl(chip);
   chip.classList.remove('setup-required');
-  chip.classList.toggle('station-unavailable', !available);
-  chip.title = available ? 'Use Willy Wall observations' : 'Willy Wall live feed could not be loaded — open the station page to verify';
+  var fresh = observedWindIsFresh(latest, Date.now());
+  chip.classList.toggle('station-unavailable', !fresh);
+  chip.title = fresh ? 'Use Willy Wall observations'
+    : (latest && latest.ms != null
+      ? 'Willy Wall is not reporting wind right now — last reading ' + fmtTime(latest.ms) + ' — open the station page to verify'
+      : 'Willy Wall live feed could not be loaded — open the station page to verify');
   chip.setAttribute('aria-label', chip.title);
 }
 
@@ -6508,18 +6522,24 @@ function renderObsWindRow(limits) {
   // be the exact duplication this merge was meant to remove. Willy Wall still needs an
   // explicit "check source" link when its feed is down — that's a failure notice, not a
   // reading, so it doesn't count as repeating the headline.
+  // The link is a failure notice, and a station whose newest usable reading is hours old has
+  // failed just as surely as one that wouldn't load — both leave the sailor without a live
+  // number, so both point at the dashboard to check for themselves.
+  var willyWallDown = station === 'weatherflow' && !observedWindIsFresh(w, nowMs);
+  var sourceLink = willyWallDown
+    ? '<a class="observed-wind-reading" href="' + WILLY_WALL_SOURCE_URL + '" target="_blank" rel="noopener noreferrer">' +
+        (w ? 'No current reading &middot; check source' : 'Live feed unavailable &middot; check source') + '</a>'
+    : '';
   if (!w) {
-    el.innerHTML = (station === 'weatherflow'
-        ? '<a class="observed-wind-reading" href="' + WILLY_WALL_SOURCE_URL + '" target="_blank" rel="noopener noreferrer">Live feed unavailable &middot; check source</a>'
-        : '') +
+    el.innerHTML = sourceLink +
       '<span class="observed-wind-meta">' + comparisonBadge +
         '<span class="observed-age" aria-hidden="true">&nbsp;</span>' +
       '</span>';
     return;
   }
 
-  var ageText = w.ms != null ? ('as of ' + fmtTime(w.ms) + ageSuffix(w.ms)) : '';
-  el.innerHTML =
+  var ageText = w.ms != null ? ((willyWallDown ? 'last reading ' : 'as of ') + fmtTime(w.ms) + ageSuffix(w.ms)) : '';
+  el.innerHTML = sourceLink +
     '<span class="observed-wind-meta">' +
       comparisonBadge +
       '<span class="observed-age">' + (ageText ? escapeHtml(ageText) : '&nbsp;') + '</span>' +
@@ -6669,25 +6689,33 @@ function renderWindObsDeltaNote(w) {
   showEl(el);
 }
 
-function renderWindNow(observedData, limits) {
+// The headline follows the station chips. It used to hardcode Robbins Reef, so picking
+// Willy Wall left Robbins Reef's number sitting above Willy Wall's timestamp — two stations
+// spliced into one reading. A stale reading still gets shown (a six-hour-old number is real
+// data and worth seeing) but drops its limits color and carries its age in the caption, so
+// it can never be mistaken for what the anemometer is doing right now.
+function renderWindNow(limits) {
   var valueEl = $('windNowValue');
   if (!valueEl) return;
-  var w = observedData && observedData.wind;
+  var station = state.obsWindStation || 'robbinsReef';
+  var label = OBS_WIND_STATION_LABELS[station] || OBS_WIND_STATION_LABELS.robbinsReef;
+  var w = observedWindDataForStation(station);
   if (!w) {
     valueEl.className = 'wind-now-value';
     valueEl.textContent = '—';
     setText('windNowDir', '');
-    setText('windNowCaption', 'Observed · Robbins Reef · unavailable');
+    setText('windNowCaption', 'Observed · ' + label + ' · unavailable');
     renderWindObsDeltaNote(null);
     return;
   }
-  var cls = windCellClass(w.sustainedKt, w.gustKt, limits);
-  valueEl.className = 'wind-now-value ' + cls;
+  var fresh = observedWindIsFresh(w, Date.now());
+  valueEl.className = 'wind-now-value ' + (fresh ? windCellClass(w.sustainedKt, w.gustKt, limits) : 'is-stale');
   valueEl.innerHTML = (w.sustainedKt != null ? round1(w.sustainedKt) : '--') + '<span class="wind-now-unit">kt</span>' +
     (w.gustKt != null ? ' <span class="wind-now-gust">gust ' + round1(w.gustKt) + '</span>' : '');
   var dirLabel = w.dirCardinal || degToCompass(w.dirDeg);
   setText('windNowDir', dirLabel + (w.dirDeg != null ? ' ' + Math.round(w.dirDeg) + '°' : ''));
-  setText('windNowCaption', 'Observed · Robbins Reef · as of ' + (w.ms != null ? fmtTime(w.ms) : '--:--'));
+  setText('windNowCaption', 'Observed · ' + label + ' · ' +
+    (fresh ? 'as of ' : 'last reading ') + (w.ms != null ? fmtTime(w.ms) + ageSuffix(w.ms) : '--:--'));
   renderWindObsDeltaNote(w);
 }
 
@@ -7634,7 +7662,7 @@ function windChartStartMs(domStart, nowMs) {
 
 function renderWindCard(hourlyPeriods, departureMs, returnMs, limits) {
   limits = limits || DEFAULT_LIMITS;
-  renderWindNow(state.observedRaw, limits);
+  renderWindNow(limits);
   var nowMs = Date.now();
   var domStart = departureMs - 2 * 3600000;
   var domEnd = departureMs + 18 * 3600000;
@@ -10939,7 +10967,7 @@ function loadWillyWall() {
   return fetchObservedWindWillyWall().then(function (data) {
     state.obsWindWeatherflowRaw = data && data.latest ? data.latest : null;
     state.obsWindWeatherflowHistory = data && data.history ? data.history : [];
-    updateWillyWallChipState(!!state.obsWindWeatherflowRaw);
+    updateWillyWallChipState(state.obsWindWeatherflowRaw);
     if (state.obsWindStation === 'weatherflow') {
       renderObsWindRow((state.settings && state.settings.limits) || DEFAULT_LIMITS);
     }
