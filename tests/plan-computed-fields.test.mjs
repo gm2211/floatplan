@@ -22,8 +22,8 @@ const planCardHtml = html.slice(planCardStart, planCardEnd);
 assert.ok(planCardHtml.includes('id="fpPlannedRouteDisplay"'),
   'the visible planned-course output must remain in planCard');
 
-/* ============================== Behavior: copy-as-text reads state, not the DOM ============================== */
-// Drive updateFloatPlanAutoFields -> state.planComputed -> buildFloatPlanText through the real
+/* ============================== Behavior: print summary reads state, not the DOM ============================== */
+// Drive updateFloatPlanAutoFields -> state.planComputed -> buildPrintSummary through the real
 // production code (not a re-implementation), with a minimal DOM stub standing in for elements
 // the builders still legitimately read (fpPhones, fpCrewCount, fpVesselSelect) or write
 // (printSummary). Anything not seeded resolves to null, same as a missing element in production.
@@ -81,7 +81,6 @@ evalLine('var VERDICT_LABELS = { GO: \'GO\', REEF: \'GO — REEF EXPECTED\', CAU
 (0, eval)(sliceBetween('/* ============================== Computed window summaries', '// Crew line:'));
 (0, eval)(sliceBetween('function crewSummaryLine() {', '/* ============================== Float Codes'));
 (0, eval)(sliceBetween('function getVesselDisplayName() {', 'function updateVesselCustomVisibility'));
-(0, eval)(sliceBetween('function buildFloatPlanText() {', 'function copyFloatPlanText() {'));
 (0, eval)(sliceBetween('function buildPrintSummary(verdict, direction, departureMs, returnMs, maxSustainedKt, maxGustKt) {',
   'function buildObservedNowContext() {'));
 
@@ -104,15 +103,6 @@ assert.equal(state.planComputed.sunset, fmtTime(Date.parse('2026-07-15T20:24:00-
 assert.equal($('fpPlannedRouteDisplay').textContent, state.planComputed.route,
   'the visible course output must still be kept in sync');
 
-const copyText = buildFloatPlanText();
-assert.ok(copyText.includes('Course: ' + state.planComputed.route),
-  'copy-as-text must source the course from state.planComputed, not a DOM input');
-assert.ok(copyText.includes('ETD: ' + state.planComputed.etd + '   Turn-around: ' + state.planComputed.turnaround +
-  '   ETA: ' + state.planComputed.eta),
-  'copy-as-text ETD/Turn-around/ETA line must carry real values from state.planComputed');
-assert.ok(copyText.includes('Sunset: ' + state.planComputed.sunset),
-  'copy-as-text Sunset line must carry a real value from state.planComputed');
-
 // Same trap on the print path: it used to scrape the same four DOM inputs independently.
 buildPrintSummary({ level: 'GO', reasons: [] }, direction, departureMs, returnMs, null, null);
 const printHtml = elements.printSummary.innerHTML;
@@ -125,12 +115,11 @@ assert.ok(printHtml.includes('<strong>ETD:</strong> ' + state.planComputed.etd +
 assert.ok(printHtml.includes('<strong>Sunset:</strong> ' + state.planComputed.sunset),
   'print summary Sunset row must carry a real value from state.planComputed');
 
-// A converged sail-sim turn must flow through to both the copy and the fallback-free label —
-// the same computeTurnaroundMs precedence the plan card used to show via the readonly input.
+// A converged sail-sim turn must flow through to the fallback-free label — the same
+// computeTurnaroundMs precedence the plan card used to show via the readonly input.
 state.sailSim = { converged: true, turnMs: departureMs + 45 * 60000 };
 updateFloatPlanAutoFields(direction, departureMs, returnMs);
 assert.equal(state.planComputed.turnaround, '~' + fmtTime(departureMs + 45 * 60000),
   'a converged sail-sim turn must take precedence over the window midpoint');
-assert.ok(buildFloatPlanText().includes('Turn-around: ' + state.planComputed.turnaround));
 
 console.log('Plan computed-fields assertions passed');

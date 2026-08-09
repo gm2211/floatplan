@@ -40,8 +40,8 @@ for (const needle of [
 
 /* ============================== Change 2: collapsed Plan Code panel ============================== */
 
-assert.ok(html.includes('id="importCodeBtn">Import code</button>'),
-  'a single Import code toolbar button must exist');
+assert.ok(html.includes('id="importCodeBtn">Import</button>'),
+  'a single Import toolbar button must exist');
 assert.ok(!html.includes('Share plan</button>') && !html.includes('Check a plan</button>'),
   '"Share plan" and "Check a plan" buttons must be gone');
 
@@ -56,13 +56,18 @@ assert.match(planCardHtml, /id="livePlanCode"/, 'the live row must carry the cur
 assert.match(planCardHtml, /compact form of this plan/i,
   'the live row must carry a short one-line label explaining it is a compact form of the plan');
 
-const importPanelStart = planCardHtml.indexOf('id="importCodePanel"');
-const importPanelEnd = planCardHtml.indexOf('</div>', planCardHtml.indexOf('previewPlanCodeBtn', importPanelStart));
-assert.ok(importPanelStart >= 0 && importPanelEnd > importPanelStart, 'importCodePanel must exist');
-assert.ok(!planCardHtml.slice(importPanelStart, importPanelEnd).includes('id="livePlanCode"'),
-  'the live code row must live outside the Import code panel');
-assert.match(planCardHtml, /class="import-code-panel hidden" id="importCodePanel"/,
-  'Import code panel must start hidden, opened only via the toolbar button');
+const importViewStart = planCardHtml.indexOf('id="planImportView"');
+const importViewEnd = planCardHtml.indexOf('</div>', planCardHtml.indexOf('previewPlanCodeBtn', importViewStart));
+assert.ok(importViewStart >= 0 && importViewEnd > importViewStart, 'planImportView must exist');
+assert.ok(!planCardHtml.slice(importViewStart, importViewEnd).includes('id="livePlanCode"'),
+  'the live code row must live outside the Import sub-view (it lives in the default sub-view)');
+assert.match(planCardHtml, /class="plan-main-view hidden" id="planImportView"/,
+  'the Import sub-view must start hidden, opened only via the toolbar button');
+assert.match(planCardHtml, /<div class="plan-main-view" id="planDefaultView">/,
+  'the default sub-view must exist and start visible (no "hidden" class)');
+assert.ok(planCardHtml.indexOf('id="livePlanCode"') > planCardHtml.indexOf('id="planDefaultView"') &&
+  planCardHtml.indexOf('id="livePlanCode"') < importViewStart,
+  'the live Plan Code row must live inside the default sub-view');
 
 // The live row is kept current from the same recompute pass that redraws every other
 // window-dependent element, and also right after a code is applied.
@@ -88,5 +93,16 @@ assert.ok(html.includes('id="closeClubFilePanelBtn"'), 'the panel must have its 
 // The toolbar button opens; the in-panel button files. They must never share a label.
 assert.ok(html.includes('id="fileClubPlanBtn" disabled>File with Atlantic Yachting</button>'),
   'the in-panel primary action must keep its existing filing label');
+
+/* ============================== Change 4: toolbar, top-of-card, Print/Copy gone ============================== */
+
+assert.ok(!html.includes('id="printPlanBtn"'), 'the Print button must be removed');
+assert.ok(!html.includes('id="copyPlanBtn"'), 'the Copy-as-text button must be removed');
+assert.ok(!html.includes('importCodePanel'), 'the old importCodePanel id must be fully retired');
+
+const actionsColIndex = planCardHtml.indexOf('<div class="plan-actions-col">');
+const planAsideIndex = planCardHtml.indexOf('<div class="plan-aside">');
+assert.ok(actionsColIndex >= 0 && planAsideIndex >= 0 && actionsColIndex < planAsideIndex,
+  'the action toolbar must sit above the form/aside, not below it');
 
 console.log('Plan card simplification (compare removal, Plan Code panel, Atlantic Yachting toggle) assertions passed');
