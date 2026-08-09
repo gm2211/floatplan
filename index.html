@@ -1352,7 +1352,21 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
           <option value="custom">Custom&hellip;</option>
         </select>
       </div>
-      <div><label for="fpCrewCount">Crew (excl. skipper)</label><input type="number" id="fpCrewCount" min="0" max="12" step="1" inputmode="numeric" placeholder="0"></div>
+      <div><label for="fpCrewCount">Crew (excl. skipper)</label><select id="fpCrewCount">
+        <option value="0">0</option>
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5">5</option>
+        <option value="6">6</option>
+        <option value="7">7</option>
+        <option value="8">8</option>
+        <option value="9">9</option>
+        <option value="10">10</option>
+        <option value="11">11</option>
+        <option value="12">12</option>
+      </select></div>
       <div class="full hidden" id="fpVesselCustomRow"><label for="fpVesselName">Vessel name</label><input type="text" id="fpVesselName" placeholder="Custom vessel name"></div>
       <div class="full"><label for="fpPhones">Phone (optional)</label><input type="tel" id="fpPhones"></div>
     </div>
@@ -10620,9 +10634,23 @@ function loadFloatPlanFields() {
   }
   FLOATPLAN_FIELDS.forEach(function (id) {
     var el = $(id);
-    if (el && saved[id] != null) el.value = saved[id];
+    // fpCrewCount gets its own deliberate restore just below: unlike a free-text/number
+    // input, a <select> has no placeholder fallback, and assigning it a value that matches
+    // none of its options resolves differently across browsers rather than failing loudly.
+    if (el && id !== 'fpCrewCount' && saved[id] != null) el.value = saved[id];
     if (el) el.addEventListener('input', saveFloatPlanFields);
   });
+  // Land a saved crew count that is out of range (outside 0-12) or a malformed leftover from
+  // an older save (non-integer, e.g. "3.5" or "") on "0" rather than trust the browser's
+  // unmatched-select.value behavior — that must be a deliberate choice, not an accident of
+  // whichever option a given engine happens to fall back to.
+  var crewEl = $('fpCrewCount');
+  if (crewEl) {
+    var savedCrew = saved.fpCrewCount;
+    var crewIsCleanInt = typeof savedCrew === 'string' && /^\d{1,2}$/.test(savedCrew.trim());
+    var crewN = crewIsCleanInt ? parseInt(savedCrew, 10) : NaN;
+    crewEl.value = (crewIsCleanInt && crewN <= 12) ? String(crewN) : '0';
+  }
   var sel = $('fpVesselSelect');
   if (sel) {
     // <select> needs 'change' (Safari doesn't fire 'input' on selects); also drives the
