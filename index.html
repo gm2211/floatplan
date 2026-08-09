@@ -636,6 +636,7 @@ th { color: var(--ink-dim); font-weight: 600; }
 .weather-item .wi-temp { font-size: 16px; line-height: 1.2; font-weight: 680; margin-top: 4px; }
 .weather-item .wi-pop { color: var(--ink-dim); font-size: 11px; min-height: 15px; margin-top: 2px; }
 .weather-item .wi-pop.wi-pop-active { color: var(--flood); font-weight: 600; }
+.weather-item .wi-spread { color: var(--ink-dim); font-size: 11px; margin-top: 1px; }
 .weather-item-thunder { background: color-mix(in srgb, var(--red-bg) 65%, transparent); }
 .weather-icon { display: block; margin: 0 auto; color: var(--ink); }
 .weather-icon-thunder { color: var(--red); }
@@ -1706,13 +1707,20 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     </div>
     <div class="card-error hidden" id="windError"></div>
     <div class="card-error hidden" id="windModelsError"></div>
-    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS raw forecast</a><a href="https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly" target="_blank" rel="noopener noreferrer">NWS hourly forecast</a><a href="https://api.open-meteo.com/v1/forecast?latitude=40.7203&amp;longitude=-74.0135&amp;hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m&amp;wind_speed_unit=kn&amp;timezone=America%2FNew_York&amp;past_days=1&amp;forecast_days=3&amp;models=gfs_seamless,ecmwf_ifs025,icon_seamless" target="_blank" rel="noopener noreferrer">Open-Meteo models</a><a id="srcWindObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8530973" target="_blank" rel="noopener noreferrer">Robbins Reef NOAA</a><a href="https://www.wunderground.com/dashboard/pws/KNJNEWJE43" target="_blank" rel="noopener noreferrer">Willy Wall Wunderground</a></div></details>
+    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS raw forecast</a><a href="https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly" target="_blank" rel="noopener noreferrer">NWS hourly forecast</a><a href="https://api.open-meteo.com/v1/forecast?latitude=40.7203&amp;longitude=-74.0135&amp;hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m,temperature_2m,precipitation_probability,relative_humidity_2m,weather_code&amp;wind_speed_unit=kn&amp;temperature_unit=fahrenheit&amp;timezone=America%2FNew_York&amp;past_days=1&amp;forecast_days=3&amp;models=gfs_seamless,ecmwf_ifs025,icon_seamless" target="_blank" rel="noopener noreferrer">Open-Meteo models</a><a id="srcWindObserved" href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8530973" target="_blank" rel="noopener noreferrer">Robbins Reef NOAA</a><a href="https://www.wunderground.com/dashboard/pws/KNJNEWJE43" target="_blank" rel="noopener noreferrer">Willy Wall Wunderground</a></div></details>
   </section>
 
   <section class="card" id="weatherCard">
     <h2>Weather</h2>
     <p class="weather-headline" id="weatherHeadline">Loading&hellip;</p>
     <p class="weather-summary" id="weatherSummary"></p>
+    <div class="chip-row weather-source-row" id="weatherSourceRow">
+      <button type="button" class="chip active" data-source="nws">NWS</button>
+      <button type="button" class="chip" data-source="gfs_seamless">GFS</button>
+      <button type="button" class="chip" data-source="ecmwf_ifs025">ECMWF</button>
+      <button type="button" class="chip" data-source="icon_seamless">ICON</button>
+    </div>
+    <p class="approx-note hidden" id="weatherSourceNote"></p>
     <div class="weather-strip" id="weatherScroller"></div>
     <button class="weather-details-toggle" id="weatherDetailsToggle">More weather <span class="chev">&#9662;</span></button>
     <div class="collapsible-body hidden" id="weatherDetailsBody">
@@ -1724,7 +1732,7 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <div class="weather-metric-strip" id="weatherMetricStrip"></div>
     </div>
     <div class="card-error hidden" id="weatherError"></div>
-    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a href="https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly" target="_blank" rel="noopener noreferrer">NWS hourly forecast</a><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS humidity, precipitation and sky</a></div></details>
+    <details class="source-links"><summary>Sources</summary><div class="source-links-body"><a href="https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly" target="_blank" rel="noopener noreferrer">NWS hourly forecast</a><a href="https://api.weather.gov/gridpoints/OKX/33,42" target="_blank" rel="noopener noreferrer">NWS humidity, precipitation and sky</a><a href="https://api.open-meteo.com/v1/forecast?latitude=40.7203&amp;longitude=-74.0135&amp;hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m,temperature_2m,precipitation_probability,relative_humidity_2m,weather_code&amp;wind_speed_unit=kn&amp;temperature_unit=fahrenheit&amp;timezone=America%2FNew_York&amp;past_days=1&amp;forecast_days=3&amp;models=gfs_seamless,ecmwf_ifs025,icon_seamless" target="_blank" rel="noopener noreferrer">Open-Meteo models</a></div></details>
   </section>
 
   <section class="card" id="radarCard">
@@ -1886,12 +1894,16 @@ var WILLY_WALL_STUCK_GUST_MPH = 3;
 var ZONE_MARINE = 'ANZ338';
 var GRID_URL = 'https://api.weather.gov/gridpoints/OKX/33,42';
 var HOURLY_URL = 'https://api.weather.gov/gridpoints/OKX/33,42/forecast/hourly';
-// Open-Meteo multi-model wind forecast (model switcher chips). hourly.time[] comes back as
-// bare "YYYY-MM-DDTHH:mm" strings in the REQUESTED timezone (America/New_York) with no UTC
-// offset suffix — must be parsed as NY wall-clock via nyWallTimeToUtcMs, never new Date().
-// wind_speed_unit=kn means the values are already knots, no conversion needed.
+// Open-Meteo multi-model wind forecast (model switcher chips). Also feeds the Weather card's
+// source chips and model-agreement indicator — temperature/precip-probability/humidity/
+// weather-code ride along on this same request at no extra HTTP cost. hourly.time[] comes
+// back as bare "YYYY-MM-DDTHH:mm" strings in the REQUESTED timezone (America/New_York) with
+// no UTC offset suffix — must be parsed as NY wall-clock via nyWallTimeToUtcMs, never new Date().
+// wind_speed_unit=kn means wind values are already knots; temperature_unit=fahrenheit means
+// temperatures are already °F — neither needs conversion.
 var WINDMODELS_URL = 'https://api.open-meteo.com/v1/forecast?latitude=40.7203&longitude=-74.0135' +
-  '&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m&wind_speed_unit=kn' +
+  '&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m,temperature_2m,precipitation_probability,relative_humidity_2m,weather_code' +
+  '&wind_speed_unit=kn&temperature_unit=fahrenheit' +
   '&timezone=America%2FNew_York&past_days=1&forecast_days=3&models=gfs_seamless,ecmwf_ifs025,icon_seamless';
 var ALERTS_POINT_URL = 'https://api.weather.gov/alerts/active?point=40.7203,-74.0135';
 var ALERTS_ZONE_URL = 'https://api.weather.gov/alerts/active?zone=' + ZONE_MARINE;
@@ -6202,6 +6214,8 @@ function renderWindNow(observedData, limits) {
 /* ============================== Wind card: model switcher + chart data model ========== */
 // NWS gridpoint stays the preferred model. GFS, ECMWF, and ICON come from one Open-Meteo
 // response and automatically backstop the verdict/simulator when NWS lacks full coverage.
+// The Weather card's own source chips (state.weatherSource) reuse WIND_MODEL_ORDER and
+// WIND_MODEL_LABELS below rather than duplicating the same four-source list.
 
 var WIND_MODEL_ORDER = ['nws', 'gfs_seamless', 'ecmwf_ifs025', 'icon_seamless'];
 var WIND_FALLBACK_MODEL_ORDER = ['gfs_seamless', 'ecmwf_ifs025', 'icon_seamless'];
@@ -7485,6 +7499,39 @@ function classifyConditionTag(text, isDaytime, isThunder) {
   return isDaytime === false ? 'partly-night' : 'partly-day';
 }
 
+// Open-Meteo model sources (GFS/ECMWF/ICON) give a numeric WMO weather code where NWS gives
+// prose — these two helpers translate that code into the same tag vocabulary/prose shape
+// classifyConditionTag already produces, so a source switch doesn't change the Weather card's
+// rendering contract. Unknown/null codes return null so the caller falls back to the NWS tag.
+function wmoCodeToTag(code, isDaytime) {
+  if (code == null) return null;
+  switch (code) {
+    case 0: return isDaytime === false ? 'moon' : 'sun';
+    case 1: case 2: return isDaytime === false ? 'partly-night' : 'partly-day';
+    case 3: return 'cloud';
+    case 45: case 48: return 'fog';
+    case 51: case 53: case 55: case 56: case 57: return 'drizzle';
+    case 61: case 63: case 65: case 66: case 67: case 80: case 81: case 82: return 'rain';
+    case 71: case 73: case 75: case 77: case 85: case 86: return 'snow';
+    case 95: case 96: case 99: return 'thunderstorm';
+    default: return null;
+  }
+}
+function wmoCodeToText(code) {
+  if (code == null) return null;
+  switch (code) {
+    case 0: return 'Clear';
+    case 1: case 2: return 'Partly cloudy';
+    case 3: return 'Cloudy';
+    case 45: case 48: return 'Fog';
+    case 51: case 53: case 55: case 56: case 57: return 'Light rain';
+    case 61: case 63: case 65: case 66: case 67: case 80: case 81: case 82: return 'Rain';
+    case 71: case 73: case 75: case 77: case 85: case 86: return 'Snow';
+    case 95: case 96: case 99: return 'Thunderstorms';
+    default: return null;
+  }
+}
+
 /* ============================== Weather summary sentence ============================== */
 
 function tagPhraseLower(tag) {
@@ -7705,6 +7752,131 @@ function rowOverlapsWindow(r, departureMs, returnMs) {
   return departureMs != null && returnMs != null && r.endMs > departureMs && r.ms < returnMs;
 }
 
+/* ============================== Weather card: source switcher (part A) ================ */
+// Same "sample covers this hour" convention as findWindRowForMs, applied directly to the raw
+// per-model series (which now carries wind AND weather fields together) instead of
+// windRowsForModel's filtered/wind-only shape.
+function findModelSampleForMs(modelKey, ms) {
+  var samples = state.windModelSeries && state.windModelSeries[modelKey];
+  if (!samples) return null;
+  for (var i = 0; i < samples.length; i++) {
+    if (ms >= samples[i].ms && ms < samples[i].ms + 3600000) return samples[i];
+  }
+  return null;
+}
+
+// The NWS-derived rows stay the structural spine (grid, isDaytime, wind). This only overrides
+// the condition-facing fields (temp/pop/humidity/condition) from a model source's own hourly
+// sample, hour by hour. An hour the model doesn't cover keeps its NWS values untouched — the
+// Weather card must never go blank because one source lacks coverage. Wind fields are never
+// touched here; the Wind card owns wind.
+function applyWeatherSource(rows, sourceKey) {
+  if (!sourceKey || sourceKey === 'nws') {
+    // Passthrough path still stamps baseTempF/basePop from the row's own (NWS) values so every
+    // row reaching the renderer — regardless of selected source — carries the NWS baseline that
+    // weatherSpreadForRow relies on.
+    return rows.map(function (r) {
+      return Object.assign({}, r, { baseTempF: r.tempF, basePop: r.pop });
+    });
+  }
+  var samples = state.windModelSeries && state.windModelSeries[sourceKey];
+  if (!samples || !samples.length) {
+    return rows.map(function (r) {
+      return Object.assign({}, r, { baseTempF: r.tempF, basePop: r.pop });
+    });
+  }
+  return rows.map(function (r) {
+    var sample = findModelSampleForMs(sourceKey, r.ms);
+    if (!sample) return Object.assign({}, r, { baseTempF: r.tempF, basePop: r.pop });
+    var tag = wmoCodeToTag(sample.weatherCode, r.isDaytime);
+    var text = wmoCodeToText(sample.weatherCode);
+    return Object.assign({}, r, {
+      baseTempF: r.tempF,
+      basePop: r.pop,
+      tempF: sample.tempF != null ? sample.tempF : r.tempF,
+      pop: sample.pop != null ? sample.pop : r.pop,
+      humidity: sample.humidity != null ? sample.humidity : r.humidity,
+      shortForecast: text != null ? text : r.shortForecast,
+      tag: tag != null ? tag : r.tag,
+      // Recomputed from the model's own WMO code rather than left as the NWS value — otherwise
+      // the red thunder styling could contradict the condition this source is now displaying.
+      // A null code (model has a sample for this hour but no weather code) falls back to the
+      // NWS flag instead of silently clearing it.
+      isThunder: sample.weatherCode != null
+        ? (sample.weatherCode === 95 || sample.weatherCode === 96 || sample.weatherCode === 99)
+        : r.isThunder
+    });
+  });
+}
+
+/* ============================== Weather card: model-agreement spread (part B) ========== */
+// Compares NWS's own row values against each fallback model's sample for the same hour.
+// Sources with no value for this hour are simply excluded from the min/max, never treated as
+// 0 — a model that lacks coverage for an hour must not manufacture a false spread.
+// The NWS baseline is read from r.baseTempF/r.basePop (falling back to r.tempF/r.pop when
+// absent) rather than r.tempF/r.pop directly, precisely so selecting a non-NWS source chip
+// cannot change what the spread means: applyWeatherSource overwrites tempF/pop with the
+// selected model's values, but always preserves the original NWS values as baseTempF/basePop.
+function weatherSpreadForRow(r) {
+  var temps = [], pops = [];
+  var baseTempF = r.baseTempF != null ? r.baseTempF : r.tempF;
+  var basePop = r.basePop != null ? r.basePop : r.pop;
+  if (baseTempF != null) temps.push(baseTempF);
+  if (basePop != null) pops.push(basePop);
+  var sourceCount = (baseTempF != null || basePop != null) ? 1 : 0;
+  WIND_FALLBACK_MODEL_ORDER.forEach(function (modelKey) {
+    var sample = findModelSampleForMs(modelKey, r.ms);
+    if (!sample) return;
+    var used = false;
+    if (sample.tempF != null) { temps.push(sample.tempF); used = true; }
+    if (sample.pop != null) { pops.push(sample.pop); used = true; }
+    if (used) sourceCount++;
+  });
+  return {
+    sourceCount: sourceCount,
+    tempMin: temps.length ? Math.min.apply(null, temps) : null,
+    tempMax: temps.length ? Math.max.apply(null, temps) : null,
+    tempSpreadF: temps.length >= 2 ? Math.max.apply(null, temps) - Math.min.apply(null, temps) : null,
+    popMin: pops.length ? Math.min.apply(null, pops) : null,
+    popMax: pops.length ? Math.max.apply(null, pops) : null,
+    popSpreadPct: pops.length >= 2 ? Math.max.apply(null, pops) - Math.min.apply(null, pops) : null
+  };
+}
+// Quiet per-hour label ('±3°' / 'rain split') — null unless at least 2 sources have data for
+// this hour AND one of the 4°F / 30-point thresholds is actually crossed.
+function weatherSpreadLabel(spread) {
+  if (!spread || spread.sourceCount < 2) return null;
+  var flagsTemp = spread.tempSpreadF != null && spread.tempSpreadF >= 4;
+  var flagsRain = spread.popSpreadPct != null && spread.popSpreadPct >= 30;
+  if (!flagsTemp && !flagsRain) return null;
+  if (flagsTemp && flagsRain) return '±' + Math.round(spread.tempSpreadF) + '° · rain split';
+  if (flagsTemp) return '±' + Math.round(spread.tempSpreadF) + '°';
+  return 'rain split';
+}
+// Card-level agreement clause appended to composeWeatherSummary's sentence — scoped to the
+// sail-window rows only (rowOverlapsWindow), same scope every other headline/summary stat
+// above uses. Returns '' when there is nothing yet to compare (e.g. models still loading).
+function weatherAgreementClause(rows, departureMs, returnMs) {
+  var inWindow = rows.filter(function (r) { return rowOverlapsWindow(r, departureMs, returnMs); });
+  if (!inWindow.length) return '';
+  var worstTemp = null, worstPop = null, sawComparison = false;
+  inWindow.forEach(function (r) {
+    var spread = weatherSpreadForRow(r);
+    if (spread.sourceCount < 2) return;
+    sawComparison = true;
+    if (spread.tempSpreadF != null && (!worstTemp || spread.tempSpreadF > worstTemp.tempSpreadF)) worstTemp = spread;
+    if (spread.popSpreadPct != null && (!worstPop || spread.popSpreadPct > worstPop.popSpreadPct)) worstPop = spread;
+  });
+  if (!sawComparison) return '';
+  if (worstTemp && worstTemp.tempSpreadF >= 4) {
+    return 'Models differ on temperature (' + Math.round(worstTemp.tempMin) + '–' + Math.round(worstTemp.tempMax) + '°).';
+  }
+  if (worstPop && worstPop.popSpreadPct >= 30) {
+    return 'Models split on rain (' + Math.round(worstPop.popMin) + '–' + Math.round(worstPop.popMax) + '%).';
+  }
+  return 'Models agree.';
+}
+
 /* ============================== Weather temperature curve (SVG) ============================== */
 
 function renderWeatherChart(rows, domStart, domEnd, departureMs, returnMs, nowMs, sunEvents) {
@@ -7821,6 +7993,8 @@ function renderWeatherScroller(rows, departureMs, returnMs) {
     var popHtml = r.pop != null ? '<div class="wi-pop' + (r.pop > 0 ? ' wi-pop-active' : '') + '">' + r.pop + '%</div>' : '';
     var cls = 'weather-item' + (r.isThunder ? ' weather-item-thunder' : '') +
       (inWindow ? ' in-window' : '') + (isSailStart ? ' sail-start' : '');
+    var spreadLabel = weatherSpreadLabel(weatherSpreadForRow(r));
+    var spreadHtml = spreadLabel ? '<div class="wi-spread">' + escapeHtml(spreadLabel) + '</div>' : '';
     if (focused) {
       var focusStats = [];
       focusStats.push('<div class="wi-focus-stat"><span>Temp</span><strong>' +
@@ -7838,6 +8012,9 @@ function renderWeatherScroller(rows, departureMs, returnMs) {
         focusStats.push('<div class="wi-focus-stat"><span>Wind</span><strong>' +
           escapeHtml((windDir ? windDir + ' ' : '') + Math.round(r.sustainedKt) + ' kt') + '</strong></div>');
       }
+      if (spreadLabel) {
+        focusStats.push('<div class="wi-focus-stat"><span>Spread</span><strong>' + escapeHtml(spreadLabel) + '</strong></div>');
+      }
       return '<div class="' + cls + '">' +
         '<div class="wi-time">' + escapeHtml(fmtTime(r.ms)) + '</div>' +
         weatherIconSvg(r.tag, 24) +
@@ -7849,7 +8026,7 @@ function renderWeatherScroller(rows, departureMs, returnMs) {
       '<div class="wi-time">' + escapeHtml(fmtTime(r.ms)) + '</div>' +
       weatherIconSvg(r.tag, 24) +
       '<div class="wi-temp">' + (r.tempF != null ? Math.round(r.tempF) + '°' : '--') + '</div>' +
-      popHtml + '</div>';
+      popHtml + spreadHtml + '</div>';
   }).join('');
 }
 
@@ -7928,6 +8105,42 @@ function updateWeatherChipActive() {
   });
 }
 
+function updateWeatherSourceChipActive() {
+  var row = $('weatherSourceRow');
+  if (!row) return;
+  row.querySelectorAll('.chip').forEach(function (chip) {
+    chip.classList.toggle('active', chip.dataset.source === (state.weatherSource || 'nws'));
+  });
+}
+
+// Mirrors renderWindModelNote's show/hide idiom for the Weather card's own source chips. NWS
+// is always the fallback, so a model source that's still loading, failed, or simply has no
+// coverage for this window falls back silently in the rendered rows while this note explains
+// why the displayed data is still NWS.
+function updateWeatherSourceNote(domStart, domEnd) {
+  var el = $('weatherSourceNote');
+  if (!el) return;
+  var source = state.weatherSource || 'nws';
+  if (source === 'nws') { hideEl(el); return; }
+  var label = WIND_MODEL_LABELS[source] || source;
+  if (criticalSourceHealth.windModels === 'loading') {
+    showEl(el);
+    el.textContent = 'Loading ' + label + ' data…';
+    return;
+  }
+  var samples = state.windModelSeries && state.windModelSeries[source];
+  var hasRows = (samples || []).some(function (s) {
+    return (s.ms + 3600000) > domStart && s.ms < domEnd &&
+      (s.tempF != null || s.pop != null || s.weatherCode != null);
+  });
+  if (criticalSourceHealth.windModels === 'unavailable' || !hasRows) {
+    showEl(el);
+    el.textContent = label + ' unavailable — showing NWS.';
+    return;
+  }
+  hideEl(el);
+}
+
 /* ============================== Weather card orchestrator ============================== */
 // Item 4a (slim weather card): window±2h rather than the old fixed 20h (departure -2h..+18h)
 // span — a headline (temp range/sunset/showers) now carries the day-scale gist, so the chart
@@ -7939,7 +8152,9 @@ function renderWeatherCard(hourlyPeriods, gridSeries, departureMs, returnMs, lim
   var domEnd = (returnMs != null ? returnMs : departureMs) + 2 * 3600000;
 
   var rows = buildWeatherRows(hourlyPeriods, gridSeries, domStart, domEnd);
+  rows = applyWeatherSource(rows, state.weatherSource);
   state.weatherRows = rows;
+  updateWeatherSourceNote(domStart, domEnd);
 
   if (!rows.length) {
     $('weatherHeadline').textContent = 'No forecast data available.';
@@ -7954,7 +8169,12 @@ function renderWeatherCard(hourlyPeriods, gridSeries, departureMs, returnMs, lim
   // One or two hours are rendered as complete condition rows below. Repeating the same
   // condition and wind sentence above them wastes space and makes the compact state feel
   // unfinished, so reserve the prose summary for the normal multi-hour strip.
-  setText('weatherSummary', rows.length <= 2 ? '' : composeWeatherSummary(rows, sunEvents));
+  var summaryText = rows.length <= 2 ? '' : composeWeatherSummary(rows, sunEvents);
+  if (summaryText) {
+    var agreement = weatherAgreementClause(rows, departureMs, returnMs);
+    if (agreement) summaryText += ' ' + agreement;
+  }
+  setText('weatherSummary', summaryText);
   renderWeatherScroller(rows, departureMs, returnMs);
   renderWeatherMetricStrip(rows, limits || DEFAULT_LIMITS, departureMs, returnMs);
 }
@@ -9901,7 +10121,7 @@ var state = {
   monitorEnabled: false, savedPlan: null,
   lastManualRefreshMs: 0, lastTickMs: 0,
   planNarrative: '', planNarrativeDirty: false, planNarrativeEngine: null,
-  weatherRows: [], weatherChip: 'humidity', marineTab: 'summary',
+  weatherRows: [], weatherChip: 'humidity', weatherSource: 'nws', marineTab: 'summary',
   timelineMode: 'current',
   sailSim: null,
   planWindowChanged: false, lastDiffSnapshot: null, lastNotifiedStateKey: null,
@@ -10272,6 +10492,12 @@ function parseOpenMeteoWindModels(json) {
     var spd = hourly['wind_speed_10m_' + modelKey] || [];
     var gust = hourly['wind_gusts_10m_' + modelKey] || [];
     var dir = hourly['wind_direction_10m_' + modelKey] || [];
+    // Weather fields (Weather card source chips + model-agreement indicator) ride along on
+    // this same per-model hourly response — no separate fetch.
+    var temp = hourly['temperature_2m_' + modelKey] || [];
+    var pop = hourly['precipitation_probability_' + modelKey] || [];
+    var humidity = hourly['relative_humidity_2m_' + modelKey] || [];
+    var code = hourly['weather_code_' + modelKey] || [];
     var rows = [];
     for (var i = 0; i < times.length; i++) {
       var ms = parseOpenMeteoTimeToMs(times[i]);
@@ -10280,7 +10506,11 @@ function parseOpenMeteoWindModels(json) {
         ms: ms,
         sustained: spd[i] == null ? null : spd[i],
         gust: gust[i] == null ? null : gust[i],
-        dir: dir[i] == null ? null : dir[i]
+        dir: dir[i] == null ? null : dir[i],
+        tempF: temp[i] == null ? null : temp[i],
+        pop: pop[i] == null ? null : pop[i],
+        humidity: humidity[i] == null ? null : humidity[i],
+        weatherCode: code[i] == null ? null : code[i]
       });
     }
     out[modelKey] = rows;
@@ -10293,9 +10523,11 @@ var windModelsLoadInFlight = null;
 function loadWindModels() {
   if (windModelsLoadInFlight) return windModelsLoadInFlight;
   if (criticalSourceHealth.windModels !== 'available') criticalSourceHealth.windModels = 'loading';
-  // v2 adds past_days=1. A new cache namespace prevents the old current-day-only response
-  // from recreating a false leading coverage gap until the background refresh completes.
-  var pending = loadSource('windmodels-v2', fetchWindModels, 'windCard', function (data) {
+  // v3 adds temperature/precip-probability/humidity/weather-code per model (Weather card
+  // source chips + spread indicator). A new cache namespace prevents a stale v2 payload —
+  // which has no weather fields — from leaving every Weather-card model reading null until
+  // the background refresh completes.
+  var pending = loadSource('windmodels-v3', fetchWindModels, 'windCard', function (data) {
     state.windModelsRaw = data;
     state.windModelSeries = parseOpenMeteoWindModels(data);
   }).then(function () {
@@ -13141,6 +13373,24 @@ function init() {
       // call (which does pass them) ever lit it up. Pass the same window recomputeWindowDependentUI does.
       renderWeatherMetricStrip(state.weatherRows, (state.settings && state.settings.limits) || DEFAULT_LIMITS,
         state.departureMs, state.departureMs != null ? getReturnMs() : null);
+    });
+  });
+
+  // Weather card source chips (part A of the multi-source compare): defaults to NWS. A saved
+  // value from a prior session that no longer names a known model (schema drift, a removed
+  // source) falls back to 'nws' rather than silently rendering an all-unhighlighted row.
+  state.weatherSource = lsGetJSON('weatherSource', 'nws');
+  if (WIND_MODEL_ORDER.indexOf(state.weatherSource) === -1) state.weatherSource = 'nws';
+  updateWeatherSourceChipActive();
+  document.querySelectorAll('#weatherSourceRow .chip').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      var source = chip.dataset.source;
+      if (source === state.weatherSource) return;
+      state.weatherSource = source;
+      lsSetJSON('weatherSource', state.weatherSource);
+      updateWeatherSourceChipActive();
+      if (source !== 'nws' && !state.windModelSeries) loadWindModels();
+      recomputeWindowDependentUI();
     });
   });
 
