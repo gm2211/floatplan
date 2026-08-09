@@ -258,15 +258,14 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
 .club-file-status.invalid { color: var(--red); }
 .club-file-head-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 
-/* Import code shares the club panel's compact-box treatment (border, rounded corners, tinted
-   background) so the two toolbar-triggered panels read as one visual family. */
-.club-file-panel, .import-code-panel {
-  margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px;
-  background: color-mix(in srgb, var(--bg) 72%, var(--card));
-}
-.import-code-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.import-code-head strong { display: block; color: var(--ink); font-size: 14px; }
-.import-code-panel .sub { margin-top: 6px; max-width: 66ch; }
+/* Import is a sub-view of the plan card's right column, not a floating panel: the two
+   .plan-main-view wrappers are display:contents so whichever one is showing lays its children
+   out as direct children of .plan-main exactly as before, and .hidden (display:none !important)
+   takes the other one out entirely. */
+.plan-main-view { display: contents; }
+.import-view-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.import-view-head strong { display: block; color: var(--ink); font-size: 14px; }
+#planImportView .sub { margin-top: 6px; max-width: 66ch; }
 .plan-code-field {
   display: block; width: 100%; min-height: 62px; margin-top: 8px; resize: vertical;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px;
@@ -1441,22 +1440,20 @@ body.mobile-tabs .tabbar { display: flex; }
     grid-area: main; display: flex; flex-direction: column; min-height: 0; min-width: 0;
   }
 
-  /* Plan: the form on the left, the panels and status lines on the right. Same "#app >
-     #planCard" specificity bump as windCard above.
-     The .plan-aside/.plan-actions-col/.plan-main split follows the card's existing DOM order
+  /* Plan: a full-width action toolbar under the heading, then the form on the left and the
+     panels/status lines on the right. Same "#app > #planCard" specificity bump as windCard
+     above.
+     The .plan-actions-col/.plan-aside/.plan-main split follows the card's existing DOM order
      exactly — a display:contents wrapper relabels a contiguous run of children, it does not
      reparent them, so any grouping that crossed the source order would have to move nodes and
      would reorder the phone card along with it. Hence the status lines (monitorStatus,
      planChangedChip, savePlanHint) ride along at the bottom of the right column rather than
-     under the form where they read more naturally.
-     Two columns below 1000px, three above (see the wider block after this one): the action
-     buttons want a column of their own, but only once the window is wide enough that taking
-     one does not squeeze the form and the panels into unreadable strips. */
+     under the form where they read more naturally. */
   body.fit-shell #app > #planCard {
     display: grid; min-height: 0;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr) auto auto;
-    grid-template-areas: "head head" "aside main" "actions main" "src src";
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-areas: "head head" "actions actions" "aside main" "src src";
     column-gap: 20px;
   }
   body.fit-shell #planCard > h2 { grid-area: head; }
@@ -1465,10 +1462,10 @@ body.mobile-tabs .tabbar { display: flex; }
     grid-area: aside; display: flex; flex-direction: column;
     min-height: 0; overflow: auto;
   }
-  body.fit-shell .plan-actions-col {
-    grid-area: actions; display: flex; flex-direction: column;
-    min-height: 0; overflow: auto;
-  }
+  /* display:block undoes the shared display:contents above — the toolbar wrapper has to be a
+     real box for `grid-area` to place it, otherwise .plan-actions auto-flows into the next free
+     cell (column one of the aside/main row) and wraps to two lines at half width. */
+  body.fit-shell .plan-actions-col { grid-area: actions; display: block; min-width: 0; }
   body.fit-shell .plan-main {
     grid-area: main; display: flex; flex-direction: column;
     min-height: 0; overflow: auto;
@@ -1509,11 +1506,12 @@ body.mobile-tabs .tabbar { display: flex; }
 }
 
 /* ===== Fit shell, wide enough for a third column =====
-   Both of these tabs fit a short window only when their cards sit side by side rather than
-   stacked — Weather (~310px) plus Sun & Twilight (~280px) needs ~600px of stacked column, and
-   the Sail Plan action buttons wrap to six rows in a half-width column and bury the primary
-   button. Below 1000px a third column would be too narrow to read, so the two-column fallbacks
-   in the block above stand and the affected card scrolls instead. */
+   Weather fits a short window only when its cards sit side by side rather than stacked —
+   Weather (~310px) plus Sun & Twilight (~280px) needs ~600px of stacked column. Below 1000px a
+   third column would be too narrow to read, so the two-column fallback in the block above
+   stands and the affected card scrolls instead. The plan card does not need a third column for
+   this — its action buttons are a full-width toolbar at every width — but it does get a wider
+   form/panel ratio once there is room to spare. */
 @media (min-width: 1000px) {
   body.fit-shell[data-mtab="sky"] #app {
     grid-template-columns: minmax(0, 0.85fr) minmax(0, 0.8fr) minmax(0, 1.35fr);
@@ -1521,12 +1519,7 @@ body.mobile-tabs .tabbar { display: flex; }
     grid-template-areas: "banner banner banner" "weather sun radar";
   }
   body.fit-shell #app > #planCard {
-    grid-template-columns: minmax(0, 1.15fr) minmax(150px, 0.55fr) minmax(0, 1.3fr);
-    grid-template-rows: auto minmax(0, 1fr) auto;
-    grid-template-areas: "head head head" "aside actions main" "src src src";
-  }
-  body.fit-shell .plan-actions-col .plan-actions {
-    margin-top: 0; flex-direction: column; align-items: stretch; gap: 6px;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.3fr);
   }
 }
 
@@ -1659,6 +1652,18 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
 
   <section class="card" id="planCard">
     <h2>Sail Plan</h2>
+    <div class="plan-actions-col">
+    <div class="plan-actions">
+      <button class="btn-primary" id="savePlanBtn">Generate float plan</button>
+      <button class="btn-secondary" id="importCodeBtn">Import</button>
+      <button class="btn-secondary" id="openClubFilePanelBtn">Atlantic Yachting&hellip;</button>
+      <button class="btn-secondary" id="refreshBtn">Refresh</button>
+      <label class="toggle-row">
+        <input type="checkbox" id="monitorToggle" disabled>
+        <span>Monitor every <span id="monitorIntervalLabel">10</span> min</span>
+      </label>
+    </div>
+    </div>
     <div class="plan-aside">
     <!-- Departure lives in the global chrome strip because every tab's charts are drawn around
          it. Duration stays here by choice: it is set once while planning, and hoisting it too
@@ -1716,32 +1721,8 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
     </div>
 
     </div>
-    <div class="plan-actions-col">
-    <div class="plan-actions">
-      <button class="btn-primary" id="savePlanBtn">Generate float plan</button>
-      <button class="btn-secondary" id="importCodeBtn">Import code</button>
-      <button class="btn-secondary" id="openClubFilePanelBtn">Atlantic Yachting&hellip;</button>
-      <button class="btn-secondary" id="refreshBtn">Refresh</button>
-      <button class="btn-secondary" id="printPlanBtn">Print</button>
-      <button class="btn-secondary" id="copyPlanBtn">Copy as text</button>
-      <label class="toggle-row">
-        <input type="checkbox" id="monitorToggle" disabled>
-        <span>Monitor every <span id="monitorIntervalLabel">10</span> min</span>
-      </label>
-    </div>
-    </div>
     <div class="plan-main">
-    <div class="import-code-panel hidden" id="importCodePanel">
-      <div class="import-code-head">
-        <strong>Import code</strong>
-        <button type="button" class="btn-ghost" id="closeImportCodeBtn">Close</button>
-      </div>
-      <p class="sub">Paste a Plan Code to see what it contains, then load its schedule.</p>
-      <textarea class="plan-code-field" id="incomingPlanCode" placeholder="FP2-&hellip;" aria-label="Plan Code to load" autocomplete="off" spellcheck="false"></textarea>
-      <div class="plan-code-actions"><button type="button" class="btn-primary" id="previewPlanCodeBtn">Review code</button></div>
-      <div class="plan-code-error hidden" id="planCodeError" role="alert"></div>
-      <div class="plan-code-preview hidden" id="planCodePreview"></div>
-    </div>
+    <div class="plan-main-view" id="planDefaultView">
     <div class="club-file-panel hidden" id="clubFilePanel">
       <div class="club-file-head">
         <div>
@@ -1803,6 +1784,18 @@ footer.app-footer { text-align: center; font-size: 11px; color: var(--ink-dim); 
       <span class="plan-code-live-label">Plan Code <span class="plan-code-live-hint">— compact form of this plan</span></span>
       <code class="plan-code-live-value" id="livePlanCode"></code>
       <button type="button" class="btn-ghost plan-code-copy-btn" id="copyLivePlanCodeBtn" aria-label="Copy Plan Code">Copy</button>
+    </div>
+    </div>
+    <div class="plan-main-view hidden" id="planImportView">
+      <div class="import-view-head">
+        <strong>Import</strong>
+        <button type="button" class="btn-ghost" id="closeImportCodeBtn">Back</button>
+      </div>
+      <p class="sub">Paste a Plan Code to see what it contains, then load its schedule.</p>
+      <textarea class="plan-code-field" id="incomingPlanCode" placeholder="FP2-&hellip;" aria-label="Plan Code to load" autocomplete="off" spellcheck="false"></textarea>
+      <div class="plan-code-actions"><button type="button" class="btn-primary" id="previewPlanCodeBtn">Review code</button></div>
+      <div class="plan-code-error hidden" id="planCodeError" role="alert"></div>
+      <div class="plan-code-preview hidden" id="planCodePreview"></div>
     </div>
     </div>
     <details class="source-links"><summary>Sources</summary><div class="source-links-body"><span class="computed-source">Course recommendation uses</span><a id="srcPlanCurrents" href="https://tidesandcurrents.noaa.gov/noaacurrents/Predictions?id=NYH1927" target="_blank" rel="noopener noreferrer">NOAA current predictions</a></div></details>
@@ -12202,15 +12195,18 @@ function copyLivePlanCode() {
   }
 }
 
-// Toolbar-triggered minimal panel: one button opens it, one control inside it closes it —
-// the same hidden-class open/close shape the old two-mode Plan Code panel used.
+// Import is a sub-view of the plan card's right column: opening it swaps the column's default
+// contents out rather than stacking a panel on top of them, so the two never compete for the
+// same space. "Back" restores the default view and clears whatever was half-typed.
 function openImportCodePanel() {
-  showEl($('importCodePanel'));
+  hideEl($('planDefaultView'));
+  showEl($('planImportView'));
   setTimeout(function () { try { $('incomingPlanCode').focus(); } catch (e) { /* ignore */ } }, 0);
 }
 
 function closeImportCodePanel() {
-  hideEl($('importCodePanel'));
+  hideEl($('planImportView'));
+  showEl($('planDefaultView'));
   hideEl($('planCodeError'));
   hideEl($('planCodePreview'));
   $('incomingPlanCode').value = '';
@@ -12271,52 +12267,6 @@ function verificationSources(departureMs) {
   ];
 }
 
-function buildFloatPlanText() {
-  function v(id) { var el = $(id); return el ? el.value : ''; }
-  var pc = state.planComputed || {};
-  var departureMs = state.departureMs, returnMs = getReturnMs();
-  var lines = [
-    'FLOAT PLAN — Pier 25',
-    'Vessel: ' + getVesselDisplayName(),
-    'Aboard: ' + crewSummaryLine()
-  ];
-  var phone = String(v('fpPhones') || '').trim();
-  if (phone) lines.push('Phone: ' + phone);
-  lines.push(
-    'Course: ' + (pc.route || ''),
-    'ETD: ' + (pc.etd || '') + '   Turn-around: ' + (pc.turnaround || '') + '   ETA: ' + (pc.eta || ''),
-    'Sunset: ' + (pc.sunset || ''),
-    '',
-    'CONDITIONS',
-    'Verdict: ' + (state.lastVerdict ? VERDICT_LABELS[state.lastVerdict.level] : 'n/a')
-  );
-  if (state.lastVerdict) state.lastVerdict.reasons.forEach(function (r) { lines.push('- ' + r); });
-  lines.push('Wind: ' + (windWindowSummaryLine(departureMs, returnMs) || 'n/a'));
-  lines.push('Current: ' + (currentWindowSummaryLine(departureMs, returnMs) || 'n/a'));
-  if (state.lastDirectionRec && state.lastDirectionRec.headline) lines.push('Plan: ' + state.lastDirectionRec.headline);
-  lines.push('Precip: ' + (precipWindowSummaryLine(departureMs, returnMs) || 'n/a'));
-  var advisoryText = (state.alertsRaw && state.alertsRaw.length)
-    ? state.alertsRaw.map(function (a) { return a.properties.event; }).join(', ')
-    : 'None';
-  lines.push('Advisories: ' + advisoryText);
-  lines.push('', 'SOURCES');
-  verificationSources(state.departureMs).forEach(function (source) {
-    lines.push(source.label + ': ' + source.url);
-  });
-  var text = lines.join('\n');
-  if (state.planNarrative) text += '\n\nPROPOSED PLAN\n' + state.planNarrative;
-  return text;
-}
-
-function copyFloatPlanText() {
-  var text = buildFloatPlanText();
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(function () { showToast('Float plan copied to clipboard'); })
-      .catch(function () { legacyCopy(text, 'Float plan copied to clipboard'); });
-  } else {
-    legacyCopy(text, 'Float plan copied to clipboard');
-  }
-}
 function copyNarrativeText() {
   var text = state.planNarrative || '';
   if (!text) { showToast('Nothing to copy yet — generate a proposed plan first'); return; }
@@ -13829,20 +13779,9 @@ function init() {
   $('settingsSaveBtn').addEventListener('click', saveSettingsFromModal);
   $('settingsResetBtn').addEventListener('click', resetSettingsDefaults);
 
-  $('printPlanBtn').addEventListener('click', function () {
-    // Rebuild the print summary synchronously right before printing — recomputeWindowDependentUI
-    // already keeps it current on every data/window change, but printing must never rely on
-    // that having last run recently (e.g. right after a departure/duration edit that hasn't
-    // triggered a recompute yet).
-    if (state.lastVerdict && state.lastDirectionRec) {
-      buildPrintSummary(state.lastVerdict, state.lastDirectionRec, state.departureMs, getReturnMs(), state.lastMaxSustainedKt, state.lastMaxGustKt);
-    }
-    window.print();
-  });
-  $('copyPlanBtn').addEventListener('click', copyFloatPlanText);
-  // Same hidden-by-default / toolbar-revealed / self-closing shape as the Import code panel
-  // above. Nothing on load depends on this panel being visible — syncAtlanticYachtingFilingState()
-  // and friends update it by id regardless of whether the container is shown.
+  // Toolbar-triggered, hidden-by-default panel with a close control inside it. Nothing on load
+  // depends on this panel being visible — syncAtlanticYachtingFilingState() and friends update
+  // it by id regardless of whether the container is shown.
   $('openClubFilePanelBtn').addEventListener('click', function () { showEl($('clubFilePanel')); });
   $('closeClubFilePanelBtn').addEventListener('click', function () { hideEl($('clubFilePanel')); });
   $('connectClubBtn').addEventListener('click', connectAtlanticYachting);
