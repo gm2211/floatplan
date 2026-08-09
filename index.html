@@ -496,6 +496,80 @@ textarea { width: 100%; resize: vertical; min-height: 50px; }
   .sailsim-readout-row--full { grid-column: 1 / -1; }
 }
 
+/* Sim tab fits the window instead of running off the bottom of it. The tab bar has already
+   spent the page's vertical budget on chrome, so a card taller than the viewport reads as
+   truncated rather than as something to scroll. The card becomes its own three-column grid,
+   sized to whatever --fp-sim-h (published by updateSimFitHeight) says is left below the
+   chrome: the route and the readout legend each take a full-height column, and the third
+   column absorbs everything that was previously stacked underneath them — playback controls,
+   warning, footnote, sources. Trading horizontal space (a desktop window has plenty spare
+   here) for vertical is the only way both the route and all six readout rows stay legible;
+   stacking the ancillary text under the legend instead squeezed the readouts to ~20px rows.
+   .sailsim-body/.sailsim-top go display:contents so the regrouping is pure CSS and no DOM is
+   reparented, which would drop the simulator's control listeners.
+   Six explicit rows, not `grid-auto-rows`, because `grid-row: 2 / -1` resolves against the
+   EXPLICIT grid only: with implicit rows the route would stay stuck one row tall. Unused
+   rows collapse to 0. The route scales by height (aspect-ratio on the wrapper, svg still at
+   width:100%) so the chart-zoom code's inline svg width keeps working untouched. */
+/* 900px, not 700px: below that the three columns can only be paid for out of the route's
+   width, which shrinks the chart to an illegible thumbnail. Narrower windows keep the
+   ordinary stacked card and scroll, exactly as before. */
+@media (min-width: 900px) {
+  body[data-mtab="sim"] footer.app-footer { padding: 10px 0 14px; }
+  body[data-mtab="sim"] #sailSimCard {
+    display: grid;
+    grid-template-columns: minmax(250px, 1.35fr) minmax(240px, 0.9fr) minmax(220px, 0.85fr);
+    /* The flexible row is the LAST one, not the row the route sits in: that leaves the third
+       column's controls/footnote/sources stacked tight at the top with the slack below them,
+       instead of strung out down the card on a tall window. */
+    grid-template-rows: repeat(5, min-content) minmax(0, 1fr);
+    column-gap: 16px; row-gap: 8px;
+    /* Floor so a very short window degrades to a small scroll rather than to a card whose
+       readout rows have collapsed to nothing; ceiling so a tall window doesn't stretch the
+       card into mostly whitespace. */
+    height: clamp(300px, var(--fp-sim-h, 560px), 520px);
+  }
+  body[data-mtab="sim"] #sailSimCard > h2 { grid-column: 1 / -1; margin-bottom: 0; }
+  body[data-mtab="sim"] .sailsim-body,
+  body[data-mtab="sim"] .sailsim-top { display: contents; }
+  body[data-mtab="sim"] .sailsim-strip-wrap {
+    grid-column: 1; grid-row: 2 / -1;
+    display: flex; flex-direction: column; min-height: 0; max-width: none;
+  }
+  body[data-mtab="sim"] #sailSimSvgWrap {
+    flex: 1 1 auto; min-height: 0; align-self: center;
+    aspect-ratio: 4 / 3; width: auto; max-width: 100%;
+  }
+  body[data-mtab="sim"] #sailSimSvgWrap svg { height: 100%; }
+  body[data-mtab="sim"] .sailsim-readouts {
+    grid-column: 2; grid-row: 2 / -1; align-self: start;
+    height: 100%; min-height: 0; max-height: 367px;
+    grid-template-rows: repeat(5, minmax(0, 1fr)) minmax(0, 1.3fr);
+    gap: 4px 12px; align-content: stretch;
+  }
+  /* Rows are now whatever an equal share of the card's height comes to, so the label/value
+     pair is tightened until two clamped value lines still land inside one share — otherwise
+     the row's overflow cuts the second line in half, which reads as broken rather than as
+     truncated. */
+  body[data-mtab="sim"] .sailsim-readout-row,
+  body[data-mtab="sim"] .sailsim-readout-row--full {
+    height: auto; min-height: 0; padding-bottom: 0;
+  }
+  body[data-mtab="sim"] .sailsim-readout-label { font-size: 9px; line-height: 1.2; }
+  body[data-mtab="sim"] .sailsim-readout-value { font-size: 11.5px; line-height: 1.2; margin-top: 0; }
+  body[data-mtab="sim"] .sailsim-controls,
+  body[data-mtab="sim"] .sailsim-warning,
+  body[data-mtab="sim"] #sailSimCard > .chart-footnote,
+  body[data-mtab="sim"] #sailSimCard > .card-error,
+  body[data-mtab="sim"] #sailSimCard > .source-links { grid-column: 3; }
+  /* The footnote is the one block that can grow without bound; keep it from starving the
+     route of height on a short window. */
+  body[data-mtab="sim"] #sailSimCard > .chart-footnote {
+    font-size: 10.5px; line-height: 1.4; margin-top: 0;
+    min-height: 0; overflow-y: auto;
+  }
+}
+
 .wind-summary { font-size: 14px; margin-bottom: 8px; color: var(--ink-dim); }
 .wind-now { text-align: center; padding: 4px 0 14px; }
 .wind-now-value { font-size: 40px; font-weight: 800; line-height: 1; display: inline-block; padding: 4px 16px; border-radius: 12px; }
@@ -12708,6 +12782,7 @@ function afterLayoutChange() {
   if (radarState.map) radarState.map.invalidateSize();
   refreshCurrentSensorMapLayout();
   recomputeWindowDependentUI();
+  updateSimFitHeight();
 }
 
 var viewportResizeTimer = null;
@@ -12729,6 +12804,10 @@ function setupResponsiveLayout() {
     });
   }
   window.addEventListener('resize', function () {
+    // The Sim card's height tracks the window directly, so it re-measures on every resize
+    // frame rather than waiting out the 200ms debounce the heavier relayout needs — a card
+    // that lags a drag by a fifth of a second looks like it is failing to fit.
+    updateSimFitHeight();
     clearTimeout(viewportResizeTimer);
     viewportResizeTimer = setTimeout(onViewportResize, 200);
   });
@@ -12773,11 +12852,39 @@ function isValidMobileTab(tabId) {
 
 // Reconciles card visibility + tab bar highlight + the body.mobile-tabs shell class with the
 // current breakpoint and active tab. Safe to call any time after applyLayout has run once.
+// Space left for the Sim card once the chrome above and below it has taken its share. The
+// Sim tab holds a single card, and with the tab bar owning the page's vertical budget a card
+// that overruns the window reads as truncated rather than as something to scroll — so the
+// card sizes itself to this instead (see the min-width:700px sim block in the stylesheet).
+// Measured from the card's own document offset rather than by adding up each chrome bar:
+// that stays correct however the plan-window strip wraps, and it can't drift out of sync
+// with the bars' padding. Cleared below 900px — matching the stylesheet's own cutoff, where
+// the card goes back to stacking and scrolling — and while the card is on a hidden tab (its
+// offset would be meaningless).
+var SIM_FIT_MIN_WIDTH = 900;
+function updateSimFitHeight() {
+  var root = document.documentElement;
+  var card = $('sailSimCard');
+  if (!card || card.classList.contains('mtab-hidden') || window.innerWidth < SIM_FIT_MIN_WIDTH) {
+    root.style.removeProperty('--fp-sim-h');
+    return;
+  }
+  var footer = document.querySelector('footer.app-footer');
+  var cardTop = card.getBoundingClientRect().top + window.scrollY;
+  // 24px covers the card's own 12px vertical margins; the footer is measured because its
+  // padding is compacted on this tab.
+  var below = (footer ? footer.getBoundingClientRect().height : 0) + 24;
+  root.style.setProperty('--fp-sim-h', Math.round(window.innerHeight - cardTop - below) + 'px');
+}
+
 function applyMobileTabVisibility() {
   // body.mobile-tabs stays narrow-only: it carries the phone chrome (safe-area padding, the
   // condensed topbar), which a desktop window has no use for. Card filtering, by contrast, now
   // runs at every width — the tab bar is the only thing dividing the cards up.
   document.body.classList.toggle('mobile-tabs', layoutUI.current === 'narrow');
+  // Which tab is showing is a layout input, not just a highlight: the Sim tab reshapes its
+  // card to fit the window, so the stylesheet needs to see the active tab on <body>.
+  document.body.dataset.mtab = mobileTabUI.active;
   MOBILE_TABS.forEach(function (tab) {
     var isActive = tab.id === mobileTabUI.active;
     tab.cards.forEach(function (id) {
@@ -12790,6 +12897,7 @@ function applyMobileTabVisibility() {
     btn.classList.toggle('active', isActive);
     btn.setAttribute('aria-current', isActive ? 'page' : 'false');
   });
+  updateSimFitHeight();
 }
 
 function setMobileTab(tabId) {
@@ -12819,6 +12927,17 @@ function initMobileTabs() {
       window.scrollTo(0, 0);
     });
   }
+  // The chrome above the card changes height without the window changing size — the
+  // plan-window strip rewraps, the custom-duration row appears, the topbar's verdict pill
+  // grows a second line. Watch the bars themselves so the Sim card's fit follows.
+  if (window.ResizeObserver) {
+    var chromeObserver = new ResizeObserver(function () { updateSimFitHeight(); });
+    ['.topbar', '.app-chrome-sticky', 'footer.app-footer'].forEach(function (sel) {
+      var el = document.querySelector(sel);
+      if (el) chromeObserver.observe(el);
+    });
+  }
+  applyMobileTabVisibility();
 }
 
 /* ============================== Init ============================== */
