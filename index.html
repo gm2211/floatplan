@@ -4809,7 +4809,9 @@ function getComputedColor(varName) {
 // xToTimeFn/readoutFn.
 function attachChartScrub(svgEl, xToTimeFn, readoutFn) {
   var card = svgEl.closest('.card') || svgEl.parentElement;
-  var dragging = false, startX = 0, startY = 0, horizLock = null;
+  // touchDragging tracks a finger that is still down after the browser has canceled the
+  // pointer stream to pan a zoomed chart — see the pointercancel handler below.
+  var dragging = false, touchDragging = false, startX = 0, startY = 0, horizLock = null;
   var crosshair = null, readoutEl = null, dotEls = [];
 
   function ensureOverlay() {
@@ -4918,9 +4920,8 @@ function attachChartScrub(svgEl, xToTimeFn, readoutFn) {
   svgEl.style.touchAction = 'pan-x pan-y';
 
   svgEl.addEventListener('pointerdown', function (e) {
-    var zoomWrap = svgEl.closest('.svg-wrap');
-    if (e.pointerType === 'touch' && zoomWrap && parseFloat(zoomWrap.dataset.zoomScale || '1') > 1) return;
     dragging = true;
+    if (e.pointerType === 'touch') touchDragging = true;
     horizLock = null;
     startX = e.clientX; startY = e.clientY;
     update(e.clientX, e.clientY, e.pointerType === 'touch');
@@ -4938,20 +4939,41 @@ function attachChartScrub(svgEl, xToTimeFn, readoutFn) {
     update(e.clientX, e.clientY, e.pointerType === 'touch');
   });
   ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (evName) {
-    svgEl.addEventListener(evName, function () { dragging = false; hide(); });
+    svgEl.addEventListener(evName, function (e) {
+      // A zoomed chart pans, and the browser fires pointercancel the instant it takes that
+      // pan over — but the finger is still down and still scrubbing, so the touch drag ends
+      // on touchend/touchcancel below instead. Pointer events remain the whole story for
+      // mouse and pen.
+      if (evName === 'pointercancel' && e.pointerType === 'touch' && touchDragging) return;
+      dragging = false;
+      hide();
+    });
+  });
+  ['touchend', 'touchcancel'].forEach(function (evName) {
+    svgEl.addEventListener(evName, function (e) {
+      if (e.touches && e.touches.length) return;
+      touchDragging = false;
+      dragging = false;
+      hide();
+    }, { passive: true });
   });
 
   // touchmove: only preventDefault once the gesture reads as horizontal, so a mostly-
   // vertical swipe still scrolls the page instead of being hijacked by the chart.
   svgEl.addEventListener('touchmove', function (e) {
-    if (!dragging || !e.touches || !e.touches.length) return;
+    if ((!dragging && !touchDragging) || !e.touches || !e.touches.length) return;
+    // Two fingers on a chart is the pinch-zoom gesture (see initChartZoom) — get the readout
+    // out of its way rather than scrubbing to whichever finger happens to be first.
+    if (e.touches.length > 1) { touchDragging = false; dragging = false; hide(); return; }
     var t = e.touches[0];
     if (horizLock === null) {
       var dx = Math.abs(t.clientX - startX), dy = Math.abs(t.clientY - startY);
       if (dx > 4 || dy > 4) horizLock = dx > dy;
     }
     if (horizLock) {
-      e.preventDefault();
+      // Hijacking the horizontal gesture is only safe at 100%: once zoomed, that same drag is
+      // how the chart pans, so the readout rides along with the pan instead of blocking it.
+      if (!isChartZoomedIn(svgEl)) e.preventDefault();
       update(t.clientX, t.clientY, true);
     }
   }, { passive: false });
@@ -4964,6 +4986,11 @@ var CHART_ZOOM_STEP = 0.5;
 
 function chartZoomScale(wrap) {
   return clamp(parseFloat(wrap.dataset.zoomScale || '1') || 1, CHART_ZOOM_MIN, CHART_ZOOM_MAX);
+}
+// True once a chart is wider than its wrap, i.e. once a horizontal drag over it is a pan.
+function isChartZoomedIn(el) {
+  var wrap = el && el.closest ? el.closest('.svg-wrap') : null;
+  return !!wrap && chartZoomScale(wrap) > 1;
 }
 function applyChartZoomStyle(wrap) {
   var svg = wrap.querySelector('svg');
@@ -5205,8 +5232,21 @@ function renderMeasuredCurrentHistory(kvkAll, narrowsAll, nowMs, primaryHasMeasu
 // height. In the fit shell the wrap is a flex child with min-height:0, so its height comes
 // from the flex container rather than from the svg: reading clientHeight here is not circular.
 // Before the first layout settles clientHeight is 0, hence the fallback to the old constant.
+// Below 700px there is no fit shell, so the wrap DOES take its height from the svg — and chart
+// zoom widens that svg to `scale * 100%` with height:auto, which grows it (and the wrap with it)
+// by the same factor. Measuring that inflated height baked it into the next render's viewBox, so
+// the chart stayed stretched after zooming back out and ratcheted further on every zoom cycle
+// (user report). While zoomed, keep the height the chart already has instead of re-measuring:
+// the viewBox height IS the unzoomed layout height, so re-rendering at any zoom level is a no-op
+// for H and the chart returns to its original size once the zoom goes back to 100%.
 function measuredChartHeight(wrap, fallbackH, minH) {
-  var h = wrap && wrap.clientHeight ? Math.round(wrap.clientHeight) : 0;
+  if (!wrap) return fallbackH;
+  if (chartZoomScale(wrap) > 1) {
+    var svg = wrap.querySelector('svg');
+    var vb = svg && svg.viewBox && svg.viewBox.baseVal;
+    return vb && vb.height ? Math.max(minH, Math.round(vb.height)) : fallbackH;
+  }
+  var h = wrap.clientHeight ? Math.round(wrap.clientHeight) : 0;
   if (!h) return fallbackH;
   return Math.max(minH, h);
 }
