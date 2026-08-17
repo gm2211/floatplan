@@ -25,4 +25,21 @@ assert.match(
   'measuredChartHeight should keep the existing viewBox height while the chart is zoomed'
 );
 
+// Scrubbing a zoomed chart used to be refused outright at pointerdown, so a zoomed chart could
+// not be read at all on touch. Touch now scrubs at every zoom level; what changes when zoomed is
+// only that the horizontal drag is no longer hijacked, since that gesture is also the pan.
+assert.doesNotMatch(
+  html,
+  /pointerType === 'touch' && zoomWrap/,
+  'touch scrubbing should not be refused just because the chart is zoomed'
+);
+assert.match(html, /if \(!isChartZoomedIn\(svgEl\)\) e\.preventDefault\(\);/);
+assert.match(html, /function isChartZoomedIn\(el\) \{[\s\S]*?chartZoomScale\(wrap\) > 1;/);
+// The browser cancels the pointer stream the moment it takes the pan over, but the finger is
+// still down: the touch drag has to end on touchend/touchcancel instead.
+assert.match(html, /evName === 'pointercancel' && e\.pointerType === 'touch' && touchDragging/);
+assert.match(html, /\['touchend', 'touchcancel'\]\.forEach/);
+// Two fingers on a chart is the pinch gesture, not a scrub.
+assert.match(html, /if \(e\.touches\.length > 1\) \{ touchDragging = false; dragging = false; hide\(\); return; \}/);
+
 console.log('Chart zoom assertions passed');
