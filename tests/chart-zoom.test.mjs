@@ -14,4 +14,15 @@ assert.match(html, /wrap\.scrollLeft = Math\.max\(0, anchorRatio \* wrap\.scroll
 assert.match(html, /new MutationObserver\(function \(\) \{ applyChartZoomStyle\(wrap\); \}\)/);
 assert.match(html, /initChartZoom\(\);/);
 
+// A zoomed chart's svg is `scale * 100%` wide with height:auto, so the wrap it lives in grows
+// by the same factor wherever the wrap takes its height from its content (every width below the
+// fit shell's 700px). Re-measuring that inflated height would bake it into the next render's
+// viewBox and leave the chart stretched after zooming back out — so a re-render while zoomed
+// must reuse the height the chart already has instead of measuring the wrap.
+assert.match(
+  html,
+  /function measuredChartHeight\(wrap, fallbackH, minH\) \{[\s\S]*?if \(chartZoomScale\(wrap\) > 1\) \{[\s\S]*?vb\.height \? Math\.max\(minH, Math\.round\(vb\.height\)\) : fallbackH;/,
+  'measuredChartHeight should keep the existing viewBox height while the chart is zoomed'
+);
+
 console.log('Chart zoom assertions passed');
